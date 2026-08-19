@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+import time
 from pathlib import Path
 
 from hermes_cli.doctor_report import Finding, check_info, check_ok, check_warn, doctor_check
@@ -20,14 +21,21 @@ def collect_source_tree_state(project_root: Path) -> list[tuple[str, str, str]]:
     if not git_dir.exists():
         return []
 
+    # Share one small latency budget across every git probe so a slow or
+    # network-mounted checkout cannot stall the whole doctor command.
+    deadline = time.monotonic() + 3.0
+
     def _git(*args: str) -> str | None:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return None
         try:
             proc = subprocess.run(
                 ["git", "-C", str(root), *args],
                 check=False,
                 capture_output=True,
                 text=True,
-                timeout=5,
+                timeout=remaining,
             )
         except Exception:
             return None
@@ -76,7 +84,7 @@ def report_source_tree_state(project_root: Path) -> None:
         elif level == "warn":
             check_warn(text, detail)
         else:
-            check_info(text, detail)
+            check_info(f"{text} {detail}".strip())
 
 
 @doctor_check(on_error="Installation check failed", detail="({e})")
