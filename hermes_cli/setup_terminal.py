@@ -321,12 +321,13 @@ _BUILTIN_TERMINAL_BACKENDS = [
     ("vercel_sandbox", "Vercel Sandbox - cloud microVM with snapshot filesystem persistence")]
 _TERMINAL_BACKEND_SETUP = {
     "local": _setup_backend_local, "docker": _setup_backend_docker, "singularity": _setup_backend_singularity,
-    "modal": _setup_backend_modal, "daytona": _setup_backend_daytona, "vercel_sandbox": _setup_backend_vercel,
+    "bubblewrap": _setup_backend_bubblewrap, "modal": _setup_backend_modal, "daytona": _setup_backend_daytona, "vercel_sandbox": _setup_backend_vercel,
     "ssh": _setup_backend_ssh}
 # Backend -> env var mirrored from config after setup (config.yaml is the source of truth, but
 # terminal_tool reads these from .env).
 _BACKEND_ENV_MIRROR = {"modal": ("TERMINAL_MODAL_MODE", "modal_mode", "auto"),
-                       "vercel_sandbox": ("TERMINAL_VERCEL_RUNTIME", "vercel_runtime", "node24")}
+                       "vercel_sandbox": ("TERMINAL_VERCEL_RUNTIME", "vercel_runtime", "node24"),
+                       "bubblewrap": ("TERMINAL_BUBBLEWRAP_PROFILE", "bubblewrap_profile", "network")}
 
 
 def setup_terminal_backend(config: dict):
@@ -340,6 +341,8 @@ def setup_terminal_backend(config: dict):
     backends = list(_BUILTIN_TERMINAL_BACKENDS)
     if _platform.system() == "Linux":
         backends.append(("singularity", "Singularity/Apptainer - HPC-friendly container"))
+        backends.append(("bubblewrap",
+                         "Bubblewrap - bwrap sandbox on this machine (read-only root, writable cwd, secrets hidden)"))
     # Plugin-registered backends (~/.hermes/plugins/). Fail-soft: a broken plugin must not take
     # the wizard down.
     plugin_backend_names = []
