@@ -176,6 +176,42 @@ def _setup_backend_singularity(config: dict) -> None:
     config["terminal"].setdefault("singularity_image", f"docker://{_SANDBOX_IMAGE}")
 
 
+_BUBBLEWRAP_PROFILE_CHOICES = [
+    ("restricted", "restricted - read-only cwd, no network"),
+    ("workspace", "workspace - writable cwd, no network"),
+    ("network", "network - writable cwd, host network (default)"),
+]
+
+
+def _prompt_bubblewrap_profile(config: dict):
+    """Prompt for the bubblewrap profile: what the sandbox may write and reach."""
+    terminal = config.setdefault("terminal", {})
+    names = [name for name, _label in _BUBBLEWRAP_PROFILE_CHOICES]
+    current = terminal.get("bubblewrap_profile") or "network"
+    default_idx = names.index(current) if current in names else names.index("network")
+    print()
+    _setup.print_info("Bubblewrap profile:")
+    idx = _setup.prompt_choice(
+        "Select bubblewrap profile:", [label for _name, label in _BUBBLEWRAP_PROFILE_CHOICES], default_idx
+    )
+    profile = names[idx] if 0 <= idx < len(names) else names[default_idx]
+    terminal["bubblewrap_profile"] = profile
+    _setup.print_success(f"Bubblewrap profile: {profile}")
+
+
+def _setup_backend_bubblewrap(config: dict) -> None:
+    _setup.print_success("Terminal backend: Bubblewrap")
+    _setup._info(None, "Every command runs inside a bwrap sandbox on this machine:",
+                 "  read-only root, fresh /tmp, ~/.ssh and other secrets hidden,",
+                 "  memory, CPU and process limits per command.")
+    _report_binary(shutil.which("bwrap"),
+                   "bwrap not found. Install the bubblewrap package (apt, dnf or pacman: bubblewrap).",
+                   "Install: https://github.com/containers/bubblewrap", "bwrap found: ")
+    _setup._info(None, "The working directory is the writable set: point terminal.cwd at a project",
+                 "or scratch directory rather than your home directory.")
+    _prompt_bubblewrap_profile(config)
+
+
 def _setup_backend_modal(config: dict) -> None:
     _setup.print_success("Terminal backend: Modal")
     _setup.print_info("Serverless cloud sandboxes. Each session gets its own container.")
