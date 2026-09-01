@@ -3046,7 +3046,9 @@ export const zhHant = defineLocale({
       turnRunning: '執行中',
       currentTurnElapsed: '目前回合已用時間',
       modelUsage: '模型用量',
-      openModelUsage: '開啟分模型 Token 用量',
+      tokenUsage: 'Tokens',
+      toggleTokenUsage: 'Token 用量',
+      openModelUsage: '開啟工作階段 Token 用量',
       modelUsagePanel: {
         active: '目前',
         actualCost: value => `實際 ${value}`,

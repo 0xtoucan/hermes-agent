@@ -1,9 +1,10 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { StatusbarControls } from '@/app/shell/statusbar-controls'
 import { I18nProvider } from '@/i18n'
+import { $statusbarHiddenIds, STATUSBAR_HIDDEN_BY_DEFAULT } from '@/store/statusbar-prefs'
 import type { UsageStats } from '@/types/hermes'
 
 import { useModelUsageStatusbarItem } from './model-usage-statusbar'
@@ -22,7 +23,16 @@ beforeAll(() => {
   HTMLElement.prototype.scrollIntoView ??= () => undefined
 })
 
-afterEach(() => cleanup())
+afterEach(() => {
+  cleanup()
+  $statusbarHiddenIds.set([...STATUSBAR_HIDDEN_BY_DEFAULT])
+})
+
+// The item ships hidden (STATUSBAR_HIDDEN_BY_DEFAULT), so the harness opts it
+// in before each render — the tests assert bar content, not default visibility.
+beforeEach(() => {
+  $statusbarHiddenIds.set([...STATUSBAR_HIDDEN_BY_DEFAULT].filter(id => id !== 'model-usage'))
+})
 
 function Harness({
   activeSessionId,
@@ -57,8 +67,13 @@ function Harness({
 
 const EMPTY_USAGE: UsageStats = { calls: 0, input: 0, output: 0, total: 0 }
 
+/** The model-usage button in the bar, or null when the item is hidden. */
+function withinBar() {
+  return screen.queryByRole('button', { name: /tokens/i })
+}
+
 describe('model usage statusbar item', () => {
-  it('shows the selected model in the bottom bar before a session exists', () => {
+  it('hides the item until there is accounted usage', () => {
     const requestGateway = vi.fn(async () => ({ routes: [], totals: EMPTY_USAGE }))
 
     render(
@@ -71,11 +86,13 @@ describe('model usage statusbar item', () => {
       />
     )
 
-    expect(within(screen.getByRole('contentinfo')).getByRole('button', { name: /grok-4\.5/i })).toBeTruthy()
+    // With no usage, the item hides entirely (hidden: totalTokens <= 0) and
+    // the bar renders no model-usage button at all.
+    expect(withinBar()).toBeNull()
     expect(requestGateway).not.toHaveBeenCalled()
   })
 
-  it('shows active-model tokens and expands every model route', async () => {
+  it('shows the session-wide cumulative total in the bar and expands every model route', async () => {
     const requestGateway = vi.fn(async () => ({
       routes: [
         {
@@ -88,7 +105,7 @@ describe('model usage statusbar item', () => {
           cache_read: 3_000,
           cache_write: 0,
           reasoning: 1_000,
-          total: 48_000,
+          total: 51_000,
           estimated_cost_usd: 0.12,
           actual_cost_usd: 0,
           cost_status: 'estimated',
@@ -120,7 +137,7 @@ describe('model usage statusbar item', () => {
         cache_read: 3_000,
         cache_write: 0,
         reasoning: 3_000,
-        total: 102_000,
+        total: 105_000,
         estimated_cost_usd: 0.46,
         actual_cost_usd: 0
       }
@@ -131,20 +148,53 @@ describe('model usage statusbar item', () => {
         activeSessionId="runtime-1"
         currentModel="claude-opus-4.8"
         currentProvider="openrouter"
-        currentUsage={{ calls: 5, input: 90_000, output: 12_000, total: 102_000 }}
+        currentUsage={{ calls: 5, input: 90_000, output: 12_000, total: 105_000 }}
         requestGateway={requestGateway}
       />
     )
 
     await waitFor(() => {
       expect(requestGateway).toHaveBeenCalledWith('session.model_usage', { session_id: 'runtime-1' })
-      expect(screen.getByRole('button', { name: /claude-opus-4\.8.*↑50k.*↓4k/i })).toBeTruthy()
+      expect(screen.getByRole('button', { name: /Tokens.*105k/i })).toBeTruthy()
     })
 
-    fireEvent.pointerDown(screen.getByRole('button', { name: /claude-opus-4\.8/i }), { button: 0 })
+    fireEvent.pointerDown(screen.getByRole('button', { name: /Tokens/i }), { button: 0 })
 
     expect(await screen.findByText('deepseek-v4-pro')).toBeTruthy()
-    expect(screen.getAllByText('claude-opus-4.8')).toHaveLength(2)
-    expect(screen.getByText(/共 102k tokens/i)).toBeTruthy()
+    // The bar shows the cumulative total now, so the model name lives only in
+    // the expanded panel row.
+    expect(screen.getAllByText('claude-opus-4.8')).toHaveLength(1)
+    expect(screen.getByText(/105k tokens/i)).toBeTruthy()
+  })
+
+  it('prefers backend totals over live-session totals', async () => {
+    const requestGateway = vi.fn(async () => ({
+      routes: [],
+      totals: {
+        calls: 2,
+        input: 10,
+        output: 5,
+        cache_read: 1,
+        cache_write: 0,
+        reasoning: 0,
+        total: 16,
+        estimated_cost_usd: 0,
+        actual_cost_usd: 0
+      }
+    }))
+
+    render(
+      <Harness
+        activeSessionId="sid-1"
+        currentModel="model/a"
+        currentProvider="provider"
+        currentUsage={{ calls: 1, input: 2, output: 1, total: 3 }}
+        requestGateway={requestGateway}
+      />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Tokens.*16/i })).toBeTruthy()
+    })
   })
 })

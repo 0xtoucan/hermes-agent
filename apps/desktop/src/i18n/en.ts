@@ -3710,6 +3710,7 @@ export const en: Translations = {
       toggleCacheHitRate: 'Cache hit rate',
       toggleCommandCenter: 'Command Center',
       toggleContextUsage: 'Context meter',
+      toggleTokenUsage: 'Token usage',
       toggleRunningTimer: 'Turn timer',
       toggleSessionTimer: 'Session timer',
       toggleTerminal: 'Terminal',
@@ -3734,7 +3735,8 @@ export const en: Translations = {
       turnRunning: 'Running',
       currentTurnElapsed: 'Current turn elapsed',
       modelUsage: 'Model usage',
-      openModelUsage: 'Open per-model token usage',
+      tokenUsage: 'Tokens',
+      openModelUsage: 'Open session token usage',
       modelUsagePanel: {
         active: 'active',
         actualCost: value => `actual ${value}`,

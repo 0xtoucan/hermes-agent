@@ -823,7 +823,10 @@ def test_session_model_usage_returns_route_breakdown_and_totals(monkeypatch):
             "claude-opus-4.8",
         ]
         assert response["routes"][0]["provider"] == "deepseek"
-        assert response["routes"][0]["total"] == 48_000
+        # Canonical total: input + output + cache_read + cache_write
+        # (reasoning stays separate to avoid double-counting).
+        assert response["routes"][0]["total"] == 51_000
+        assert response["routes"][0]["cache_read"] == 3_000
         assert response["totals"] == {
             "calls": 5,
             "input": 90_000,
@@ -831,7 +834,7 @@ def test_session_model_usage_returns_route_breakdown_and_totals(monkeypatch):
             "cache_read": 3_000,
             "cache_write": 0,
             "reasoning": 3_000,
-            "total": 102_000,
+            "total": 105_000,
             "estimated_cost_usd": pytest.approx(0.46),
             "actual_cost_usd": 0,
         }

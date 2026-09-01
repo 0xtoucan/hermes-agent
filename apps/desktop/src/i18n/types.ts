@@ -3233,6 +3233,7 @@ export interface Translations {
       toggleCacheHitRate: string
       toggleCommandCenter: string
       toggleContextUsage: string
+      toggleTokenUsage: string
       toggleRunningTimer: string
       toggleSessionTimer: string
       toggleTerminal: string
@@ -3257,6 +3258,7 @@ export interface Translations {
       turnRunning: string
       currentTurnElapsed: string
       modelUsage: string
+      tokenUsage: string
       openModelUsage: string
       modelUsagePanel: {
         active: string

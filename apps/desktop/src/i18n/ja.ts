@@ -3082,7 +3082,9 @@ export const ja = defineLocale({
       turnRunning: '実行中',
       currentTurnElapsed: '現在のターン経過時間',
       modelUsage: 'モデル使用量',
-      openModelUsage: 'モデル別 Token 使用量を開く',
+      tokenUsage: 'Tokens',
+      toggleTokenUsage: 'Token 使用量',
+      openModelUsage: 'セッションの Token 使用量を開く',
       modelUsagePanel: {
         active: '現在',
         actualCost: value => `実費 ${value}`,

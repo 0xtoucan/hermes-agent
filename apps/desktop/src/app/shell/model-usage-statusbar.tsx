@@ -129,36 +129,21 @@ export function useModelUsageStatusbarItem({
 
   const routes = usage?.routes.length ? usage.routes : fallbackRoute ? [fallbackRoute] : []
 
-  const activeRoute =
-    routes.find(
-      route =>
-        sameModel(route.model, currentModel) &&
-        (!currentProvider || !route.provider || route.provider === currentProvider)
-    ) ?? routes.find(route => sameModel(route.model, currentModel))
-
-  const modelLabel = displayModelName(currentModel || activeRoute?.model || '')
-
-  const detail = activeRoute?.total
-    ? `↑${compactNumber(activeRoute.input)} ↓${compactNumber(activeRoute.output)}`
-    : undefined
+  const totals = usage?.totals ?? fallbackTotals(fallbackRoute)
+  const totalTokens = Math.max(totals.total, currentUsage.total)
 
   return {
-    detail,
-    hidden: !modelLabel && currentUsage.total <= 0,
+    detail: totalTokens > 0 ? compactNumber(totalTokens) : undefined,
+    hidden: totalTokens <= 0,
     id: 'model-usage',
-    label: modelLabel || copy.modelUsage,
+    label: copy.tokenUsage,
     menuAlign: 'end',
     menuClassName: 'w-auto border-(--ui-stroke-secondary) p-0',
     menuContent: (
-      <ModelUsagePanel
-        activeModel={currentModel}
-        error={error}
-        loading={loading}
-        routes={routes}
-        totals={usage?.totals ?? fallbackTotals(fallbackRoute)}
-      />
+      <ModelUsagePanel activeModel={currentModel} error={error} loading={loading} routes={routes} totals={totals} />
     ),
     title: copy.openModelUsage,
+    toggleLabel: copy.toggleTokenUsage,
     variant: 'menu'
   }
 }

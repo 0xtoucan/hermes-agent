@@ -3792,6 +3792,7 @@ export const zh = defineLocale({
       toggleCacheHitRate: '缓存命中率',
       toggleCommandCenter: '命令中心',
       toggleContextUsage: '上下文用量',
+      toggleTokenUsage: 'Token 用量',
       toggleRunningTimer: '回合计时',
       toggleSessionTimer: '会话计时',
       toggleTerminal: '终端',
@@ -3816,7 +3817,8 @@ export const zh = defineLocale({
       turnRunning: '运行中',
       currentTurnElapsed: '当前回合已用时间',
       modelUsage: '模型用量',
-      openModelUsage: '打开分模型 Token 用量',
+      tokenUsage: 'Tokens',
+      openModelUsage: '打开会话 Token 用量',
       modelUsagePanel: {
         active: '当前',
         actualCost: value => `实际 ${value}`,

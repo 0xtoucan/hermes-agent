@@ -1226,6 +1226,8 @@ def _(rid, params: dict, session: dict, db) -> dict:
     for row in rows:
         input_tokens = int(row.get("input_tokens") or 0)
         output_tokens = int(row.get("output_tokens") or 0)
+        cache_read_tokens = int(row.get("cache_read_tokens") or 0)
+        cache_write_tokens = int(row.get("cache_write_tokens") or 0)
         route = {
             "model": row.get("model") or "unknown",
             "provider": row.get("billing_provider") or "",
@@ -1233,10 +1235,18 @@ def _(rid, params: dict, session: dict, db) -> dict:
             "calls": int(row.get("api_call_count") or 0),
             "input": input_tokens,
             "output": output_tokens,
-            "cache_read": int(row.get("cache_read_tokens") or 0),
-            "cache_write": int(row.get("cache_write_tokens") or 0),
+            "cache_read": cache_read_tokens,
+            "cache_write": cache_write_tokens,
             "reasoning": int(row.get("reasoning_tokens") or 0),
-            "total": input_tokens + output_tokens,
+            # Match CanonicalUsage.total_tokens: prompt tokens include both
+            # cache buckets, and reasoning stays separate because providers may
+            # already include it in output_tokens.
+            "total": (
+                input_tokens
+                + output_tokens
+                + cache_read_tokens
+                + cache_write_tokens
+            ),
             "estimated_cost_usd": float(row.get("estimated_cost_usd") or 0.0),
             "actual_cost_usd": float(row.get("actual_cost_usd") or 0.0),
             "cost_status": row.get("cost_status") or "",

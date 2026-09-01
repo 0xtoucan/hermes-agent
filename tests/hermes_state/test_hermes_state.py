@@ -659,6 +659,56 @@ class TestSessionLifecycle:
         assert rows[0]["estimated_cost_usd"] == pytest.approx(0.34)
         assert db.get_session_model_usage("missing") == []
 
+    def test_get_session_model_usage_drains_queued_deltas_before_read(self, db):
+        """A status-bar read is an exact mid-turn read: deltas queued off the
+        turn thread (``queue_token_counts``) must be applied before the
+        breakdown is selected, or the bar shows totals lagging the turn."""
+        db.create_session(session_id="queued", source="desktop", model="deepseek-v4-pro")
+        # Write through the async path exactly as the turn thread does.
+        db.queue_token_counts(
+            "queued",
+            input_tokens=40_000,
+            output_tokens=8_000,
+            cache_read_tokens=3_000,
+            model="deepseek-v4-pro",
+            billing_provider="deepseek",
+            billing_mode="api_key",
+            estimated_cost_usd=0.12,
+            cost_status="estimated",
+            api_call_count=2,
+        )
+        rows = db.get_session_model_usage("queued")
+
+        assert len(rows) == 1
+        assert rows[0]["input_tokens"] == 40_000
+        assert rows[0]["output_tokens"] == 8_000
+        assert rows[0]["cache_read_tokens"] == 3_000
+        assert rows[0]["api_call_count"] == 2
+
+    def test_get_session_model_usage_preserves_cache_buckets(self, db):
+        """Cache read/write are separate persisted buckets so a client can
+        compose the canonical total (input + output + cache_read +
+        cache_write) without losing the cache split."""
+        db.create_session(session_id="cache", source="desktop", model="deepseek-v4-pro")
+        db.update_token_counts(
+            "cache",
+            input_tokens=10_000,
+            output_tokens=2_000,
+            cache_read_tokens=5_000,
+            cache_write_tokens=1_000,
+            model="deepseek-v4-pro",
+            billing_provider="deepseek",
+            billing_mode="api_key",
+            api_call_count=1,
+        )
+
+        row = db.get_session_model_usage("cache")[0]
+
+        assert row["cache_read_tokens"] == 5_000
+        assert row["cache_write_tokens"] == 1_000
+        assert row["input_tokens"] == 10_000
+        assert row["output_tokens"] == 2_000
+
     def test_first_accounted_route_replaces_all_route_fields_atomically(self, db):
         db.create_session(session_id="route", source="cli", model="primary")
         db.update_session_billing_route(
