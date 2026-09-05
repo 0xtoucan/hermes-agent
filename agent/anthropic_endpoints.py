@@ -127,8 +127,14 @@ def _is_nous_portal_endpoint(base_url: str | None) -> bool:
 # blocks itself. Anything we cannot classify is treated as keep-all, because dropping a block the
 # API would have kept rewrites the cached prefix from that point (measured: ~80% of uncached input
 # in a 1,393-agent run), while passing back a block the API drops costs nothing.
+# A bare major ("claude-sonnet-4", "claude-opus-4-20250514") is the 4.0 generation, so it is
+# last-turn-only too; only a 1-2 digit minor >= 6 (Sonnet) / >= 5 (Opus) escapes the pattern.
 _LAST_TURN_ONLY_THINKING_RE = re.compile(
-    r"(haiku)|(sonnet[-_ ]?4[-_.]?[0-5]\b)|(opus[-_ ]?4[-_.]?[0-4]\b)|(claude[-_ ]?3)", re.IGNORECASE
+    r"(haiku)"
+    r"|(sonnet[-_ ]?4(?:[-_.]?[0-5]\b|\b(?![-_.]?\d{1,2}\b)))"
+    r"|(opus[-_ ]?4(?:[-_.]?[0-4]\b|\b(?![-_.]?\d{1,2}\b)))"
+    r"|(claude[-_ ]?3)",
+    re.IGNORECASE,
 )
 
 

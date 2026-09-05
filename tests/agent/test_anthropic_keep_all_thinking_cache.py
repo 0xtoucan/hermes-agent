@@ -65,8 +65,13 @@ def test_model_predicate_classifies_generations():
     assert _model_keeps_all_thinking("claude-opus-4-5")
     assert _model_keeps_all_thinking("claude-sonnet-4-6")
     assert _model_keeps_all_thinking("some-future-claude")  # unknown => keep-all (the cheap direction)
+    assert _model_keeps_all_thinking("claude-sonnet-4-5-20250929") is False
+    assert _model_keeps_all_thinking("claude-sonnet-4-6-20260301") is True
     assert not _model_keeps_all_thinking("claude-sonnet-4-5")
     assert not _model_keeps_all_thinking("claude-opus-4-1")
+    # bare / date-suffixed 4.0 IDs are last-turn-only too (review finding)
+    for bare in ("claude-sonnet-4", "claude-sonnet-4-20250514", "claude-opus-4", "claude-opus-4-20250514"):
+        assert not _model_keeps_all_thinking(bare), bare
     assert not _model_keeps_all_thinking("claude-haiku-4-5")
     assert not _model_keeps_all_thinking("claude-3-5-sonnet")
 
@@ -80,6 +85,10 @@ def test_estimator_counts_retained_thinking_on_the_anthropic_wire():
     assert stale_thinking_reaches_wire("anthropic_messages", "anthropic", "claude-opus-4-8", "") is True
     # last-turn-only generations: the API drops older blocks, so they never reach the wire
     assert stale_thinking_reaches_wire("anthropic_messages", "anthropic", "claude-haiku-4-5", "") is False
+    # generic third-party Anthropic-compatible endpoints strip every block, so the estimator must
+    # not charge for thinking the converter never sends (review finding)
+    assert stale_thinking_reaches_wire("anthropic_messages", "minimax", "claude-fable-5.1", "https://api.minimax.io/anthropic") is False
+    assert stale_thinking_reaches_wire("anthropic_messages", "nous", "anthropic/claude-fable-5.1", "https://inference-api.nousresearch.com/v1") is True
     # codex sidecar and non-Anthropic chat wires are unchanged
     assert stale_thinking_reaches_wire("codex_responses", "openai-codex", "gpt-5.6", "") is False
     assert stale_thinking_reaches_wire("chat_completions", "openrouter", "anthropic/claude-fable-5.1", "") is False

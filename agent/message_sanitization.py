@@ -518,7 +518,13 @@ def stale_thinking_reaches_wire(api_mode: Any, provider: Any, model: Any, base_u
     if needs_reasoning_echo(provider, model, base_url):
         return True
     if (api_mode or "") == "anthropic_messages":
-        from agent.anthropic_endpoints import _model_keeps_all_thinking
+        from agent.anthropic_endpoints import (
+            _is_nous_portal_endpoint, _is_third_party_anthropic_endpoint, _model_keeps_all_thinking,
+        )
+        # Mirror the converter: generic third-party Anthropic-compatible endpoints strip every
+        # thinking block regardless of model (signatures are proprietary), so nothing is replayed.
+        if _is_third_party_anthropic_endpoint(base_url) and not _is_nous_portal_endpoint(base_url):
+            return False
         return _model_keeps_all_thinking(str(model or ""))
     return False
 
