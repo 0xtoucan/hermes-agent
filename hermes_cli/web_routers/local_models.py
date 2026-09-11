@@ -268,9 +268,9 @@ def _ensure_server(job: Dict[str, Any], config: dict, model_id: str, *, fail_det
 
 
 def _assign_default(job: Dict[str, Any], model_id: str) -> None:
-    """Make ``model_id`` the main model via the same machinery as /api/model/set (late-bound: tests stub web_deps.late)."""
+    """Make ``model_id`` the main model via the same machinery as /api/model/set."""
     _step(job, "setting-default", "Making it your default")
-    web_deps.late("_apply_model_assignment_sync")("main", "llamacpp", model_id, "", "", "")
+    web_deps.late("_apply_model_assignment_sync", "hermes_cli.web_server_config")("main", "llamacpp", model_id, "", "", "")
 
 
 # ── downloads: ranged parallel streams ───────────────────────
@@ -552,12 +552,7 @@ def _catalog_row(entry, budget, recommended, recommended_reason, staged_ids) -> 
         return row
 
     variant = choice.variant
-    # Same overhead the launch decision prices (runtime buffers + vision projector + microbatch/MTP
-    # logits): the row must advertise the window the model will actually get, not a paper number.
-    overhead = (context_policy.RUNTIME_OVERHEAD_BYTES
-                + (entry.mmproj.size_bytes if entry.mmproj else 0)
-                + context_policy.ub_logits_bytes(entry.n_vocab, mtp_capable=entry.mtp))
-    decision = context_policy.initial_window(entry.profile(variant), budget, overhead_bytes=overhead)
+    decision = entry.launch_plan(variant, budget).decision
     download_total = entry.download_bytes(variant)
     row.update({
         "fits": True, "model_id": variant.model_id, "quant": variant.quant,
