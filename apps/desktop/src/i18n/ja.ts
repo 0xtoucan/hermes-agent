@@ -9,6 +9,12 @@ export const ja = defineLocale({
     copyUrl: 'リンクをコピー',
     close: '閉じる'
   },
+  freeTier: {
+    continueTitle: "Hermes を使い続ける。",
+    continueBody: "セットアップ後の無料ツール呼び出しを使い切りました。ログイン、ローカルモデル、または別のプロバイダーで続けられます。チャットと下書きはそのまま残ります。",
+    signInOrCreate: "ログイン / アカウント作成",
+    useLocal: "ローカルモデルを使う",
+  },
   sessionImport: {
     title: '別のアプリから続ける',
     subtitle: '会話をHermesに取り込み、続きを始めましょう。',

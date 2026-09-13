@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events'
 import { delimiter, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 
+import { JsonRpcGatewayError } from '@hermes/shared/json-rpc-error'
 import { WebSocket as UndiciWebSocket } from 'undici'
 
 import type { GatewayEvent } from './gatewayTypes.js'
@@ -712,9 +713,12 @@ export class GatewayClient extends EventEmitter {
   }
 
   private toError(raw: unknown): Error {
-    const err = raw as { message?: unknown } | null | undefined
+    const err = raw as { code?: unknown; message?: unknown; data?: unknown } | null | undefined
 
-    return new Error(typeof err?.message === 'string' ? err.message : 'request failed')
+    return new JsonRpcGatewayError(typeof err?.message === 'string' ? err.message : 'request failed', {
+      code: typeof err?.code === 'number' ? err.code : undefined,
+      data: err?.data
+    })
   }
 
   private settle(p: Pending, err: Error | null, result: unknown) {

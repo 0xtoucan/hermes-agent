@@ -156,7 +156,7 @@ export function capabilityScoped(scope?: ProfileScope): { connectionId?: string;
 
     return {
       ...(profile ? { profile } : {}),
-      ...(connectionId ? { connectionId } : {})
+      connectionId: connectionId || undefined
     }
   }
 

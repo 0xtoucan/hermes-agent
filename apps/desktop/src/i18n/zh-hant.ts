@@ -9,6 +9,12 @@ export const zhHant = defineLocale({
     copyUrl: '複製連結',
     close: '關閉'
   },
+  freeTier: {
+    continueTitle: "繼續使用 Hermes。",
+    continueBody: "你已用完設定後的免費工具呼叫。登入、使用本機模型或選擇其他提供方即可繼續。聊天和草稿會保留。",
+    signInOrCreate: "登入 / 建立帳戶",
+    useLocal: "使用本機模型",
+  },
   sessionImport: {
     title: '從其他應用程式繼續',
     subtitle: '將對話匯入 Hermes，接著上次的進度繼續。',

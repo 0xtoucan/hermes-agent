@@ -8,6 +8,13 @@ export const ar = defineLocale({
     close: 'إغلاق'
   },
 
+  freeTier: {
+    continueTitle: "تابع مع Hermes.",
+    continueBody: "استخدمت استدعاءات الأدوات المجانية بعد الإعداد. سجّل الدخول أو استخدم نموذجًا محليًا أو اختر مزودًا آخر للمتابعة. تبقى المحادثة والمسودة محفوظتين.",
+    signInOrCreate: "تسجيل الدخول / إنشاء حساب",
+    useLocal: "استخدام نموذج محلي",
+  },
+
   sessionImport: {
     title: 'المتابعة من تطبيق آخر',
     subtitle: 'انقل محادثة إلى Hermes وتابع من حيث توقفت.',
