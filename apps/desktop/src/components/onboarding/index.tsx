@@ -14,19 +14,20 @@ import { isSubmitEnter } from '@/lib/ime'
 import { isProviderSetupErrorMessage } from '@/lib/provider-setup-errors'
 import { cn } from '@/lib/utils'
 import { $desktopBoot, type DesktopBootState } from '@/store/boot'
-import { applyContinuationProvider, continuationKey, continuationRequester } from '@/store/free-tier-continuation'
 import { FREE_TIER_MODEL } from '@/store/free-tier'
+import { applyContinuationProvider, continuationKey, continuationRequester } from '@/store/free-tier-continuation'
 import { $freeTierSignIn, openFreeTierSignIn } from '@/store/free-tier-sign-in'
-import { notifyError } from '@/store/notifications'
+import { requestGatewayForProfile } from '@/store/gateway'
 import { $introReveal, shouldPlayFirstRunIntro } from '@/store/intro-reveal'
 import { $localModelsEnabled } from '@/store/local-models-flag'
+import { notifyError } from '@/store/notifications'
 import {
   $desktopOnboarding,
   ackFreeTierIntro,
+  cancelOnboardingFlow,
   clearFreeTierIntro,
   clearPendingProviderOAuth,
   closeManualOnboarding,
-  cancelOnboardingFlow,
   confirmOnboardingModel,
   DEFAULT_MANUAL_ONBOARDING_REASON,
   DEFAULT_ONBOARDING_REASON,
@@ -42,10 +43,10 @@ import {
 import { $onboardingSurfaces, onboardingSurfaceActive } from '@/store/onboarding-presence'
 import type { OAuthProvider } from '@/types/hermes'
 
-import { useContinuation } from './use-continuation'
 import { DocsLink, FlowPanel, Status } from './flow'
 import { DecodedLabel } from './glyph'
 import {
+  FEATURED_ID,
   FeaturedProviderRow,
   FireworksProviderRow,
   LocalModelsProviderRow,
@@ -53,19 +54,7 @@ import {
   ProviderRow,
   sortProviders
 } from './providers'
-
-export {
-  FeaturedProviderRow,
-  FireworksProviderRow,
-  KeyProviderRow,
-  LocalModelsProviderRow,
-  OpenRouterProviderRow,
-  ProviderRow,
-  providerTitle,
-  sortProviders
-} from './providers'
-
-import { requestGatewayForProfile } from '@/store/gateway'
+import { useContinuation } from './use-continuation'
 
 interface DesktopOnboardingOverlayProps {
   enabled: boolean
@@ -218,8 +207,16 @@ export function DesktopOnboardingOverlay({
   const continuationOwner = continuation.target ? continuationKey(continuation.target) : ''
   useEffect(() => {
     setContinuationStep('ready')
-    if (continuation.required) cancelOnboardingFlow()
-    return () => { if (continuation.required) cancelOnboardingFlow() }
+
+    if (continuation.required) {
+      cancelOnboardingFlow()
+    }
+
+    return () => {
+      if (continuation.required) {
+        cancelOnboardingFlow()
+      }
+    }
   }, [continuationOwner, continuation.required])
   const targetProfile = onboarding.targetProfile ?? profile
 
@@ -237,7 +234,11 @@ export function DesktopOnboardingOverlay({
 
   const continuationCtx = useMemo<OnboardingContext | null>(() => {
     const target = continuation.target
-    if (!target) return null
+
+    if (!target) {
+      return null
+    }
+
     return {
       profile: target.owner.profile,
       apiScope: target.owner,
@@ -366,7 +367,9 @@ export function DesktopOnboardingOverlay({
 
   // The existing sign-in dialog occupies the modal rung below onboarding.
   // Yield its presentation without clearing the backend continuation verdict.
-  if (continuation.required && signIn.status !== 'closed') return null
+  if (continuation.required && signIn.status !== 'closed') {
+    return null
+  }
 
   const { flow } = onboarding
   const continuing = continuation.required && continuationCtx !== null
@@ -442,8 +445,6 @@ export function DesktopOnboardingOverlay({
           {ready ? (
             freeTierIntro ? (
               <FreeTierReadyPanel
-                leaving={continuing ? false : leaving}
-                onDismiss={dismissFreeTierIntro}
                 continuation={continuationReady ? {
                   onSignIn: () => openFreeTierSignIn({
                     scope: continuation.target!.owner,
@@ -453,6 +454,8 @@ export function DesktopOnboardingOverlay({
                   onLocal: () => setContinuationStep('local'),
                   onProviders: () => { setOnboardingMode('oauth'); setContinuationStep('providers') }
                 } : undefined}
+                leaving={continuing ? false : leaving}
+                onDismiss={dismissFreeTierIntro}
               />
             ) : showPicker ? (
               continuing && continuationStep === 'local' ? (
@@ -601,7 +604,6 @@ function Header() {
   )
 }
 
-export const FEATURED_ID = 'nous'
 const SHOW_ALL_KEY = 'hermes-onboarding-show-all-v1'
 
 const readShowAll = () => {
@@ -630,15 +632,23 @@ export function Picker({ ctx, onBack, onLocal }: { ctx: OnboardingContext; onBac
   const [retry, setRetry] = useState(0)
   const scope = ctx.apiScope ?? ctx.profile
   useEffect(() => {
-    if (!ctx.continuation) return
+    if (!ctx.continuation) {
+      return
+    }
+
     let cancelled = false
     setContinuationProviders(null)
     setProviderError(null)
     void listOAuthProviders(scope).then(result => {
-      if (!cancelled) setContinuationProviders(result.providers)
+      if (!cancelled) {
+        setContinuationProviders(result.providers)
+      }
     }).catch(error => {
-      if (!cancelled) setProviderError(error instanceof Error ? error.message : String(error))
+      if (!cancelled) {
+        setProviderError(error instanceof Error ? error.message : String(error))
+      }
     })
+
     return () => { cancelled = true }
   }, [ctx.continuation, scope, retry])
   const providers = ctx.continuation ? continuationProviders : cachedProviders
@@ -659,8 +669,8 @@ export function Picker({ ctx, onBack, onLocal }: { ctx: OnboardingContext; onBac
   if (ctx.continuation && providers === null) {
     return <div className="grid gap-3">
       <Status>{providerError ?? t.onboarding.lookingUpProviders}</Status>
-      {providerError && <Button variant="text" onClick={() => setRetry(value => value + 1)}>{t.common.retry}</Button>}
-      {onBack && <Button variant="text" onClick={onBack}>{t.common.back}</Button>}
+      {providerError && <Button onClick={() => setRetry(value => value + 1)} variant="text">{t.common.retry}</Button>}
+      {onBack && <Button onClick={onBack} variant="text">{t.common.back}</Button>}
     </div>
   }
 
@@ -752,7 +762,7 @@ export function Picker({ ctx, onBack, onLocal }: { ctx: OnboardingContext; onBac
         {/* First run only: let the user defer the choice and land in the app.
             In manual mode the overlay already has a close affordance, so the
             "choose later" escape would be redundant — hide it. */}
-        {onBack ? <Button variant="text" onClick={onBack}>{t.common.back}</Button> : manual || ctx.continuation ? <span /> : <ChooseLaterLink />}
+        {onBack ? <Button onClick={onBack} variant="text">{t.common.back}</Button> : manual || ctx.continuation ? <span /> : <ChooseLaterLink />}
         <Button className="-mr-2 font-medium" onClick={() => openKeyForm()} size="xs" type="button" variant="text">
           {t.onboarding.haveApiKey}
         </Button>

@@ -683,7 +683,10 @@ export async function refreshOnboarding(ctx: OnboardingContext) {
 
   const generation = flowGeneration
   const runtime = await checkRuntime(ctx)
-  if (generation !== flowGeneration) return false
+
+  if (generation !== flowGeneration) {
+    return false
+  }
 
   if (runtime.ready) {
     completeDesktopOnboarding()
