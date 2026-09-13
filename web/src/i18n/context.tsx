@@ -19,7 +19,7 @@ import { ru } from "./ru";
 import { hu } from "./hu";
 import { ar } from "./ar";
 
-const TRANSLATIONS: Record<Locale, Translations> = {
+export const TRANSLATIONS: Record<Locale, Translations> = {
   en,
   zh,
   "zh-hant": zhHant,

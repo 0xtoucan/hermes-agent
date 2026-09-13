@@ -1,24 +1,15 @@
+import { commonLocales } from "@hermes/shared/i18n-common";
 import type { Translations } from "./types";
 
 export const fr: Translations = {
   common: {
-    save: "Enregistrer",
+    ...commonLocales.fr.common,
     saving: "Enregistrement...",
-    cancel: "Annuler",
-    close: "Fermer",
-    confirm: "Confirmer",
-    delete: "Supprimer",
-    refresh: "Actualiser",
-    retry: "Réessayer",
     search: "Rechercher...",
     loading: "Chargement...",
     create: "Créer",
     creating: "Création...",
-    set: "Définir",
-    replace: "Remplacer",
-    clear: "Effacer",
     live: "En direct",
-    off: "Désactivé",
     enabled: "activé",
     disabled: "désactivé",
     active: "actif",
@@ -39,8 +30,6 @@ export const fr: Translations = {
     failedToToggle: "Échec du basculement",
     failedToRemove: "Échec de la suppression",
     failedToReveal: "Échec de l'affichage",
-    collapse: "Réduire",
-    expand: "Développer",
     general: "Général",
     messaging: "Messagerie",
     pluginLoadFailed:
@@ -224,6 +213,7 @@ export const fr: Translations = {
   },
 
   cron: {
+    ...commonLocales.fr.cron,
     confirmDeleteMessage:
       "Cela supprime la tâche du planning. Cette action est irréversible.",
     confirmDeleteTitle: "Supprimer la tâche planifiée ?",
@@ -276,7 +266,6 @@ export const fr: Translations = {
     next: "Prochaine",
     pause: "Pause",
     resume: "Reprendre",
-    triggerNow: "Déclencher maintenant",
     delivery: {
       local: "Local",
       telegram: "Telegram",
@@ -287,6 +276,7 @@ export const fr: Translations = {
   },
 
   profiles: {
+    ...commonLocales.fr.profiles,
     newProfile: "Nouveau profil",
     name: "Nom",
     namePlaceholder: "ex. coder, writer, etc.",
@@ -295,19 +285,16 @@ export const fr: Translations = {
       "Lettres minuscules, chiffres, _ et - uniquement ; doit commencer par une lettre ou un chiffre ; jusqu'à 64 caractères.",
     invalidName: "Nom de profil invalide",
     cloneFrom: "Cloner depuis le profil",
-    cloneFromNone: "Aucun (vide)",
     allProfiles: "Profils",
     noProfiles: "Aucun profil trouvé.",
     defaultBadge: "défaut",
     hasEnv: "env",
     model: "Modèle",
     skills: "Compétences",
-    rename: "Renommer",
     editSoul: "Modifier SOUL.md",
     soulSection: "SOUL.md (personnalité / invite système)",
     soulPlaceholder: "# Comment cet agent doit se comporter…",
     saveSoul: "Enregistrer SOUL",
-    soulSaved: "SOUL.md enregistré",
     openInTerminal: "Copier la commande CLI",
     commandCopied: "Copié dans le presse-papiers",
     copyFailed: "Impossible de copier",
@@ -361,10 +348,10 @@ export const fr: Translations = {
   },
 
   skills: {
+    ...commonLocales.fr.skills,
     title: "Compétences",
     searchPlaceholder: "Rechercher des compétences et des outils...",
     enabledOf: "{enabled}/{total} activées",
-    all: "Toutes",
     categories: "Catégories",
     filters: "Filtres",
     noSkills: "Aucune compétence trouvée. Les compétences sont chargées depuis ~/.hermes/skills/",
@@ -495,7 +482,7 @@ export const fr: Translations = {
   },
 
   language: {
-    switchTo: "Changer de langue",
+    ...commonLocales.fr.language,
   },
 
   theme: {

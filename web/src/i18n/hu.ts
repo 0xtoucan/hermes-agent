@@ -1,24 +1,15 @@
+import { commonLocales } from "@hermes/shared/i18n-common";
 import type { Translations } from "./types";
 
 export const hu: Translations = {
   common: {
-    save: "Mentés",
+    ...commonLocales.hu.common,
     saving: "Mentés...",
-    cancel: "Mégse",
-    close: "Bezárás",
-    confirm: "Megerősítés",
-    delete: "Törlés",
-    refresh: "Frissítés",
-    retry: "Újra",
     search: "Keresés...",
     loading: "Betöltés...",
     create: "Létrehozás",
     creating: "Létrehozás...",
-    set: "Beállítás",
-    replace: "Csere",
-    clear: "Törlés",
     live: "Élő",
-    off: "Ki",
     enabled: "engedélyezve",
     disabled: "letiltva",
     active: "aktív",
@@ -39,8 +30,6 @@ export const hu: Translations = {
     failedToToggle: "Nem sikerült átváltani",
     failedToRemove: "Nem sikerült eltávolítani",
     failedToReveal: "Nem sikerült megjeleníteni",
-    collapse: "Összecsukás",
-    expand: "Kibontás",
     general: "Általános",
     messaging: "Üzenetküldés",
     pluginLoadFailed:
@@ -224,6 +213,7 @@ export const hu: Translations = {
   },
 
   cron: {
+    ...commonLocales.hu.cron,
     confirmDeleteMessage:
       "Ez eltávolítja a feladatot az ütemezésből. A művelet nem vonható vissza.",
     confirmDeleteTitle: "Törli az ütemezett feladatot?",
@@ -276,7 +266,6 @@ export const hu: Translations = {
     next: "Következő",
     pause: "Szüneteltetés",
     resume: "Folytatás",
-    triggerNow: "Indítás most",
     delivery: {
       local: "Helyi",
       telegram: "Telegram",
@@ -287,6 +276,7 @@ export const hu: Translations = {
   },
 
   profiles: {
+    ...commonLocales.hu.profiles,
     newProfile: "Új profil",
     name: "Név",
     namePlaceholder: "pl. coder, writer stb.",
@@ -294,19 +284,16 @@ export const hu: Translations = {
     nameRule:
       "Csak kisbetűk, számjegyek, _ és - karakterek; betűvel vagy számjeggyel kell kezdődnie; legfeljebb 64 karakter.",
     invalidName: "Érvénytelen profilnév",    cloneFrom: "Konfiguráció klónozása ebből a profilból",
-    cloneFromNone: "Nincs (üres)",
     allProfiles: "Profilok",
     noProfiles: "Nem található profil.",
     defaultBadge: "alapértelmezett",
     hasEnv: "env",
     model: "Modell",
     skills: "Készségek",
-    rename: "Átnevezés",
     editSoul: "SOUL.md szerkesztése",
     soulSection: "SOUL.md (személyiség / rendszerprompt)",
     soulPlaceholder: "# Hogyan viselkedjen ez az ügynök…",
     saveSoul: "SOUL mentése",
-    soulSaved: "SOUL.md mentve",
     openInTerminal: "CLI-parancs másolása",
     commandCopied: "Vágólapra másolva",
     copyFailed: "Nem sikerült másolni",
@@ -360,10 +347,10 @@ export const hu: Translations = {
   },
 
   skills: {
+    ...commonLocales.hu.skills,
     title: "Készségek",
     searchPlaceholder: "Készségek és eszközkészletek keresése...",
     enabledOf: "{enabled}/{total} engedélyezve",
-    all: "Összes",
     categories: "Kategóriák",
     filters: "Szűrők",
     noSkills: "Nem található készség. A készségek a ~/.hermes/skills/ mappából töltődnek be",
@@ -494,7 +481,7 @@ export const hu: Translations = {
   },
 
   language: {
-    switchTo: "Nyelv váltása",
+    ...commonLocales.hu.language,
   },
 
   theme: {

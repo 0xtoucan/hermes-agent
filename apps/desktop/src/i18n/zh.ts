@@ -1,3 +1,5 @@
+import { commonLocales } from '@hermes/shared/i18n-common'
+
 import { defineFieldCopy } from '@/app/settings/field-copy'
 
 import { defineLocale } from './define-locale'
@@ -66,45 +68,33 @@ export const zh = defineLocale({
     importError: '无法导入此对话。'
   },
   common: {
+    ...commonLocales.zh.common,
     apply: '应用',
     back: '返回',
-    save: '保存',
     saving: '保存中…',
-    cancel: '取消',
     change: '更改',
     choose: '选择',
-    clear: '清除',
-    close: '关闭',
-    collapse: '收起',
-    confirm: '确认',
     connect: '连接',
     connecting: '连接中',
     continue: '继续',
     copied: '已复制',
     copy: '复制',
     copyFailed: '复制失败',
-    delete: '删除',
     docs: '文档',
     done: '完成',
     error: '错误',
-    expand: '展开',
     failed: '失败',
     formatJson: '格式化 JSON',
     free: '免费',
     loading: '加载中…',
     notSet: '未设置',
-    refresh: '刷新',
     remove: '移除',
-    replace: '替换',
-    retry: '重试',
     run: '运行',
     send: '发送',
-    set: '设置',
     skip: '跳过',
     update: '更新',
     tryHint: term => `试试“${term}”`,
-    on: '开',
-    off: '关'
+    on: '开'
   },
 
   fileMenu: {
@@ -426,11 +416,11 @@ export const zh = defineLocale({
   },
 
   language: {
+    ...commonLocales.zh.language,
     label: '语言',
     description: '选择桌面界面的语言。',
     saving: '正在保存语言…',
     saveError: '语言更新失败',
-    switchTo: '切换语言',
     searchPlaceholder: '搜索语言…',
     noResults: '未找到语言'
   },
@@ -1749,11 +1739,11 @@ export const zh = defineLocale({
   },
 
   skills: {
+    ...commonLocales.zh.skills,
     tabSkills: '技能',
     tabToolsets: '工具集',
     configuringProfile: '正在配置：',
     tabMcp: 'MCP',
-    all: '全部',
     searchSkills: '搜索技能…',
     searchToolsets: '搜索工具集…',
     refresh: '刷新技能',
@@ -2414,6 +2404,7 @@ export const zh = defineLocale({
   },
 
   profiles: {
+    ...commonLocales.zh.profiles,
     close: '关闭配置档案',
     nameHint: '小写字母、数字、连字符和下划线。必须以字母或数字开头。',
     title: '配置档案',
@@ -2485,7 +2476,6 @@ export const zh = defineLocale({
     skills: count => `${count} 个技能`,
     env: 'env',
     defaultBadge: '默认',
-    rename: '重命名',
     renameMenu: '重命名…',
     exportMenu: '导出…',
     editSoul: '编辑 SOUL.md…',
@@ -2512,7 +2502,6 @@ export const zh = defineLocale({
     createDesc: '配置档案是相互独立的 Hermes 环境：各自拥有独立的配置、技能和 SOUL.md。',
     nameLabel: '名称',
     cloneFrom: '克隆来源',
-    cloneFromNone: '无（空白）',
     cloneFromDesc: '从选中的来源配置档案复制配置、技能和 SOUL.md。',
     cloneFromDefault: '从默认档案克隆',
     cloneFromDefaultDesc: '从你的默认配置档案复制配置、技能和 SOUL.md。',
@@ -2532,7 +2521,6 @@ export const zh = defineLocale({
     renamed: '配置档案已重命名',
     deleted: '配置档案已删除',
     setupCopied: '安装命令已复制',
-    soulSaved: 'SOUL.md 已保存',
     failedLoad: '加载配置档案失败',
     failedDelete: '删除配置档案失败',
     failedCopy: '复制安装命令失败',
@@ -2543,6 +2531,7 @@ export const zh = defineLocale({
   },
 
   cron: {
+    ...commonLocales.zh.cron,
     close: '关闭定时任务',
     title: '定时任务',
     count: count => `${count} 个任务`,
@@ -2628,7 +2617,6 @@ export const zh = defineLocale({
     pause: '暂停定时任务',
     resumeTitle: '恢复',
     pauseTitle: '暂停',
-    triggerNow: '立即触发',
     edit: '编辑定时任务',
     deleteTitle: '删除定时任务？',
     deleteDescPrefix: '这将永久移除 ',

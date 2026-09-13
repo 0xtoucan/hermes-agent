@@ -1,24 +1,15 @@
+import { commonLocales } from "@hermes/shared/i18n-common";
 import type { Translations } from "./types";
 
 export const ga: Translations = {
   common: {
-    save: "Sábháil",
+    ...commonLocales.ga.common,
     saving: "Á shábháil...",
-    cancel: "Cealaigh",
-    close: "Dún",
-    confirm: "Deimhnigh",
-    delete: "Scrios",
-    refresh: "Athnuaigh",
-    retry: "Bain triail eile as",
     search: "Cuardaigh...",
     loading: "Á luchtú...",
     create: "Cruthaigh",
     creating: "Á chruthú...",
-    set: "Socraigh",
-    replace: "Athchuir",
-    clear: "Glan",
     live: "Beo",
-    off: "As",
     enabled: "cumasaithe",
     disabled: "díchumasaithe",
     active: "gníomhach",
@@ -39,8 +30,6 @@ export const ga: Translations = {
     failedToToggle: "Theip ar an scoránú",
     failedToRemove: "Theip ar an mbaint",
     failedToReveal: "Theip ar an taispeáint",
-    collapse: "Laghdaigh",
-    expand: "Leathnaigh",
     general: "Ginearálta",
     messaging: "Teachtaireachtaí",
     pluginLoadFailed:
@@ -224,6 +213,7 @@ export const ga: Translations = {
   },
 
   cron: {
+    ...commonLocales.ga.cron,
     confirmDeleteMessage:
       "Baineann sé seo an post ón sceideal. Ní féidir é seo a chealú.",
     confirmDeleteTitle: "Scrios an post sceidealta?",
@@ -284,7 +274,6 @@ export const ga: Translations = {
     next: "Ar aghaidh",
     pause: "Sos",
     resume: "Lean ar aghaidh",
-    triggerNow: "Spreag anois",
     delivery: {
       local: "Áitiúil",
       telegram: "Telegram",
@@ -295,6 +284,7 @@ export const ga: Translations = {
   },
 
   profiles: {
+    ...commonLocales.ga.profiles,
     newProfile: "Próifíl Nua",
     name: "Ainm",
     namePlaceholder: "m.sh. coder, writer, srl.",
@@ -302,19 +292,16 @@ export const ga: Translations = {
     nameRule:
       "Litreacha cás íochtair, digití, _ agus - amháin; caithfidh tús a chur le litir nó digit; suas le 64 carachtar.",
     invalidName: "Ainm próifíle neamhbhailí",    cloneFrom: "Clónáil cumraíocht ón bpróifíl",
-    cloneFromNone: "Dada (folamh)",
     allProfiles: "Próifílí",
     noProfiles: "Níor aimsíodh próifílí.",
     defaultBadge: "réamhshocraithe",
     hasEnv: "env",
     model: "Samhail",
     skills: "Scileanna",
-    rename: "Athainmnigh",
     editSoul: "Cuir SOUL.md in eagar",
     soulSection: "SOUL.md (pearsantacht / prompt córais)",
     soulPlaceholder: "# Conas ba chóir don agent seo iompar…",
     saveSoul: "Sábháil SOUL",
-    soulSaved: "SOUL.md sábháilte",
     openInTerminal: "Cóipeáil ordú CLI",
     commandCopied: "Cóipeáilte chuig an ngearrthaisce",
     copyFailed: "Níorbh fhéidir cóipeáil",
@@ -368,10 +355,10 @@ export const ga: Translations = {
   },
 
   skills: {
+    ...commonLocales.ga.skills,
     title: "Scileanna",
     searchPlaceholder: "Cuardaigh scileanna agus toolsets...",
     enabledOf: "{enabled}/{total} cumasaithe",
-    all: "Gach ceann",
     categories: "Catagóirí",
     filters: "Scagairí",
     noSkills: "Níor aimsíodh scileanna. Luchtaítear scileanna ó ~/.hermes/skills/",
@@ -502,7 +489,7 @@ export const ga: Translations = {
   },
 
   language: {
-    switchTo: "Athraigh teanga",
+    ...commonLocales.ga.language,
   },
 
   theme: {

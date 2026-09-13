@@ -1,24 +1,15 @@
+import { commonLocales } from "@hermes/shared/i18n-common";
 import type { Translations } from "./types";
 
 export const tr: Translations = {
   common: {
-    save: "Kaydet",
+    ...commonLocales.tr.common,
     saving: "Kaydediliyor...",
-    cancel: "İptal",
-    close: "Kapat",
-    confirm: "Onayla",
-    delete: "Sil",
-    refresh: "Yenile",
-    retry: "Yeniden dene",
     search: "Ara...",
     loading: "Yükleniyor...",
     create: "Oluştur",
     creating: "Oluşturuluyor...",
-    set: "Ayarla",
-    replace: "Değiştir",
-    clear: "Temizle",
     live: "Canlı",
-    off: "Kapalı",
     enabled: "etkin",
     disabled: "devre dışı",
     active: "aktif",
@@ -39,8 +30,6 @@ export const tr: Translations = {
     failedToToggle: "Değiştirilemedi",
     failedToRemove: "Kaldırılamadı",
     failedToReveal: "Gösterilemedi",
-    collapse: "Daralt",
-    expand: "Genişlet",
     general: "Genel",
     messaging: "Mesajlaşma",
     pluginLoadFailed:
@@ -224,6 +213,7 @@ export const tr: Translations = {
   },
 
   cron: {
+    ...commonLocales.tr.cron,
     confirmDeleteMessage:
       "Bu, görevi zamanlamadan kaldırır. Bu işlem geri alınamaz.",
     confirmDeleteTitle: "Zamanlanmış görev silinsin mi?",
@@ -276,7 +266,6 @@ export const tr: Translations = {
     next: "Sonraki",
     pause: "Duraklat",
     resume: "Devam ettir",
-    triggerNow: "Şimdi tetikle",
     delivery: {
       local: "Yerel",
       telegram: "Telegram",
@@ -287,6 +276,7 @@ export const tr: Translations = {
   },
 
   profiles: {
+    ...commonLocales.tr.profiles,
     newProfile: "Yeni Profil",
     name: "Ad",
     namePlaceholder: "örn. coder, writer, vb.",
@@ -294,19 +284,16 @@ export const tr: Translations = {
     nameRule:
       "Yalnızca küçük harfler, rakamlar, _ ve - kullanılabilir; harf veya rakamla başlamalı; en fazla 64 karakter.",
     invalidName: "Geçersiz profil adı",    cloneFrom: "Profilden yapılandırmayı klonla",
-    cloneFromNone: "Hiçbiri (boş)",
     allProfiles: "Profiller",
     noProfiles: "Profil bulunamadı.",
     defaultBadge: "varsayılan",
     hasEnv: "env",
     model: "Model",
     skills: "Yetenekler",
-    rename: "Yeniden adlandır",
     editSoul: "SOUL.md'yi düzenle",
     soulSection: "SOUL.md (kişilik / sistem istemi)",
     soulPlaceholder: "# Bu agent nasıl davranmalı…",
     saveSoul: "SOUL'u kaydet",
-    soulSaved: "SOUL.md kaydedildi",
     openInTerminal: "CLI komutunu kopyala",
     commandCopied: "Panoya kopyalandı",
     copyFailed: "Kopyalanamadı",
@@ -360,10 +347,10 @@ export const tr: Translations = {
   },
 
   skills: {
+    ...commonLocales.tr.skills,
     title: "Yetenekler",
     searchPlaceholder: "Yetenek ve araç setlerinde ara...",
     enabledOf: "{enabled}/{total} etkin",
-    all: "Tümü",
     categories: "Kategoriler",
     filters: "Filtreler",
     noSkills: "Yetenek bulunamadı. Yetenekler ~/.hermes/skills/ adresinden yüklenir",
@@ -494,7 +481,7 @@ export const tr: Translations = {
   },
 
   language: {
-    switchTo: "Dil değiştir",
+    ...commonLocales.tr.language,
   },
 
   theme: {

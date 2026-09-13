@@ -1,24 +1,15 @@
+import { commonLocales } from "@hermes/shared/i18n-common";
 import type { Translations } from "./types";
 
 export const uk: Translations = {
   common: {
-    save: "Зберегти",
+    ...commonLocales.uk.common,
     saving: "Збереження...",
-    cancel: "Скасувати",
-    close: "Закрити",
-    confirm: "Підтвердити",
-    delete: "Видалити",
-    refresh: "Оновити",
-    retry: "Повторити",
     search: "Пошук...",
     loading: "Завантаження...",
     create: "Створити",
     creating: "Створення...",
-    set: "Встановити",
-    replace: "Замінити",
-    clear: "Очистити",
     live: "Наживо",
-    off: "Вимкнено",
     enabled: "увімкнено",
     disabled: "вимкнено",
     active: "активний",
@@ -39,8 +30,6 @@ export const uk: Translations = {
     failedToToggle: "Не вдалося перемкнути",
     failedToRemove: "Не вдалося видалити",
     failedToReveal: "Не вдалося показати",
-    collapse: "Згорнути",
-    expand: "Розгорнути",
     general: "Загальне",
     messaging: "Обмін повідомленнями",
     pluginLoadFailed:
@@ -224,6 +213,7 @@ export const uk: Translations = {
   },
 
   cron: {
+    ...commonLocales.uk.cron,
     confirmDeleteMessage:
       "Це видаляє завдання з розкладу. Цю дію не можна скасувати.",
     confirmDeleteTitle: "Видалити заплановане завдання?",
@@ -276,7 +266,6 @@ export const uk: Translations = {
     next: "Наступне",
     pause: "Призупинити",
     resume: "Відновити",
-    triggerNow: "Запустити зараз",
     delivery: {
       local: "Локально",
       telegram: "Telegram",
@@ -287,6 +276,7 @@ export const uk: Translations = {
   },
 
   profiles: {
+    ...commonLocales.uk.profiles,
     newProfile: "Новий профіль",
     name: "Назва",
     namePlaceholder: "напр. coder, writer тощо.",
@@ -295,19 +285,16 @@ export const uk: Translations = {
       "Лише малі літери, цифри, _ та -; має починатися з літери або цифри; до 64 символів.",
     invalidName: "Недопустима назва профілю",
     cloneFrom: "Клонувати з профілю",
-    cloneFromNone: "Жоден (порожній)",
     allProfiles: "Профілі",
     noProfiles: "Профілів не знайдено.",
     defaultBadge: "за замовчуванням",
     hasEnv: "env",
     model: "Модель",
     skills: "Навички",
-    rename: "Перейменувати",
     editSoul: "Редагувати SOUL.md",
     soulSection: "SOUL.md (особистість / системний запит)",
     soulPlaceholder: "# Як цей агент має поводитися…",
     saveSoul: "Зберегти SOUL",
-    soulSaved: "SOUL.md збережено",
     openInTerminal: "Скопіювати CLI-команду",
     commandCopied: "Скопійовано в буфер обміну",
     copyFailed: "Не вдалося скопіювати",
@@ -361,10 +348,10 @@ export const uk: Translations = {
   },
 
   skills: {
+    ...commonLocales.uk.skills,
     title: "Навички",
     searchPlaceholder: "Пошук навичок та наборів інструментів...",
     enabledOf: "{enabled}/{total} увімкнено",
-    all: "Усі",
     categories: "Категорії",
     filters: "Фільтри",
     noSkills: "Навичок не знайдено. Навички завантажуються з ~/.hermes/skills/",
@@ -495,7 +482,7 @@ export const uk: Translations = {
   },
 
   language: {
-    switchTo: "Змінити мову",
+    ...commonLocales.uk.language,
   },
 
   theme: {

@@ -1,24 +1,16 @@
+import { commonLocales } from "@hermes/shared/i18n-common";
 import type { Translations } from "./types";
 
 export const ja: Translations = {
   common: {
-    save: "保存",
+    ...commonLocales.ja.common,
     saving: "保存中...",
-    cancel: "キャンセル",
-    close: "閉じる",
-    confirm: "確認",
-    delete: "削除",
-    refresh: "更新",
-    retry: "再試行",
     search: "検索...",
     loading: "読み込み中...",
     create: "作成",
     creating: "作成中...",
-    set: "設定",
     replace: "置換",
-    clear: "クリア",
     live: "ライブ",
-    off: "オフ",
     enabled: "有効",
     disabled: "無効",
     active: "アクティブ",
@@ -39,8 +31,6 @@ export const ja: Translations = {
     failedToToggle: "切り替えに失敗しました",
     failedToRemove: "削除に失敗しました",
     failedToReveal: "表示に失敗しました",
-    collapse: "折りたたむ",
-    expand: "展開",
     general: "一般",
     messaging: "メッセージング",
     pluginLoadFailed:
@@ -224,6 +214,7 @@ export const ja: Translations = {
   },
 
   cron: {
+    ...commonLocales.ja.cron,
     confirmDeleteMessage:
       "ジョブをスケジュールから削除します。この操作は取り消せません。",
     confirmDeleteTitle: "スケジュールされたジョブを削除しますか？",
@@ -275,7 +266,6 @@ export const ja: Translations = {
     next: "次回",
     pause: "一時停止",
     resume: "再開",
-    triggerNow: "今すぐ実行",
     delivery: {
       local: "ローカル",
       telegram: "Telegram",
@@ -286,6 +276,7 @@ export const ja: Translations = {
   },
 
   profiles: {
+    ...commonLocales.ja.profiles,
     newProfile: "新しいプロファイル",
     name: "名前",
     namePlaceholder: "例: coder, writer など",
@@ -293,19 +284,16 @@ export const ja: Translations = {
     nameRule:
       "小文字、数字、_ および - のみ使用可能。最初は文字または数字で始める必要があります。最大 64 文字。",
     invalidName: "無効なプロファイル名",    cloneFrom: "プロファイルから複製",
-    cloneFromNone: "なし（空）",
     allProfiles: "プロファイル",
     noProfiles: "プロファイルが見つかりません。",
     defaultBadge: "デフォルト",
     hasEnv: "env",
     model: "モデル",
     skills: "スキル",
-    rename: "名前を変更",
     editSoul: "SOUL.md を編集",
     soulSection: "SOUL.md (パーソナリティ / システムプロンプト)",
     soulPlaceholder: "# このエージェントの振る舞い…",
     saveSoul: "SOUL を保存",
-    soulSaved: "SOUL.md を保存しました",
     openInTerminal: "CLI コマンドをコピー",
     commandCopied: "クリップボードにコピーしました",
     copyFailed: "コピーできませんでした",
@@ -359,10 +347,10 @@ export const ja: Translations = {
   },
 
   skills: {
+    ...commonLocales.ja.skills,
     title: "スキル",
     searchPlaceholder: "スキルとツールセットを検索...",
     enabledOf: "{enabled}/{total} 有効",
-    all: "すべて",
     categories: "カテゴリ",
     filters: "フィルター",
     noSkills: "スキルが見つかりません。スキルは ~/.hermes/skills/ から読み込まれます",
@@ -493,7 +481,7 @@ export const ja: Translations = {
   },
 
   language: {
-    switchTo: "言語を切り替え",
+    ...commonLocales.ja.language,
   },
 
   theme: {

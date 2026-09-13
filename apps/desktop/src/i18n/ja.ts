@@ -1,3 +1,5 @@
+import { commonLocales } from '@hermes/shared/i18n-common'
+
 import { defineFieldCopy } from '@/app/settings/field-copy'
 
 import { defineLocale } from './define-locale'
@@ -37,45 +39,33 @@ export const ja = defineLocale({
     importError: '会話を取り込めませんでした。'
   },
   common: {
+    ...commonLocales.ja.common,
     apply: '適用',
     back: '戻る',
-    save: '保存',
     saving: '保存中…',
-    cancel: 'キャンセル',
     change: '変更',
     choose: '選択',
-    clear: 'クリア',
-    close: '閉じる',
-    collapse: '折りたたむ',
-    confirm: '確認',
     connect: '接続',
     connecting: '接続中',
     continue: '続ける',
     copied: 'コピーしました',
     copy: 'コピー',
     copyFailed: 'コピーに失敗しました',
-    delete: '削除',
     docs: 'ドキュメント',
     done: '完了',
     error: 'エラー',
-    expand: '展開',
     failed: '失敗',
     formatJson: 'JSON を整形',
     free: '無料',
     loading: '読み込み中…',
     notSet: '未設定',
-    refresh: '更新',
     remove: '削除',
-    replace: '置き換え',
-    retry: '再試行',
     run: '実行',
     send: '送信',
-    set: '設定',
     skip: 'スキップ',
     update: '更新',
     tryHint: term => `「${term}」を試す`,
-    on: 'オン',
-    off: 'オフ'
+    on: 'オン'
   },
 
   fileMenu: {
@@ -289,11 +279,11 @@ export const ja = defineLocale({
   },
 
   language: {
+    ...commonLocales.ja.language,
     label: '言語',
     description: 'デスクトップインターフェイスの言語を選択します。',
     saving: '言語を保存中…',
     saveError: '言語の更新に失敗しました',
-    switchTo: '言語を切り替え',
     searchPlaceholder: '言語を検索…',
     noResults: '言語が見つかりません'
   },
@@ -1414,10 +1404,10 @@ export const ja = defineLocale({
   },
 
   skills: {
+    ...commonLocales.ja.skills,
     tabSkills: 'スキル',
     tabToolsets: 'ツールセット',
     tabMcp: 'MCP',
-    all: 'すべて',
     searchSkills: 'スキルを検索...',
     searchToolsets: 'ツールセットを検索...',
     refresh: 'スキルを更新',
@@ -1848,6 +1838,7 @@ export const ja = defineLocale({
   },
 
   profiles: {
+    ...commonLocales.ja.profiles,
     close: 'プロファイルを閉じる',
     nameHint: '小文字、数字、ハイフン、アンダースコア。文字または数字で始める必要があります。',
     title: 'プロファイル',
@@ -1913,7 +1904,6 @@ export const ja = defineLocale({
     skills: count => `${count} スキル`,
     env: 'env',
     defaultBadge: 'デフォルト',
-    rename: '名前を変更',
     renameMenu: '名前を変更…',
     exportMenu: 'エクスポート…',
     editSoul: 'SOUL.md を編集…',
@@ -1941,7 +1931,6 @@ export const ja = defineLocale({
     createDesc: 'プロファイルは独立した Hermes 環境です：設定、スキル、SOUL.md が別々になります。',
     nameLabel: '名前',
     cloneFrom: '複製元',
-    cloneFromNone: 'なし（空）',
     cloneFromDesc: '選択したプロファイルから設定、スキル、SOUL.md をコピーします。',
     cloneFromDefault: 'デフォルトプロファイルから設定を複製',
     cloneFromDefaultDesc: 'デフォルトプロファイルから設定、スキル、SOUL.md をコピーします。',
@@ -1958,7 +1947,6 @@ export const ja = defineLocale({
     renamed: '名前を変更しました',
     deleted: '削除しました',
     setupCopied: 'セットアップコマンドをコピーしました',
-    soulSaved: 'SOUL.md を保存しました',
     failedLoad: 'プロファイルの読み込みに失敗しました',
     failedDelete: 'プロファイルの削除に失敗しました',
     failedCopy: 'セットアップコマンドのコピーに失敗しました',
@@ -1969,6 +1957,7 @@ export const ja = defineLocale({
   },
 
   cron: {
+    ...commonLocales.ja.cron,
     close: 'Cron を閉じる',
     title: 'スケジュール済みジョブ',
     count: count => `${count} 件のジョブ`,
@@ -2056,7 +2045,6 @@ export const ja = defineLocale({
     pause: '一時停止',
     resumeTitle: '再開',
     pauseTitle: '一時停止',
-    triggerNow: '今すぐ実行',
     edit: 'Cron を編集',
     deleteTitle: 'Cron ジョブを削除しますか？',
     deleteDescPrefix: 'これにより ',

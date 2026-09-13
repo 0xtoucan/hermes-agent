@@ -1,22 +1,15 @@
+import { commonLocales } from "@hermes/shared/i18n-common";
 import { defineLocale } from "./define-locale";
 
 export const ar = defineLocale({
   common: {
-    save: "حفظ",
+    ...commonLocales.ar.common,
     saving: "جاري الحفظ...",
-    cancel: "إلغاء",
-    close: "إغلاق",
-    confirm: "تأكيد",
-    delete: "حذف",
-    refresh: "تحديث",
-    retry: "إعادة المحاولة",
     search: "بحث...",
     loading: "جاري التحميل...",
     create: "إنشاء",
     creating: "جاري الإنشاء...",
     set: "تعيين",
-    replace: "استبدال",
-    clear: "مسح",
     live: "مباشر",
     off: "مغلق",
     enabled: "مفعّل",
@@ -39,8 +32,6 @@ export const ar = defineLocale({
     failedToToggle: "فشل التبديل",
     failedToRemove: "فشل الحذف",
     failedToReveal: "فشل الإظهار",
-    collapse: "طي",
-    expand: "توسيع",
     general: "عام",
     messaging: "مراسلة",
     pluginLoadFailed:
@@ -205,6 +196,7 @@ export const ar = defineLocale({
   },
 
   cron: {
+    ...commonLocales.ar.cron,
     confirmDeleteMessage:
       "يزيل هذا المهمة من الجدولة. لا يمكن التراجع عن الإجراء.",
     confirmDeleteTitle: "حذف المهمة المجدولة؟",
@@ -222,7 +214,6 @@ export const ar = defineLocale({
     next: "التالي",
     pause: "إيقاف مؤقت",
     resume: "استئناف",
-    triggerNow: "تشغيل الآن",
     delivery: {
       local: "محلي",
       telegram: "Telegram",
@@ -233,6 +224,7 @@ export const ar = defineLocale({
   },
 
   profiles: {
+    ...commonLocales.ar.profiles,
     newProfile: "ملف شخصي جديد",
     name: "الاسم",
     namePlaceholder: "مثال: coder, writer, إلخ.",
@@ -246,7 +238,6 @@ export const ar = defineLocale({
     hasEnv: "env",
     model: "النموذج",
     skills: "المهارات",
-    rename: "إعادة تسمية",
     editSoul: "تعديل SOUL.md",
     soulSection: "SOUL.md (شخصية / موجه النظام)",
     soulPlaceholder: "# كيف يجب أن يتصرف هذا العامل…",
@@ -305,10 +296,10 @@ export const ar = defineLocale({
   },
 
   skills: {
+    ...commonLocales.ar.skills,
     title: "المهارات",
     searchPlaceholder: "بحث في المهارات ومجموعات الأدوات...",
     enabledOf: "{enabled}/{total} مفعلة",
-    all: "الكل",
     categories: "الفئات",
     filters: "الفلاتر",
     noSkills: "لم يُعثر على مهارات. يتم تحميل المهارات من ~/.hermes/skills/",
@@ -426,6 +417,7 @@ export const ar = defineLocale({
   },
 
   language: {
+    ...commonLocales.ar.language,
     switchTo: "التبديل إلى الإنجليزية",
   },
 

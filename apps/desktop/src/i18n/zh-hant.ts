@@ -1,3 +1,5 @@
+import { commonLocales } from '@hermes/shared/i18n-common'
+
 import { defineFieldCopy } from '@/app/settings/field-copy'
 
 import { defineLocale } from './define-locale'
@@ -37,45 +39,33 @@ export const zhHant = defineLocale({
     importError: '無法匯入此對話。'
   },
   common: {
+    ...commonLocales['zh-hant'].common,
     apply: '套用',
     back: '返回',
-    save: '儲存',
     saving: '儲存中…',
-    cancel: '取消',
     change: '變更',
     choose: '選擇',
-    clear: '清除',
-    close: '關閉',
-    collapse: '收合',
-    confirm: '確認',
     connect: '連線',
     connecting: '連線中',
     continue: '繼續',
     copied: '已複製',
     copy: '複製',
     copyFailed: '複製失敗',
-    delete: '刪除',
     docs: '文件',
     done: '完成',
     error: '錯誤',
-    expand: '展開',
     failed: '失敗',
     formatJson: '格式化 JSON',
     free: '免費',
     loading: '載入中…',
     notSet: '未設定',
-    refresh: '重新整理',
     remove: '移除',
-    replace: '取代',
-    retry: '重試',
     run: '執行',
     send: '傳送',
-    set: '設定',
     skip: '略過',
     update: '更新',
     tryHint: term => `試試「${term}」`,
-    on: '開啟',
-    off: '關閉'
+    on: '開啟'
   },
 
   fileMenu: {
@@ -280,11 +270,11 @@ export const zhHant = defineLocale({
   },
 
   language: {
+    ...commonLocales['zh-hant'].language,
     label: '語言',
     description: '選擇桌面介面的語言。',
     saving: '正在儲存語言…',
     saveError: '語言更新失敗',
-    switchTo: '切換語言',
     searchPlaceholder: '搜尋語言…',
     noResults: '找不到語言'
   },
@@ -1357,10 +1347,10 @@ export const zhHant = defineLocale({
   },
 
   skills: {
+    ...commonLocales['zh-hant'].skills,
     tabSkills: '技能',
     tabToolsets: '工具集',
     tabMcp: 'MCP',
-    all: '全部',
     searchSkills: '搜尋技能...',
     searchToolsets: '搜尋工具集...',
     refresh: '重新整理技能',
@@ -1772,6 +1762,7 @@ export const zhHant = defineLocale({
   },
 
   profiles: {
+    ...commonLocales['zh-hant'].profiles,
     close: '關閉設定檔',
     nameHint: '小寫字母、數字、連字號和底線。必須以字母或數字開頭。',
     title: '設定檔',
@@ -1834,7 +1825,6 @@ export const zhHant = defineLocale({
     skills: count => `${count} 個技能`,
     env: 'env',
     defaultBadge: '預設',
-    rename: '重新命名',
     renameMenu: '重新命名…',
     exportMenu: '匯出…',
     editSoul: '編輯 SOUL.md…',
@@ -1861,7 +1851,6 @@ export const zhHant = defineLocale({
     createDesc: '設定檔是獨立的 Hermes 環境：各自擁有獨立的設定、技能和 SOUL.md。',
     nameLabel: '名稱',
     cloneFrom: '複製來源',
-    cloneFromNone: '無（空白）',
     cloneFromDesc: '從選取的來源設定檔複製設定、技能和 SOUL.md。',
     cloneFromDefault: '從預設設定檔複製設定',
     cloneFromDefaultDesc: '從您的預設設定檔複製設定、技能和 SOUL.md。',
@@ -1878,7 +1867,6 @@ export const zhHant = defineLocale({
     renamed: '已重新命名',
     deleted: '已刪除',
     setupCopied: '安裝指令已複製',
-    soulSaved: 'SOUL.md 已儲存',
     failedLoad: '載入設定檔失敗',
     failedDelete: '刪除設定檔失敗',
     failedCopy: '複製安裝指令失敗',
@@ -1889,6 +1877,7 @@ export const zhHant = defineLocale({
   },
 
   cron: {
+    ...commonLocales['zh-hant'].cron,
     close: '關閉排程',
     title: '排程工作',
     count: count => `${count} 個工作`,
@@ -1974,7 +1963,6 @@ export const zhHant = defineLocale({
     pause: '暫停',
     resumeTitle: '繼續',
     pauseTitle: '暫停',
-    triggerNow: '立即觸發',
     edit: '編輯排程工作',
     deleteTitle: '刪除排程工作？',
     deleteDescPrefix: '這將永久移除 ',

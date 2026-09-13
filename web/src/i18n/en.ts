@@ -1,24 +1,15 @@
+import { commonEn } from "@hermes/shared/i18n-common";
 import type { Translations } from "./types";
 
 export const en: Translations = {
   common: {
-    save: "Save",
+    ...commonEn.common,
     saving: "Saving...",
-    cancel: "Cancel",
-    close: "Close",
-    confirm: "Confirm",
-    delete: "Delete",
-    refresh: "Refresh",
-    retry: "Retry",
     search: "Search...",
     loading: "Loading...",
     create: "Create",
     creating: "Creating...",
-    set: "Set",
-    replace: "Replace",
-    clear: "Clear",
     live: "Live",
-    off: "Off",
     enabled: "enabled",
     disabled: "disabled",
     active: "active",
@@ -39,8 +30,6 @@ export const en: Translations = {
     failedToToggle: "Failed to toggle",
     failedToRemove: "Failed to remove",
     failedToReveal: "Failed to reveal",
-    collapse: "Collapse",
-    expand: "Expand",
     general: "General",
     messaging: "Messaging",
     gateway: "Gateway",
@@ -249,6 +238,7 @@ export const en: Translations = {
   },
 
   cron: {
+    ...commonEn.cron,
     confirmDeleteMessage:
       "This removes the job from the schedule. This cannot be undone.",
     confirmDeleteTitle: "Delete scheduled job?",
@@ -301,7 +291,6 @@ export const en: Translations = {
     next: "Next",
     pause: "Pause",
     resume: "Resume",
-    triggerNow: "Trigger now",
     delivery: {
       local: "Local",
       telegram: "Telegram",
@@ -315,6 +304,7 @@ export const en: Translations = {
   },
 
   profiles: {
+    ...commonEn.profiles,
     newProfile: "New Profile",
     name: "Name",
     namePlaceholder: "e.g. coder, writer, etc.",
@@ -323,19 +313,16 @@ export const en: Translations = {
       "Lowercase letters, digits, _ and - only; must start with a letter or digit; up to 64 characters.",
     invalidName: "Invalid profile name",
     cloneFrom: "Clone config from",
-    cloneFromNone: "None (blank)",
     allProfiles: "Profiles",
     noProfiles: "No profiles found.",
     defaultBadge: "default",
     hasEnv: "env",
     model: "Model",
     skills: "Skills",
-    rename: "Rename",
     editSoul: "Edit SOUL.md",
     soulSection: "SOUL.md (personality / system prompt)",
     soulPlaceholder: "# How this agent should behave…",
     saveSoul: "Save SOUL",
-    soulSaved: "SOUL.md saved",
     openInTerminal: "Copy CLI command",
     commandCopied: "Copied to clipboard",
     copyFailed: "Could not copy",
@@ -436,10 +423,10 @@ export const en: Translations = {
   },
 
   skills: {
+    ...commonEn.skills,
     title: "Skills",
     searchPlaceholder: "Search skills and toolsets...",
     enabledOf: "{enabled}/{total} enabled",
-    all: "All",
     categories: "Categories",
     filters: "Filters",
     noSkills: "No skills found. Skills are loaded from ~/.hermes/skills/",
@@ -574,7 +561,7 @@ export const en: Translations = {
   },
 
   language: {
-    switchTo: "Switch language",
+    ...commonEn.language,
   },
 
   theme: {

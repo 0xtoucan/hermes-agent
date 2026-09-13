@@ -1,3 +1,5 @@
+import { commonEn } from '@hermes/shared/i18n-common'
+
 import { FIELD_DESCRIPTIONS, FIELD_LABELS } from '@/app/settings/constants'
 
 import type { Translations } from './types'
@@ -73,45 +75,33 @@ export const en: Translations = {
     importError: 'Could not import this conversation.'
   },
   common: {
+    ...commonEn.common,
     apply: 'Apply',
     back: 'Back',
-    save: 'Save',
     saving: 'Saving…',
-    cancel: 'Cancel',
     change: 'Change',
     choose: 'Choose',
-    clear: 'Clear',
-    close: 'Close',
-    collapse: 'Collapse',
-    confirm: 'Confirm',
     connect: 'Connect',
     connecting: 'Connecting',
     continue: 'Continue',
     copied: 'Copied',
     copy: 'Copy',
     copyFailed: 'Copy failed',
-    delete: 'Delete',
     docs: 'Docs',
     done: 'Done',
     error: 'Error',
-    expand: 'Expand',
     failed: 'Failed',
     formatJson: 'Format JSON',
     free: 'Free',
     loading: 'Loading…',
     notSet: 'Not set',
-    refresh: 'Refresh',
     remove: 'Remove',
-    replace: 'Replace',
-    retry: 'Retry',
     run: 'Run',
     send: 'Send',
-    set: 'Set',
     skip: 'Skip',
     update: 'Update',
     tryHint: term => `Try “${term}”`,
-    on: 'On',
-    off: 'Off'
+    on: 'On'
   },
 
   fileMenu: {
@@ -446,11 +436,11 @@ export const en: Translations = {
   },
 
   language: {
+    ...commonEn.language,
     label: 'Language',
     description: 'Choose the language for the desktop interface.',
     saving: 'Saving language…',
     saveError: 'Language update failed',
-    switchTo: 'Switch language',
     searchPlaceholder: 'Search languages…',
     noResults: 'No languages found'
   },
@@ -1576,11 +1566,11 @@ export const en: Translations = {
   },
 
   skills: {
+    ...commonEn.skills,
     tabSkills: 'Skills',
     tabToolsets: 'Tools',
     configuringProfile: 'Configuring:',
     tabMcp: 'MCP',
-    all: 'All',
     searchSkills: 'Search skills...',
     searchToolsets: 'Search tools...',
     refresh: 'Refresh skills',
@@ -2252,6 +2242,7 @@ export const en: Translations = {
   },
 
   profiles: {
+    ...commonEn.profiles,
     close: 'Close profiles',
     nameHint: 'Lowercase letters, digits, hyphens, and underscores. Must start with a letter or digit.',
     title: 'Profiles',
@@ -2325,7 +2316,6 @@ export const en: Translations = {
     skills: count => `${count} ${count === 1 ? 'skill' : 'skills'}`,
     env: 'env',
     defaultBadge: 'Default',
-    rename: 'Rename',
     renameMenu: 'Rename…',
     exportMenu: 'Export…',
     editSoul: 'Edit SOUL.md…',
@@ -2352,7 +2342,6 @@ export const en: Translations = {
     createDesc: 'Profiles are independent Hermes environments: separate config, skills, and SOUL.md.',
     nameLabel: 'Name',
     cloneFrom: 'Clone from',
-    cloneFromNone: 'None (blank)',
     cloneFromDesc: 'Copies config, skills, and SOUL.md from the selected source profile.',
     cloneFromDefault: 'Clone from default',
     cloneFromDefaultDesc: 'Copy config, skills, and SOUL.md from your default profile.',
@@ -2372,7 +2361,6 @@ export const en: Translations = {
     renamed: 'Profile renamed',
     deleted: 'Profile deleted',
     setupCopied: 'Setup command copied',
-    soulSaved: 'SOUL.md saved',
     failedLoad: 'Failed to load profiles',
     failedDelete: 'Failed to delete profile',
     failedCopy: 'Failed to copy setup command',
@@ -2383,6 +2371,7 @@ export const en: Translations = {
   },
 
   cron: {
+    ...commonEn.cron,
     close: 'Close cron',
     title: 'Scheduled jobs',
     count: count => `${count} ${count === 1 ? 'job' : 'jobs'}`,
@@ -2469,7 +2458,6 @@ export const en: Translations = {
     pause: 'Pause cron',
     resumeTitle: 'Resume',
     pauseTitle: 'Pause',
-    triggerNow: 'Trigger now',
     edit: 'Edit cron',
     deleteTitle: 'Delete cron job?',
     deleteDescPrefix: 'This will remove ',

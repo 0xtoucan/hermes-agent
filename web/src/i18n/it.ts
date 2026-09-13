@@ -1,24 +1,15 @@
+import { commonLocales } from "@hermes/shared/i18n-common";
 import type { Translations } from "./types";
 
 export const it: Translations = {
   common: {
-    save: "Salva",
+    ...commonLocales.it.common,
     saving: "Salvataggio...",
-    cancel: "Annulla",
-    close: "Chiudi",
-    confirm: "Conferma",
-    delete: "Elimina",
-    refresh: "Aggiorna",
-    retry: "Riprova",
     search: "Cerca...",
     loading: "Caricamento...",
     create: "Crea",
     creating: "Creazione...",
-    set: "Imposta",
-    replace: "Sostituisci",
-    clear: "Cancella",
     live: "In tempo reale",
-    off: "Spento",
     enabled: "abilitato",
     disabled: "disabilitato",
     active: "attivo",
@@ -39,8 +30,6 @@ export const it: Translations = {
     failedToToggle: "Commutazione non riuscita",
     failedToRemove: "Rimozione non riuscita",
     failedToReveal: "Visualizzazione non riuscita",
-    collapse: "Comprimi",
-    expand: "Espandi",
     general: "Generale",
     messaging: "Messaggistica",
     pluginLoadFailed:
@@ -224,6 +213,7 @@ export const it: Translations = {
   },
 
   cron: {
+    ...commonLocales.it.cron,
     confirmDeleteMessage:
       "Questa operazione rimuove l'attività dalla pianificazione. Non può essere annullata.",
     confirmDeleteTitle: "Eliminare l'attività pianificata?",
@@ -276,7 +266,6 @@ export const it: Translations = {
     next: "Prossima",
     pause: "Pausa",
     resume: "Riprendi",
-    triggerNow: "Esegui ora",
     delivery: {
       local: "Locale",
       telegram: "Telegram",
@@ -287,6 +276,7 @@ export const it: Translations = {
   },
 
   profiles: {
+    ...commonLocales.it.profiles,
     newProfile: "Nuovo profilo",
     name: "Nome",
     namePlaceholder: "es. coder, writer, ecc.",
@@ -294,19 +284,16 @@ export const it: Translations = {
     nameRule:
       "Solo lettere minuscole, cifre, _ e -; deve iniziare con una lettera o cifra; fino a 64 caratteri.",
     invalidName: "Nome del profilo non valido",    cloneFrom: "Clona configurazione dal profilo",
-    cloneFromNone: "Nessuno (vuoto)",
     allProfiles: "Profili",
     noProfiles: "Nessun profilo trovato.",
     defaultBadge: "predefinito",
     hasEnv: "env",
     model: "Modello",
     skills: "Competenze",
-    rename: "Rinomina",
     editSoul: "Modifica SOUL.md",
     soulSection: "SOUL.md (personalità / prompt di sistema)",
     soulPlaceholder: "# Come dovrebbe comportarsi questo agente…",
     saveSoul: "Salva SOUL",
-    soulSaved: "SOUL.md salvato",
     openInTerminal: "Copia comando CLI",
     commandCopied: "Copiato negli appunti",
     copyFailed: "Impossibile copiare",
@@ -360,10 +347,10 @@ export const it: Translations = {
   },
 
   skills: {
+    ...commonLocales.it.skills,
     title: "Competenze",
     searchPlaceholder: "Cerca competenze e toolset...",
     enabledOf: "{enabled}/{total} abilitati",
-    all: "Tutti",
     categories: "Categorie",
     filters: "Filtri",
     noSkills: "Nessuna competenza trovata. Le competenze vengono caricate da ~/.hermes/skills/",
@@ -494,7 +481,7 @@ export const it: Translations = {
   },
 
   language: {
-    switchTo: "Cambia lingua",
+    ...commonLocales.it.language,
   },
 
   theme: {

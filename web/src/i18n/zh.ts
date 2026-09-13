@@ -1,22 +1,14 @@
+import { commonLocales } from "@hermes/shared/i18n-common";
 import type { Translations } from "./types";
 
 export const zh: Translations = {
   common: {
-    save: "保存",
+    ...commonLocales.zh.common,
     saving: "保存中...",
-    cancel: "取消",
-    close: "关闭",
-    confirm: "确认",
-    delete: "删除",
-    refresh: "刷新",
-    retry: "重试",
     search: "搜索...",
     loading: "加载中...",
     create: "创建",
     creating: "创建中...",
-    set: "设置",
-    replace: "替换",
-    clear: "清除",
     live: "在线",
     off: "离线",
     enabled: "已启用",
@@ -40,7 +32,6 @@ export const zh: Translations = {
     failedToRemove: "移除失败",
     failedToReveal: "显示失败",
     collapse: "折叠",
-    expand: "展开",
     general: "通用",
     messaging: "消息平台",
     pluginLoadFailed:
@@ -222,6 +213,7 @@ export const zh: Translations = {
   },
 
   cron: {
+    ...commonLocales.zh.cron,
     confirmDeleteMessage: "将从此计划移除该任务，此操作无法撤销。",
     confirmDeleteTitle: "删除定时任务？",
     newJob: "新建定时任务",
@@ -272,7 +264,6 @@ export const zh: Translations = {
     next: "下次",
     pause: "暂停",
     resume: "恢复",
-    triggerNow: "立即触发",
     delivery: {
       local: "本地",
       telegram: "Telegram",
@@ -283,6 +274,7 @@ export const zh: Translations = {
   },
 
   profiles: {
+    ...commonLocales.zh.profiles,
     newProfile: "新建多Agent配置",
     name: "名称",
     namePlaceholder: "例如：coder, writer 等",
@@ -290,19 +282,16 @@ export const zh: Translations = {
     nameRule:
       "仅允许小写字母、数字、下划线和短横线；首字符必须是字母或数字；最多 64 个字符。",
     invalidName: "多Agent配置名称非法",    cloneFrom: "从配置文件克隆",
-    cloneFromNone: "无（空白）",
     allProfiles: "多Agent配置列表",
     noProfiles: "暂无多Agent配置。",
     defaultBadge: "默认",
     hasEnv: "已配置 env",
     model: "模型",
     skills: "技能",
-    rename: "重命名",
     editSoul: "编辑 SOUL.md",
     soulSection: "SOUL.md（人格 / 系统提示词）",
     soulPlaceholder: "# 这个代理应当如何工作……",
     saveSoul: "保存 SOUL",
-    soulSaved: "SOUL.md 已保存",
     openInTerminal: "复制 CLI 命令",
     commandCopied: "已复制到剪贴板",
     copyFailed: "复制失败",
@@ -355,10 +344,10 @@ export const zh: Translations = {
   },
 
   skills: {
+    ...commonLocales.zh.skills,
     title: "技能",
     searchPlaceholder: "搜索技能和工具集...",
     enabledOf: "已启用 {enabled}/{total}",
-    all: "全部",
     categories: "分类",
     filters: "筛选",
     noSkills: "未找到技能。技能从 ~/.hermes/skills/ 加载",
@@ -488,7 +477,7 @@ export const zh: Translations = {
   },
 
   language: {
-    switchTo: "切换语言",
+    ...commonLocales.zh.language,
   },
 
   theme: {

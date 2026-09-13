@@ -1,24 +1,15 @@
+import { commonLocales } from "@hermes/shared/i18n-common";
 import type { Translations } from "./types";
 
 export const af: Translations = {
   common: {
-    save: "Stoor",
+    ...commonLocales.af.common,
     saving: "Besig om te stoor...",
-    cancel: "Kanselleer",
-    close: "Maak toe",
-    confirm: "Bevestig",
-    delete: "Skrap",
-    refresh: "Herlaai",
-    retry: "Probeer weer",
     search: "Soek...",
     loading: "Besig om te laai...",
     create: "Skep",
     creating: "Besig om te skep...",
-    set: "Stel",
-    replace: "Vervang",
-    clear: "Vee uit",
     live: "Lewendig",
-    off: "Af",
     enabled: "geaktiveer",
     disabled: "gedeaktiveer",
     active: "aktief",
@@ -39,8 +30,6 @@ export const af: Translations = {
     failedToToggle: "Kon nie wissel nie",
     failedToRemove: "Kon nie verwyder nie",
     failedToReveal: "Kon nie openbaar nie",
-    collapse: "Vou in",
-    expand: "Vou uit",
     general: "Algemeen",
     messaging: "Boodskappe",
     pluginLoadFailed:
@@ -224,6 +213,7 @@ export const af: Translations = {
   },
 
   cron: {
+    ...commonLocales.af.cron,
     confirmDeleteMessage:
       "Dit verwyder die taak van die skedule. Dit kan nie ongedaan gemaak word nie.",
     confirmDeleteTitle: "Skrap geskeduleerde taak?",
@@ -276,7 +266,6 @@ export const af: Translations = {
     next: "Volgende",
     pause: "Pouse",
     resume: "Hervat",
-    triggerNow: "Voer nou uit",
     delivery: {
       local: "Plaaslik",
       telegram: "Telegram",
@@ -287,6 +276,7 @@ export const af: Translations = {
   },
 
   profiles: {
+    ...commonLocales.af.profiles,
     newProfile: "Nuwe Profiel",
     name: "Naam",
     namePlaceholder: "bv. coder, writer, ens.",
@@ -294,19 +284,16 @@ export const af: Translations = {
     nameRule:
       "Slegs kleinletters, syfers, _ en -; moet met 'n letter of syfer begin; tot 64 karakters.",
     invalidName: "Ongeldige profielnaam",    cloneFrom: "Kloon konfigurasie vanaf profiel",
-    cloneFromNone: "Geen (leeg)",
     allProfiles: "Profiele",
     noProfiles: "Geen profiele gevind nie.",
     defaultBadge: "verstek",
     hasEnv: "env",
     model: "Model",
     skills: "Vaardighede",
-    rename: "Hernoem",
     editSoul: "Wysig SOUL.md",
     soulSection: "SOUL.md (persoonlikheid / stelselopdrag)",
     soulPlaceholder: "# Hoe hierdie agent moet optree…",
     saveSoul: "Stoor SOUL",
-    soulSaved: "SOUL.md gestoor",
     openInTerminal: "Kopieer CLI-opdrag",
     commandCopied: "Na knipbord gekopieer",
     copyFailed: "Kon nie kopieer nie",
@@ -360,10 +347,10 @@ export const af: Translations = {
   },
 
   skills: {
+    ...commonLocales.af.skills,
     title: "Vaardighede",
     searchPlaceholder: "Soek vaardighede en gereedskapstelle...",
     enabledOf: "{enabled}/{total} geaktiveer",
-    all: "Alles",
     categories: "Kategorieë",
     filters: "Filters",
     noSkills: "Geen vaardighede gevind nie. Vaardighede word gelaai uit ~/.hermes/skills/",
@@ -494,7 +481,7 @@ export const af: Translations = {
   },
 
   language: {
-    switchTo: "Verander taal",
+    ...commonLocales.af.language,
   },
 
   theme: {

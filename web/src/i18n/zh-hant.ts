@@ -1,22 +1,14 @@
+import { commonLocales } from "@hermes/shared/i18n-common";
 import type { Translations } from "./types";
 
 export const zhHant: Translations = {
   common: {
-    save: "儲存",
+    ...commonLocales['zh-hant'].common,
     saving: "儲存中...",
-    cancel: "取消",
-    close: "關閉",
-    confirm: "確認",
-    delete: "刪除",
-    refresh: "重新整理",
-    retry: "重試",
     search: "搜尋...",
     loading: "載入中...",
     create: "建立",
     creating: "建立中...",
-    set: "設定",
-    replace: "取代",
-    clear: "清除",
     live: "線上",
     off: "離線",
     enabled: "已啟用",
@@ -39,8 +31,6 @@ export const zhHant: Translations = {
     failedToToggle: "切換失敗",
     failedToRemove: "移除失敗",
     failedToReveal: "顯示失敗",
-    collapse: "收合",
-    expand: "展開",
     general: "一般",
     messaging: "訊息平台",
     pluginLoadFailed:
@@ -224,6 +214,7 @@ export const zhHant: Translations = {
   },
 
   cron: {
+    ...commonLocales['zh-hant'].cron,
     confirmDeleteMessage:
       "將從排程移除此任務，此操作無法復原。",
     confirmDeleteTitle: "刪除排程任務？",
@@ -275,7 +266,6 @@ export const zhHant: Translations = {
     next: "下次",
     pause: "暫停",
     resume: "繼續",
-    triggerNow: "立即觸發",
     delivery: {
       local: "本機",
       telegram: "Telegram",
@@ -286,6 +276,7 @@ export const zhHant: Translations = {
   },
 
   profiles: {
+    ...commonLocales['zh-hant'].profiles,
     newProfile: "新增設定檔",
     name: "名稱",
     namePlaceholder: "例如：coder、writer 等",
@@ -293,19 +284,16 @@ export const zhHant: Translations = {
     nameRule:
       "僅允許小寫字母、數字、底線及連字號；首字必須為字母或數字；最多 64 個字元。",
     invalidName: "設定檔名稱無效",    cloneFrom: "從設定檔複製",
-    cloneFromNone: "無（空白）",
     allProfiles: "設定檔",
     noProfiles: "找不到設定檔。",
     defaultBadge: "預設",
     hasEnv: "env",
     model: "模型",
     skills: "技能",
-    rename: "重新命名",
     editSoul: "編輯 SOUL.md",
     soulSection: "SOUL.md（人格 / 系統提示詞）",
     soulPlaceholder: "# 此代理應如何運作…",
     saveSoul: "儲存 SOUL",
-    soulSaved: "SOUL.md 已儲存",
     openInTerminal: "複製 CLI 指令",
     commandCopied: "已複製到剪貼簿",
     copyFailed: "複製失敗",
@@ -359,10 +347,10 @@ export const zhHant: Translations = {
   },
 
   skills: {
+    ...commonLocales['zh-hant'].skills,
     title: "技能",
     searchPlaceholder: "搜尋技能與工具集...",
     enabledOf: "已啟用 {enabled}/{total}",
-    all: "全部",
     categories: "分類",
     filters: "篩選",
     noSkills: "找不到技能。技能由 ~/.hermes/skills/ 載入",
@@ -493,7 +481,7 @@ export const zhHant: Translations = {
   },
 
   language: {
-    switchTo: "切換語言",
+    ...commonLocales['zh-hant'].language,
   },
 
   theme: {

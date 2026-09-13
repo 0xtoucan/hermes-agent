@@ -1,3 +1,5 @@
+import { commonLocales } from '@hermes/shared/i18n-common'
+
 import { defineLocale } from './define-locale'
 
 export const ar = defineLocale({
@@ -57,24 +59,18 @@ export const ar = defineLocale({
     }
   },
   common: {
+    ...commonLocales.ar.common,
     apply: 'تطبيق',
     back: 'رجوع',
-    save: 'حفظ',
     saving: 'جار الحفظ...',
-    cancel: 'إلغاء',
     change: 'تغيير',
     choose: 'اختيار',
-    clear: 'مسح',
-    close: 'إغلاق',
-    collapse: 'طي',
-    confirm: 'تأكيد',
     connect: 'اتصال',
     connecting: 'جار الاتصال',
     continue: 'متابعة',
     copied: 'تم النسخ',
     copy: 'نسخ',
     copyFailed: 'فشل النسخ',
-    delete: 'حذف',
     docs: 'الوثائق',
     done: 'تم',
     error: 'خطأ',
@@ -82,17 +78,12 @@ export const ar = defineLocale({
     free: 'مجاني',
     loading: 'جار التحميل...',
     notSet: 'غير مضبوط',
-    refresh: 'تحديث',
     remove: 'إزالة',
-    replace: 'استبدال',
-    retry: 'إعادة المحاولة',
     run: 'تشغيل',
     send: 'إرسال',
-    set: 'ضبط',
     skip: 'تخطي',
     update: 'تحديث',
-    on: 'مفعل',
-    off: 'معطل'
+    on: 'مفعل'
   },
   fileMenu: {
     revealFinder: 'إظهار في Finder',
@@ -354,11 +345,11 @@ export const ar = defineLocale({
     }
   },
   language: {
+    ...commonLocales.ar.language,
     label: 'اللغة',
     description: 'اختر لغة واجهة سطح المكتب.',
     saving: 'جار حفظ اللغة...',
     saveError: 'تعذر تحديث اللغة',
-    switchTo: 'تغيير اللغة',
     searchPlaceholder: 'ابحث عن لغة...',
     noResults: 'لا توجد لغة مطابقة'
   },
@@ -1116,9 +1107,9 @@ export const ar = defineLocale({
     }
   },
   skills: {
+    ...commonLocales.ar.skills,
     tabSkills: 'المهارات',
     tabToolsets: 'مجموعات الأدوات',
-    all: 'الكل',
     searchSkills: 'البحث في المهارات',
     searchToolsets: 'البحث في مجموعات الأدوات',
     refresh: 'تحديث',
@@ -1560,6 +1551,7 @@ export const ar = defineLocale({
     platformIntro: {}
   },
   profiles: {
+    ...commonLocales.ar.profiles,
     close: 'إغلاق',
     nameHint: 'اسم الملف الشخصي',
     title: 'الملفات الشخصية',
@@ -1624,7 +1616,6 @@ export const ar = defineLocale({
     skills: count => `${count} مهارة`,
     env: 'البيئة',
     defaultBadge: 'افتراضي',
-    rename: 'إعادة تسمية',
     copySetup: 'نسخ الإعداد',
     copying: 'جار النسخ...',
     modelLabel: 'النموذج',
@@ -1649,7 +1640,6 @@ export const ar = defineLocale({
     createDesc: 'أنشئ ملفا شخصيا بإعدادات منفصلة.',
     nameLabel: 'الاسم',
     cloneFrom: 'استنساخ من',
-    cloneFromNone: 'لا شيء (فارغ)',
     cloneFromDesc: 'ينسخ الإعدادات والمهارات وSOUL.md من الملف الشخصي المصدر المحدد.',
     cloneFromDefault: 'نسخ إعداد الافتراضي',
     cloneFromDefaultDesc: 'ابدأ من إعدادات الملف الافتراضي.',
@@ -1666,7 +1656,6 @@ export const ar = defineLocale({
     renamed: 'تمت إعادة التسمية',
     deleted: 'تم الحذف',
     setupCopied: 'تم نسخ الإعداد',
-    soulSaved: 'تم حفظ التعليمات',
     failedLoad: 'فشل تحميل الملفات الشخصية',
     failedDelete: 'فشل الحذف',
     failedCopy: 'فشل النسخ',
@@ -1676,6 +1665,7 @@ export const ar = defineLocale({
     failedRename: 'فشل إعادة التسمية'
   },
   cron: {
+    ...commonLocales.ar.cron,
     close: 'إغلاق',
     modelImpact: {
       title: 'تبقى المهام المجدولة على نموذجها الأصلي',
@@ -1760,7 +1750,6 @@ export const ar = defineLocale({
     pause: 'إيقاف مؤقت',
     resumeTitle: 'استئناف المهمة',
     pauseTitle: 'إيقاف المهمة مؤقتا',
-    triggerNow: 'تشغيل الآن',
     edit: 'تحرير',
     deleteTitle: 'حذف المهمة',
     deleteDescPrefix: 'سيؤدي هذا إلى إزالة ',

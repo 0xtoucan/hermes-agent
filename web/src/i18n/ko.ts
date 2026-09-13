@@ -1,24 +1,15 @@
+import { commonLocales } from "@hermes/shared/i18n-common";
 import type { Translations } from "./types";
 
 export const ko: Translations = {
   common: {
-    save: "저장",
+    ...commonLocales.ko.common,
     saving: "저장 중...",
-    cancel: "취소",
-    close: "닫기",
-    confirm: "확인",
-    delete: "삭제",
-    refresh: "새로고침",
-    retry: "다시 시도",
     search: "검색...",
     loading: "로딩 중...",
     create: "생성",
     creating: "생성 중...",
-    set: "설정",
-    replace: "교체",
-    clear: "지우기",
     live: "라이브",
-    off: "꺼짐",
     enabled: "활성화됨",
     disabled: "비활성화됨",
     active: "활성",
@@ -39,8 +30,6 @@ export const ko: Translations = {
     failedToToggle: "전환에 실패했습니다",
     failedToRemove: "제거에 실패했습니다",
     failedToReveal: "표시에 실패했습니다",
-    collapse: "접기",
-    expand: "펼치기",
     general: "일반",
     messaging: "메시징",
     pluginLoadFailed:
@@ -224,6 +213,7 @@ export const ko: Translations = {
   },
 
   cron: {
+    ...commonLocales.ko.cron,
     confirmDeleteMessage:
       "이 작업은 일정에서 작업을 제거합니다. 되돌릴 수 없습니다.",
     confirmDeleteTitle: "예약된 작업을 삭제하시겠습니까?",
@@ -275,7 +265,6 @@ export const ko: Translations = {
     next: "다음",
     pause: "일시 정지",
     resume: "재개",
-    triggerNow: "지금 실행",
     delivery: {
       local: "로컬",
       telegram: "Telegram",
@@ -286,6 +275,7 @@ export const ko: Translations = {
   },
 
   profiles: {
+    ...commonLocales.ko.profiles,
     newProfile: "새 프로필",
     name: "이름",
     namePlaceholder: "예: coder, writer 등.",
@@ -293,19 +283,16 @@ export const ko: Translations = {
     nameRule:
       "소문자, 숫자, _ 및 - 만 사용 가능합니다. 문자나 숫자로 시작해야 하며 최대 64자입니다.",
     invalidName: "잘못된 프로필 이름입니다",    cloneFrom: "프로필에서 복제",
-    cloneFromNone: "없음 (빈 상태)",
     allProfiles: "프로필",
     noProfiles: "프로필을 찾을 수 없습니다.",
     defaultBadge: "기본",
     hasEnv: "env",
     model: "모델",
     skills: "스킬",
-    rename: "이름 변경",
     editSoul: "SOUL.md 편집",
     soulSection: "SOUL.md (개성 / 시스템 프롬프트)",
     soulPlaceholder: "# 이 에이전트가 어떻게 동작해야 하는지…",
     saveSoul: "SOUL 저장",
-    soulSaved: "SOUL.md가 저장되었습니다",
     openInTerminal: "CLI 명령 복사",
     commandCopied: "클립보드에 복사되었습니다",
     copyFailed: "복사할 수 없습니다",
@@ -359,10 +346,10 @@ export const ko: Translations = {
   },
 
   skills: {
+    ...commonLocales.ko.skills,
     title: "스킬",
     searchPlaceholder: "스킬 및 도구 세트 검색...",
     enabledOf: "{enabled}/{total} 활성화됨",
-    all: "전체",
     categories: "카테고리",
     filters: "필터",
     noSkills: "스킬을 찾을 수 없습니다. 스킬은 ~/.hermes/skills/ 에서 로드됩니다",
@@ -493,7 +480,7 @@ export const ko: Translations = {
   },
 
   language: {
-    switchTo: "언어 변경",
+    ...commonLocales.ko.language,
   },
 
   theme: {

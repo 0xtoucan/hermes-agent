@@ -1,24 +1,15 @@
+import { commonLocales } from "@hermes/shared/i18n-common";
 import type { Translations } from "./types";
 
 export const de: Translations = {
   common: {
-    save: "Speichern",
+    ...commonLocales.de.common,
     saving: "Speichern...",
-    cancel: "Abbrechen",
-    close: "Schließen",
-    confirm: "Bestätigen",
-    delete: "Löschen",
-    refresh: "Aktualisieren",
-    retry: "Erneut versuchen",
     search: "Suchen...",
     loading: "Lädt...",
     create: "Erstellen",
     creating: "Erstellen...",
-    set: "Festlegen",
-    replace: "Ersetzen",
-    clear: "Leeren",
     live: "Live",
-    off: "Aus",
     enabled: "aktiviert",
     disabled: "deaktiviert",
     active: "aktiv",
@@ -39,8 +30,6 @@ export const de: Translations = {
     failedToToggle: "Umschalten fehlgeschlagen",
     failedToRemove: "Entfernen fehlgeschlagen",
     failedToReveal: "Anzeigen fehlgeschlagen",
-    collapse: "Einklappen",
-    expand: "Ausklappen",
     general: "Allgemein",
     messaging: "Messaging",
     pluginLoadFailed:
@@ -224,6 +213,7 @@ export const de: Translations = {
   },
 
   cron: {
+    ...commonLocales.de.cron,
     confirmDeleteMessage:
       "Damit wird die Aufgabe aus dem Zeitplan entfernt. Dies kann nicht rückgängig gemacht werden.",
     confirmDeleteTitle: "Geplante Aufgabe löschen?",
@@ -276,7 +266,6 @@ export const de: Translations = {
     next: "Nächste",
     pause: "Pausieren",
     resume: "Fortsetzen",
-    triggerNow: "Jetzt auslösen",
     delivery: {
       local: "Lokal",
       telegram: "Telegram",
@@ -287,6 +276,7 @@ export const de: Translations = {
   },
 
   profiles: {
+    ...commonLocales.de.profiles,
     newProfile: "Neues Profil",
     name: "Name",
     namePlaceholder: "z. B. coder, writer usw.",
@@ -294,19 +284,16 @@ export const de: Translations = {
     nameRule:
       "Nur Kleinbuchstaben, Ziffern, _ und -; muss mit einem Buchstaben oder einer Ziffer beginnen; maximal 64 Zeichen.",
     invalidName: "Ungültiger Profilname",    cloneFrom: "Konfiguration klonen von",
-    cloneFromNone: "Keine (leer)",
     allProfiles: "Profile",
     noProfiles: "Keine Profile gefunden.",
     defaultBadge: "Standard",
     hasEnv: "env",
     model: "Modell",
     skills: "Skills",
-    rename: "Umbenennen",
     editSoul: "SOUL.md bearbeiten",
     soulSection: "SOUL.md (Persönlichkeit / System-Prompt)",
     soulPlaceholder: "# Wie sich dieser Agent verhalten soll…",
     saveSoul: "SOUL speichern",
-    soulSaved: "SOUL.md gespeichert",
     openInTerminal: "CLI-Befehl kopieren",
     commandCopied: "In Zwischenablage kopiert",
     copyFailed: "Kopieren fehlgeschlagen",
@@ -360,10 +347,10 @@ export const de: Translations = {
   },
 
   skills: {
+    ...commonLocales.de.skills,
     title: "Skills",
     searchPlaceholder: "Skills und Toolsets suchen...",
     enabledOf: "{enabled}/{total} aktiviert",
-    all: "Alle",
     categories: "Kategorien",
     filters: "Filter",
     noSkills: "Keine Skills gefunden. Skills werden aus ~/.hermes/skills/ geladen",
@@ -494,7 +481,7 @@ export const de: Translations = {
   },
 
   language: {
-    switchTo: "Sprache wechseln",
+    ...commonLocales.de.language,
   },
 
   theme: {

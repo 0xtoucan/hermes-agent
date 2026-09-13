@@ -1,22 +1,15 @@
+import { commonLocales } from "@hermes/shared/i18n-common";
 import type { Translations } from "./types";
 
 export const ru: Translations = {
   common: {
-    save: "Сохранить",
+    ...commonLocales.ru.common,
     saving: "Сохранение...",
-    cancel: "Отмена",
-    close: "Закрыть",
-    confirm: "Подтвердить",
-    delete: "Удалить",
-    refresh: "Обновить",
-    retry: "Повторить",
     search: "Поиск...",
     loading: "Загрузка...",
     create: "Создать",
     creating: "Создание...",
     set: "Задать",
-    replace: "Заменить",
-    clear: "Очистить",
     live: "В сети",
     off: "Отключено",
     enabled: "включено",
@@ -39,8 +32,6 @@ export const ru: Translations = {
     failedToToggle: "Не удалось переключить",
     failedToRemove: "Не удалось удалить",
     failedToReveal: "Не удалось показать",
-    collapse: "Свернуть",
-    expand: "Развернуть",
     general: "Общие",
     messaging: "Мессенджеры",
     pluginLoadFailed:
@@ -224,6 +215,7 @@ export const ru: Translations = {
   },
 
   cron: {
+    ...commonLocales.ru.cron,
     confirmDeleteMessage:
       "Это удалит задачу из расписания. Действие нельзя отменить.",
     confirmDeleteTitle: "Удалить запланированную задачу?",
@@ -276,7 +268,6 @@ export const ru: Translations = {
     next: "Следующий",
     pause: "Пауза",
     resume: "Возобновить",
-    triggerNow: "Запустить сейчас",
     delivery: {
       local: "Локально",
       telegram: "Telegram",
@@ -287,6 +278,7 @@ export const ru: Translations = {
   },
 
   profiles: {
+    ...commonLocales.ru.profiles,
     newProfile: "Новый профиль",
     name: "Имя",
     namePlaceholder: "напр. coder, writer и т.п.",
@@ -301,12 +293,10 @@ export const ru: Translations = {
     hasEnv: "env",
     model: "Модель",
     skills: "Навыки",
-    rename: "Переименовать",
     editSoul: "Редактировать SOUL.md",
     soulSection: "SOUL.md (личность / системный промпт)",
     soulPlaceholder: "# Как должен вести себя этот агент…",
     saveSoul: "Сохранить SOUL",
-    soulSaved: "SOUL.md сохранён",
     openInTerminal: "Скопировать команду CLI",
     commandCopied: "Скопировано в буфер обмена",
     copyFailed: "Не удалось скопировать",
@@ -360,10 +350,10 @@ export const ru: Translations = {
   },
 
   skills: {
+    ...commonLocales.ru.skills,
     title: "Навыки",
     searchPlaceholder: "Поиск навыков и наборов инструментов...",
     enabledOf: "{enabled}/{total} включено",
-    all: "Все",
     categories: "Категории",
     filters: "Фильтры",
     noSkills: "Навыки не найдены. Навыки загружаются из ~/.hermes/skills/",
@@ -494,7 +484,7 @@ export const ru: Translations = {
   },
 
   language: {
-    switchTo: "Сменить язык",
+    ...commonLocales.ru.language,
   },
 
   theme: {

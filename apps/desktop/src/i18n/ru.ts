@@ -1,3 +1,5 @@
+import { commonLocales } from '@hermes/shared/i18n-common'
+
 import { defineFieldCopy } from '@/app/settings/field-copy'
 
 import { defineLocale } from './define-locale'
@@ -59,45 +61,33 @@ export const ru = defineLocale({
     importError: 'Не удалось импортировать разговор.'
   },
   common: {
+    ...commonLocales.ru.common,
     apply: 'Применить',
     back: 'Назад',
-    save: 'Сохранить',
     saving: 'Сохранение…',
-    cancel: 'Отмена',
     change: 'Изменить',
     choose: 'Выбрать',
-    clear: 'Очистить',
-    close: 'Закрыть',
-    collapse: 'Свернуть',
-    confirm: 'Подтвердить',
     connect: 'Подключить',
     connecting: 'Подключение',
     continue: 'Продолжить',
     copied: 'Скопировано',
     copy: 'Копировать',
     copyFailed: 'Не удалось скопировать',
-    delete: 'Удалить',
     docs: 'Документация',
     done: 'Готово',
     error: 'Ошибка',
-    expand: 'Развернуть',
     failed: 'Ошибка',
     formatJson: 'Форматировать JSON',
     free: 'Бесплатно',
     loading: 'Загрузка…',
     notSet: 'Не задано',
-    refresh: 'Обновить',
     remove: 'Убрать',
-    replace: 'Заменить',
-    retry: 'Повторить',
     run: 'Запустить',
     send: 'Отправить',
-    set: 'Установить',
     skip: 'Пропустить',
     update: 'Обновить',
     tryHint: term => `Попробуйте «${term}»`,
-    on: 'Вкл',
-    off: 'Выкл'
+    on: 'Вкл'
   },
   fileMenu: {
     revealFinder: 'Показать в Finder',
@@ -392,11 +382,11 @@ export const ru = defineLocale({
   },
 
   language: {
+    ...commonLocales.ru.language,
     label: 'Язык',
     description: 'Выберите язык интерфейса приложения.',
     saving: 'Сохранение языка…',
     saveError: 'Не удалось обновить язык',
-    switchTo: 'Сменить язык',
     searchPlaceholder: 'Поиск языка…',
     noResults: 'Языки не найдены'
   },
@@ -1513,11 +1503,11 @@ export const ru = defineLocale({
     }
   },
   skills: {
+    ...commonLocales.ru.skills,
     tabSkills: 'Навыки',
     tabToolsets: 'Инструменты',
     configuringProfile: 'Настраивается:',
     tabMcp: 'MCP',
-    all: 'Все',
     searchSkills: 'Поиск навыков...',
     searchToolsets: 'Поиск инструментов...',
     refresh: 'Обновить навыки',
@@ -2147,6 +2137,7 @@ export const ru = defineLocale({
     }
   },
   profiles: {
+    ...commonLocales.ru.profiles,
     close: 'Закрыть профили',
     nameHint: 'Строчные буквы, цифры, дефисы и подчёркивания. Должно начинаться с буквы или цифры.',
     title: 'Профили',
@@ -2180,7 +2171,6 @@ export const ru = defineLocale({
     skills: count => `${count} ${RU_PLURAL(count, 'навык', 'навыка', 'навыков')}`,
     env: 'env',
     defaultBadge: 'По умолчанию',
-    rename: 'Переименовать',
     renameMenu: 'Переименовать…',
     editSoul: 'Изменить SOUL.md…',
     copySetup: 'Скопировать команду установки',
@@ -2207,7 +2197,6 @@ export const ru = defineLocale({
     createDesc: 'Профили — это независимые среды Hermes: отдельные настройки, навыки и SOUL.md.',
     nameLabel: 'Имя',
     cloneFrom: 'Клонировать из',
-    cloneFromNone: 'Нет (пустой)',
     cloneFromDesc: 'Копирует настройки, навыки и SOUL.md из выбранного исходного профиля.',
     cloneFromDefault: 'Клонировать из профиля по умолчанию',
     cloneFromDefaultDesc: 'Скопируйте настройки, навыки и SOUL.md из вашего профиля по умолчанию.',
@@ -2228,7 +2217,6 @@ export const ru = defineLocale({
     renamed: 'Профиль переименован',
     deleted: 'Профиль удалён',
     setupCopied: 'Команда установки скопирована',
-    soulSaved: 'SOUL.md сохранён',
     failedLoad: 'Не удалось загрузить профили',
     failedDelete: 'Не удалось удалить профиль',
     failedCopy: 'Не удалось скопировать команду установки',
@@ -2238,6 +2226,7 @@ export const ru = defineLocale({
     failedRename: 'Не удалось переименовать профиль'
   },
   cron: {
+    ...commonLocales.ru.cron,
     close: 'Закрыть cron',
     title: 'Запланированные задачи',
     count: count => `${count} ${RU_PLURAL(count, 'задача', 'задачи', 'задач')}`,
@@ -2320,7 +2309,6 @@ export const ru = defineLocale({
     pause: 'Приостановить cron',
     resumeTitle: 'Продолжить',
     pauseTitle: 'Приостановить',
-    triggerNow: 'Запустить сейчас',
     edit: 'Изменить cron',
     deleteTitle: 'Удалить cron-задачу?',
     deleteDescPrefix: 'Это навсегда удалит ',

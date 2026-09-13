@@ -112,6 +112,7 @@ export {
   RTL_LOCALES,
   type TranslationOverride
 } from './i18n'
+export { commonEn, type CommonLocale, commonLocales, type CommonTranslations } from './i18n-common'
 export {
   DEFAULT_HEARTBEAT_DEADLINE_MS,
   DEFAULT_HEARTBEAT_INTERVAL_MS,
