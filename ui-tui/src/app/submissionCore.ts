@@ -100,8 +100,10 @@ export function submitPrompt(
             patchUiState({ busy: false, status: 'choose a provider to continue' })
             turnController.showNotice({ key: FREE_TIER_LIMIT_KEY, kind: 'sticky', level: 'info', text: e.message })
           }
+
           return
         }
+
         // Defensive: prompt.submit no longer rejects a mid-turn send with
         // "session busy" (the gateway queues it and returns success), but keep
         // the re-queue path as a safety net for any future/legacy gateway that

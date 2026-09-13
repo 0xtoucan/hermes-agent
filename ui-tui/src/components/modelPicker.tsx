@@ -22,6 +22,7 @@ const CONTINUATION_CHOICES = ['Sign in or create an account', 'Use a local model
 export function continuationProviders(providers: ModelOptionProvider[], local: boolean): ModelOptionProvider[] {
   return providers.filter(provider => {
     const isLocal = provider.auth_type === 'local' || ['ollama', 'lmstudio', 'llamacpp'].includes(provider.slug)
+
     return !provider.free_tier_row && (local ? isLocal : !isLocal)
   })
 }
@@ -154,6 +155,7 @@ export function ModelPicker({
     () => providerScope === 'all' ? providers : continuationProviders(providers, providerScope === 'local'),
     [providers, providerScope]
   )
+
   const names = useMemo(() => providerDisplayNames(scopedProviders), [scopedProviders])
 
   // Provider rows carry their display name so fuzzy filtering can match on
@@ -247,6 +249,7 @@ export function ModelPicker({
     if (stage === 'provider' && continuationMessage) {
       setStage('continuation')
       setProviderScope('all')
+
       return
     }
 
@@ -262,16 +265,21 @@ export function ModelPicker({
     if (choice === 0) {
       onCancel()
       onSignIn?.()
+
       return
     }
+
     if (loading) {
       return
     }
+
     if (choice === 1 && !continuationProviders(providers, true).length) {
       onCancel()
       onSetup?.()
+
       return
     }
+
     setProviderScope(choice === 1 ? 'local' : 'external')
     setProviderIdx(0)
     setFilter('')
@@ -289,8 +297,10 @@ export function ModelPicker({
       } else if (/^[1-3]$/.test(ch)) {
         chooseContinuation(Number(ch) - 1)
       }
+
       return
     }
+
     // Key entry stage handles its own input
     if (stage === 'key') {
       if (keySaving) {

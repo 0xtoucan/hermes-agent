@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { JsonRpcGatewayError } from '@hermes/shared/json-rpc-channel'
 import { $freeTierBlocks } from '../app/freeTierGate.js'
 
+import { $freeTierBlocks } from '../app/freeTierGate.js'
 import { isSessionBusyError, markSubmitting, submitPrompt, type SubmitPromptDeps } from '../app/submissionCore.js'
 import { getUiState, patchUiState, resetUiState } from '../app/uiStore.js'
 import type { GatewayClient } from '../gatewayClient.js'
@@ -157,9 +158,11 @@ describe('submissionCore free-tier admission race', () => {
     resetUiState()
     $freeTierBlocks.set({})
     patchUiState({ sid: 'gated' })
+
     const gw = { request: vi.fn(async () => {
       throw new JsonRpcGatewayError('Choose a provider.', { code: 4092, data: { reason: 'free_tier_limit', retryable: true } })
     }) } as unknown as GatewayClient
+
     const deps = makeDeps(gw)
     submitPrompt('keep this request', deps, true, undefined, { skipDetectDrop: true })
     await vi.waitFor(() => expect(deps.enqueue).toHaveBeenCalledWith('keep this request'))

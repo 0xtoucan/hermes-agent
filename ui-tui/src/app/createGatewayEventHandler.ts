@@ -442,11 +442,13 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
   }
 
   const { appendMessage, panel, setHistoryItems } = ctx.transcript
+
   const freeTierGate = createFreeTierGatePresenter(
     panel,
     () => ctx.submission.submitRef.current('/login'),
     () => ctx.submission.submitRef.current('/setup model')
   )
+
   const { setInput } = ctx.composer
   const { submitLiteralRef, submitRef } = ctx.submission
   const { setProcessing: setVoiceProcessing, setRecording: setVoiceRecording, setVoiceEnabled } = ctx.voice
@@ -931,9 +933,13 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
 
         if (p.key === 'free_tier.login') {
           sys(p.text)
+
           return
         }
-        if (p.key === FREE_TIER_LIMIT_KEY) setFreeTierBlock(p.text)
+
+        if (p.key === FREE_TIER_LIMIT_KEY) {
+          setFreeTierBlock(p.text)
+        }
 
         turnController.showNotice({
           id: p.id,
@@ -952,6 +958,7 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
         // Key-matched clear only — a stale/late clear must not wipe a newer
         // notice (turnController guards the key match).
         turnController.clearNotice(ev.payload?.key)
+
         if (ev.payload?.key === FREE_TIER_LIMIT_KEY) {
           setFreeTierBlock(null)
           freeTierGate.clear()
@@ -1580,6 +1587,7 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
           setFreeTierBlock(message)
           turnController.showNotice({ key: FREE_TIER_LIMIT_KEY, kind: 'sticky', level: 'info', text: message })
         }
+
         const { finalMessages, finalText, wasInterrupted } = turnController.recordMessageComplete(ev.payload ?? {})
 
         if (!wasInterrupted) {
@@ -1587,7 +1595,9 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
           msgs.forEach(appendMessage)
 
           // Pet beat: celebrate a finished plan, otherwise a clean-finish wave.
-          if (ev.payload?.code !== FREE_TIER_LIMIT_ERROR) flashPet(isTodoDone(getTurnState().todos) ? 'jump' : 'wave')
+          if (ev.payload?.code !== FREE_TIER_LIMIT_ERROR) {
+            flashPet(isTodoDone(getTurnState().todos) ? 'jump' : 'wave')
+          }
 
           if (bellOnComplete && stdout?.isTTY) {
             stdout.write('\x07')
@@ -1650,6 +1660,7 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
             freeTierGate.clear()
             freeTierGate.show()
             setStatus('choose a provider to continue')
+
             return
           }
 
