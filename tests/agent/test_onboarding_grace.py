@@ -148,6 +148,127 @@ def test_text_only_grace_expires_atomically_without_a_separate_gate(guide_env):
     assert "anon_guide_fixture" not in usage._usage_path().read_text()
 
 
+def test_task_choice_requires_two_successful_top_level_completions(guide_env, monkeypatch):
+    from agent.free_tier import admit_turn, finish_turn, record_tool_completion
+    from hermes_cli import auth, free_tier_usage as usage
+    from tools.delegate_tool import _build_child_agent
+
+    env = guide_env
+    agent = env.make_agent()
+    owner, foreign = Mock(), Mock()
+    session = {"agent": agent, "profile_home": str(env.guide), "transport": owner}
+    monkeypatch.setitem(env.server._sessions, "guide-choice", session)
+
+    def choose(transport=owner, **params):
+        return env.server.dispatch({"id": "choice", "method": "free_tier.choose_onboarding_task",
+                                    "params": params or {"session_id": "guide-choice"}}, transport)
+
+    # Admission predates choice: finishing this in-flight response cannot count.
+    with admit_turn(agent) as blocked:
+        assert blocked is None
+        stored = usage._usage_path().read_bytes()
+        assert choose(foreign)["error"]["code"] == 4001
+        assert choose(session_id="missing")["error"]["code"] == 4001
+        assert choose(profile="hermes-setup")["error"]["code"] == 4001
+        assert usage._usage_path().read_bytes() == stored
+        with monkeypatch.context() as m:
+            m.setattr(auth, "_save_private_json", Mock(side_effect=OSError("fixture write failure")))
+            assert "error" in choose()
+        assert usage._usage_path().read_bytes() == stored
+        assert choose()["result"] == {"chosen": True}
+        marked = usage._usage_path().read_bytes()
+        assert choose()["result"] == {"chosen": True}
+        assert usage._usage_path().read_bytes() == marked
+        finish_turn(agent, {"completed": True, "final_response": "Choose a task."})
+    assert usage.onboarding_available(usage.current_identity())
+
+    # Interrupted, failed, partial, and refused results do not spend a completion.
+    for unsuccessful in ({"completed": False}, {"completed": True, "interrupted": True},
+                         {"completed": True, "failed": True}, {"completed": True, "partial": True}):
+        with admit_turn(agent) as blocked:
+            assert blocked is None
+            finish_turn(agent, unsuccessful)
+        assert usage.onboarding_available(usage.current_identity())
+
+    # A real completed task-choice response is first, even when it called tools.
+    result, _ = env.run(agent, tool=True)
+    assert result["completed"] and usage.status()["tool_calls_used"] == 0
+    assert usage.onboarding_available(usage.current_identity())
+    stored = usage._usage_path().read_bytes()
+    importlib.reload(usage)
+    assert choose()["result"] == {"chosen": True}
+    assert "result" in env.rpc("profiles.ensure_onboarding", soul="Guide again")
+    assert usage._usage_path().read_bytes() == stored
+
+    restarted = env.make_agent()
+    with admit_turn(restarted) as blocked:
+        assert blocked is None and restarted._free_tier_turn.guide
+        child = _build_child_agent(0, "Finish guide work", None, [], None, 4, 1, restarted)
+        env.agents.append(child)
+        assert env.run(child, tool=True)[0]["completed"]
+        assert usage.onboarding_available(usage.current_identity())
+        result = {"completed": True, "final_response": "Clarified.",
+                  "messages": [{"role": "assistant", "content": "Clarified."}]}
+        finish_turn(restarted, result)
+        assert not usage.onboarding_available(usage.current_identity())
+        assert result["free_tier"]["onboarding_complete"] and not result.get("continuation_required")
+        assert result["messages"] == [{"role": "assistant", "content": "Clarified."}]
+        record_tool_completion(restarted)  # The closing turn remains exempt until it exits.
+    assert usage.status()["tool_calls_used"] == 0
+    assert env.run(restarted, tool=True)[0]["completed"]
+    assert usage.status()["tool_calls_used"] == 1
+    assert restarted._cached_system_prompt == "Stable guide prefix"
+
+
+def test_task_choice_completion_receipts_are_atomic_and_survive_replay(guide_env, monkeypatch):
+    from agent.free_tier import admit_turn, finish_turn
+    from hermes_cli import free_tier_usage as usage
+
+    env = guide_env
+    agent = env.make_agent()
+    owner = Mock()
+    session = {"agent": agent, "profile_home": str(env.guide), "transport": owner}
+    monkeypatch.setitem(env.server._sessions, "guide-replay", session)
+    request = {"id": "choice", "method": "free_tier.choose_onboarding_task",
+               "params": {"session_id": "guide-replay"}}
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        chosen = list(pool.map(lambda _: env.server.dispatch(request, owner), range(4)))
+    assert all(reply.get("result") == {"chosen": True} for reply in chosen)
+    identity = usage.current_identity()
+    assert identity is not None
+
+    with admit_turn(agent) as blocked:
+        assert blocked is None
+        # Duplicate completion delivery must not masquerade as two assistant turns.
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            list(pool.map(lambda _: finish_turn(agent, {"completed": True}), range(4)))
+        assert usage.onboarding_available(identity)
+        stored = usage._usage_path().read_bytes()
+        importlib.reload(usage)
+        finish_turn(agent, {"completed": True})
+        assert usage._usage_path().read_bytes() == stored
+        # A fresh interpreter sees the same first completion and cannot count it twice.
+        import os
+        import subprocess
+        import sys
+        subprocess.run([sys.executable, "-c",
+                        "from hermes_cli import free_tier_usage as u; import sys; "
+                        "u.choose_onboarding_task(sys.argv[1]); "
+                        "u.complete_onboarding_task_turn(sys.argv[1], int(sys.argv[2]))",
+                        identity, str(agent._free_tier_turn.onboarding_turn)],
+                       env={**os.environ, "HOME": str(env.home.parent)}, check=True)
+        assert usage._usage_path().read_bytes() == stored
+        assert env.server.dispatch(request, owner)["result"] == {"chosen": True}
+        assert usage._usage_path().read_bytes() == stored
+
+    result, _ = env.run(agent, tool=True)
+    assert result["completed"] and not usage.onboarding_available(identity)
+    assert usage.status()["tool_calls_used"] == 0
+    assert env.server.dispatch(request, owner)["result"] == {"chosen": True}
+    assert env.run(agent, tool=True)[0]["completed"]
+    assert usage.status()["tool_calls_used"] == 1
+
+
 def _assert_private_onboarding_files(env):
     from hermes_cli import free_tier_usage as usage
     from hermes_cli.onboarding_profile import _MARKER
@@ -238,7 +359,7 @@ def test_setup_completion_starts_shared_counting_in_the_same_guide_chat(guide_en
     auth_nous._write_shared_nous_state({"access_token": "signed-in-fixture", "refresh_token": "fixture"})
     assert refusal(agent) is None
 
-    # A fresh identity exercises the real remember RPC fallback, without layout RPC.
+    # Saving setup answers precedes handoff acceptance and must not end grace.
     guest = {**env.guest, "anon_token": "anon_handoff_fixture"}
     auth._save_active_provider_state("nous", guest)
     auth_nous._write_shared_nous_state(guest)
@@ -255,12 +376,9 @@ def test_setup_completion_starts_shared_counting_in_the_same_guide_chat(guide_en
     importlib.reload(usage)
     assert "result" in env.rpc("profiles.ensure_onboarding")
     result, _ = env.run(agent, tool=True)
-    assert result["completed"] and usage.status()["tool_calls_used"] == 1
+    assert result["completed"] and usage.status()["tool_calls_used"] == 0
 
-    # Leaving setup for a real default-profile turn is another irreversible exit.
-    guest = {**env.guest, "anon_token": "anon_default_exit_fixture"}
-    auth._save_active_provider_state("nous", guest)
-    auth_nous._write_shared_nous_state(guest)
+    # Only admitting the actual default-profile handoff closes this identity's grace.
     identity = usage.current_identity()
     token = env.set_home(str(env.home))
     try:

@@ -687,11 +687,7 @@ def _(rid, params: dict) -> dict:
 @_profile_handler("profiles.remember_onboarding", 5067)
 def _(rid, params: dict) -> dict:
     from tui_gateway.onboarding_personalization import remember_onboarding
-    from hermes_cli import free_tier_usage
-    identity = free_tier_usage.current_identity()
-    result = remember_onboarding(params.get("answers"))
-    free_tier_usage.finish_onboarding(identity)
-    return _ok(rid, result)
+    return _ok(rid, remember_onboarding(params.get("answers")))
 
 
 def register(server) -> None:

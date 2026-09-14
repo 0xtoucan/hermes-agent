@@ -16,6 +16,7 @@ from hermes_cli import free_tier_usage as usage
 class TurnAdmission:
     identity: str | None
     guide: bool = False
+    onboarding_turn: int | None = None
 
 
 _ACTIVE_TURN: ContextVar[TurnAdmission | None] = ContextVar("free_tier_turn", default=None)
@@ -145,7 +146,9 @@ def admit_turn(agent, history=None):
         turn = inherited
     else:
         identity = _route_identity(agent)
-        guide = bool(identity and is_onboarding_profile() and usage.reserve_onboarding_turn(identity))
+        onboarding_turn = (usage.reserve_onboarding_turn(identity)
+                           if identity and is_onboarding_profile() else None)
+        guide = onboarding_turn is not None
         if not guide:
             blocked = refusal(agent, history)
             if blocked is not None:
@@ -155,7 +158,7 @@ def admit_turn(agent, history=None):
             # Starting real work cannot leave a reusable setup exemption behind.
             if identity and not is_onboarding_profile():
                 usage.finish_onboarding(identity)
-        turn = TurnAdmission(identity, guide=guide)
+        turn = TurnAdmission(identity, guide=guide, onboarding_turn=onboarding_turn)
     agent._free_tier_is_child_turn = inherited is not None
     previous = getattr(agent, "_free_tier_turn", None)
     agent._free_tier_turn = turn
@@ -181,6 +184,9 @@ def finish_turn(agent, result: dict) -> dict:
     turn = getattr(agent, "_free_tier_turn", None)
     if not isinstance(turn, TurnAdmission) or not turn.identity or getattr(agent, "_free_tier_is_child_turn", False):
         return result
+    if (turn.guide and turn.onboarding_turn is not None and result.get("completed")
+            and not any(result.get(key) for key in ("failed", "interrupted", "partial", "error", "refusal_reason"))):
+        usage.complete_onboarding_task_turn(turn.identity, turn.onboarding_turn)
     state = usage.identity_status(turn.identity, guide=is_onboarding_profile())
     result["free_tier"] = state
     if state["capped"] and not (turn.guide and usage.onboarding_available(turn.identity)):

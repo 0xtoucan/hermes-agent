@@ -84,6 +84,29 @@ def _(rid, params: dict) -> dict:
         return _err(rid, 5092, str(e))
 
 
+@method("free_tier.choose_onboarding_task")
+def _(rid, params: dict) -> dict:
+    """``{session_id}`` -> ``{chosen: true}``; await before submitting the choice.
+
+    Only a live guide session owned by this transport may mark the identity. The
+    marker carries no task text and never resets on reselection or a retried RPC.
+    """
+    from hermes_cli import free_tier_usage
+    from hermes_cli.onboarding_profile import is_onboarding_profile
+    try:
+        with _sessions_lock:
+            _, session = _current_session_steer_authority(params.get("session_id"))
+            if session is None:
+                return _err(rid, 4001, "session not found")
+            with _session_profile_runtime_scope(session):
+                if not is_onboarding_profile():
+                    return _err(rid, 4001, "onboarding session required")
+                free_tier_usage.choose_onboarding_task(free_tier_usage.current_identity())
+        return _ok(rid, {"chosen": True})
+    except Exception:
+        return _err(rid, 5094, "Could not mark the onboarding task choice. Please retry.")
+
+
 @method("free_tier.finish_onboarding")
 @_profile_scoped
 def _(rid, params: dict) -> dict:

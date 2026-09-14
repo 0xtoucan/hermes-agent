@@ -74,6 +74,15 @@ def _onboarding_state(data: dict, identity: str) -> tuple[int, bool]:
     turns, complete = entry.get("onboarding_turns_used", 0), entry.get("onboarding_complete", False)
     if not isinstance(turns, int) or isinstance(turns, bool) or turns < 0 or not isinstance(complete, bool):
         raise ValueError("Onboarding usage counter is invalid")
+    if "onboarding_task_chosen_after_turn" in entry:
+        chosen = entry["onboarding_task_chosen_after_turn"]
+        completed = entry.get("onboarding_task_completed_turns")
+        if (type(chosen) is not int or not 0 <= chosen <= turns
+                or not isinstance(completed, list) or len(completed) > 2
+                or any(type(turn) is not int or not chosen < turn <= turns for turn in completed)
+                or len(set(completed)) != len(completed)):
+            raise ValueError("Onboarding task progress is invalid")
+        complete = complete or len(completed) >= 2
     return turns, complete or turns >= ONBOARDING_TURN_CAP
 
 
@@ -88,30 +97,84 @@ def onboarding_available(identity: str | None) -> bool:
         return False
 
 
-def reserve_onboarding_turn(identity: str) -> bool:
-    """Spend grace before inference; the final reservation starts ordinary counting next turn."""
+def reserve_onboarding_turn(identity: str) -> int | None:
+    """Return a durable admission ordinal, also the task-choice completion token.
+
+    Choice snapshots the last ordinal under this same lock, so a response already
+    in flight when the user chooses cannot count toward the two completed turns.
+    """
     from hermes_cli.auth import _save_private_json
     from hermes_cli.auth_nous import _nous_shared_store_lock
     if identity in _FAILED_IDENTITIES:
-        return False
+        return None
     try:
         with _nous_shared_store_lock():
             data = _read_usage()
             turns, complete = _onboarding_state(data, identity)
             if complete:
-                return False
-            data[identity] = {"tool_calls_used": _count(data, identity),
-                              "onboarding_turns_used": turns + 1,
-                              "onboarding_complete": turns + 1 >= ONBOARDING_TURN_CAP}
+                return None
+            entry = _onboarding_entry(data, identity)
+            entry.update(onboarding_turns_used=turns + 1,
+                         onboarding_complete=turns + 1 >= ONBOARDING_TURN_CAP)
             _save_private_json(_usage_path(), data, sort_keys=True, fsync_dir=True)
-        return True
+        return turns + 1
     except (OSError, ValueError, RuntimeError):
         _FAILED_IDENTITIES.add(identity)
-        return False
+        return None
+
+
+def _onboarding_entry(data: dict, identity: str) -> dict:
+    """Migrate legacy tool-only counters without discarding task-choice progress."""
+    if not isinstance(data.get(identity), dict):
+        data[identity] = {"tool_calls_used": _count(data, identity)}
+    return data[identity]
+
+
+def choose_onboarding_task(identity: str | None) -> None:
+    """First-write task marker; retries, reselects and profile rebuilds never renew grace."""
+    from hermes_cli.auth import _save_private_json
+    from hermes_cli.auth_nous import _nous_shared_store_lock
+    if not identity:
+        return
+    with _nous_shared_store_lock():
+        data = _read_usage()
+        turns, complete = _onboarding_state(data, identity)
+        entry = _onboarding_entry(data, identity)
+        if complete or "onboarding_task_chosen_after_turn" in entry:
+            return
+        entry["onboarding_task_chosen_after_turn"] = turns
+        entry["onboarding_task_completed_turns"] = []
+        _save_private_json(_usage_path(), data, sort_keys=True, fsync_dir=True)
+
+
+def complete_onboarding_task_turn(identity: str, admission: int) -> None:
+    """Count a successful top-level response exactly once, even across process retries.
+
+    The bounded list is both the completed-turn counter and deduplication receipt.
+    Persist failures never discard the already-completed assistant response.
+    """
+    from hermes_cli.auth import _save_private_json
+    from hermes_cli.auth_nous import _nous_shared_store_lock
+    try:
+        with _nous_shared_store_lock():
+            data = _read_usage()
+            _, complete = _onboarding_state(data, identity)
+            entry = _onboarding_entry(data, identity)
+            chosen_after = entry.get("onboarding_task_chosen_after_turn")
+            if complete or chosen_after is None or admission <= chosen_after:
+                return
+            completed = entry["onboarding_task_completed_turns"]
+            if admission in completed:
+                return
+            completed.append(admission)
+            entry["onboarding_complete"] = len(completed) >= 2
+            _save_private_json(_usage_path(), data, sort_keys=True, fsync_dir=True)
+    except (OSError, ValueError, RuntimeError):
+        _FAILED_IDENTITIES.add(identity)
 
 
 def finish_onboarding(identity: str | None) -> None:
-    """One-way transition shared by layout completion and handoff; never reset tool usage.
+    """One-way transition on real work admission; never reset tool usage.
 
     A failed write must fail the RPC, not acknowledge a handoff with renewable grace.
     """
@@ -124,8 +187,8 @@ def finish_onboarding(identity: str | None) -> None:
         turns, complete = _onboarding_state(data, identity)
         if complete:
             return
-        data[identity] = {"tool_calls_used": _count(data, identity),
-                          "onboarding_turns_used": turns, "onboarding_complete": True}
+        entry = _onboarding_entry(data, identity)
+        entry.update(onboarding_turns_used=turns, onboarding_complete=True)
         _save_private_json(_usage_path(), data, sort_keys=True, fsync_dir=True)
 
 
