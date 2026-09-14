@@ -30,10 +30,10 @@ class InflightErrorSurface(Result):
     layer: str
     code: str
     retryable: bool
-    provider: str | None
-    model: str | None
-    auth_kind: str | None
-    provider_label: str | None
+    provider: str | None = None
+    model: str | None = None
+    auth_kind: str | None = None
+    provider_label: str | None = None
 
 
 class InflightTurn(Result):
@@ -43,12 +43,12 @@ class InflightTurn(Result):
     assistant: str = ""
     streaming: bool = False
     user: str = ""
-    corrections: list[str] | None
-    correction_offsets: list[int] | None
-    error: str | None
-    status: str | None
-    recoverable: bool | None
-    error_surface: InflightErrorSurface | None
+    corrections: list[str] | None = None
+    correction_offsets: list[int] | None = None
+    error: str | None = None
+    status: str | None = None
+    recoverable: bool | None = None
+    error_surface: InflightErrorSurface | None = None
 
 
 class QueuedPrompt(Result):
