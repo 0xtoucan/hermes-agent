@@ -293,7 +293,7 @@ server_request("tour", params=TourRequestParams, result=ValueResult,
 # ── withdrawal ────────────────────────────────────────────────────────────────────────────────
 
 
-class ServerRequestMethod(WireEnum):
+class WithdrawnRequestMethod(WireEnum):
     approval = "approval"
     clarify = "clarify"
     mcp_setup = "mcp.setup"
@@ -319,7 +319,7 @@ class RequestCancelReason(WireEnum):
 
 class RequestCancelPayload(Payload):
     id: str
-    method: ServerRequestMethod
+    method: WithdrawnRequestMethod
     reason: RequestCancelReason
 
 
