@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 
 import { requestGatewayForAgent } from '@/store/gateway'
@@ -21,7 +21,7 @@ afterEach(() => {
   $onboardingAnswers.set(DEFAULT_ANSWERS)
 })
 
-it('starts global metering at layout selection without needing Continue or handoff', async () => {
+it('does not start global metering merely by selecting a layout', () => {
   setSessionOwnerHint('setup-guide', { connectionId: 'setup-remote', profile: 'hermes-setup' })
   $activeSessionId.set('setup-guide')
   $selectedStoredSessionId.set('setup-guide')
@@ -30,9 +30,6 @@ it('starts global metering at layout selection without needing Continue or hando
   const choices = screen.getAllByRole('button').filter(button => button.textContent !== 'Continue')
   expect(choices.length).toBeGreaterThan(0)
   fireEvent.click(choices[0])
-  await waitFor(() => expect(requestGatewayForAgent).toHaveBeenCalledWith(
-    'setup-remote', 'hermes-setup', 'free_tier.finish_onboarding', { session_id: 'setup-guide' }
-  ))
-  expect(loadAnswers().layoutSelected).toBe(true)
+  expect(requestGatewayForAgent).not.toHaveBeenCalled()
   expect(loadAnswers().committed).not.toContain('layout')
 })

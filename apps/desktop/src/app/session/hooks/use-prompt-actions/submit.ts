@@ -489,7 +489,7 @@ export function useSubmitPrompt(deps: SubmitPromptDeps) {
       const continuationSessionId = (targetStoredSessionId ? getRuntimeIdForStoredSession(targetStoredSessionId) : null)
         ?? sessionId ?? targetStoredSessionId
 
-      if (await blockContinuationSend(continuationSessionId)) {
+      if (await blockContinuationSend(continuationSessionId, { text: visibleText, hidden: options?.displayKind === 'hidden' })) {
         releaseSubmitLock()
 
         return false

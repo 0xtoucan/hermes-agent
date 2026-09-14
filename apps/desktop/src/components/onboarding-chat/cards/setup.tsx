@@ -25,8 +25,6 @@ import { SearchField } from '@/components/ui/search-field'
 import { registry } from '@/contrib/registry'
 import { connectorTitle } from '@/lib/connector-tools'
 import { useConnectorCatalog } from '@/store/connector-catalog'
-import { finishOnboardingAllowance } from '@/store/free-tier-continuation'
-import { notifyError } from '@/store/notifications'
 import { $onboardingAnswers, setOnboardingAnswers } from '@/store/onboarding-answers'
 import { useTheme } from '@/themes'
 import { setAccentOverride } from '@/themes/accent-override'
@@ -154,9 +152,6 @@ export function LookCard({ locked }: CardProps) {
 }
 
 export function LayoutCard({ locked }: CardProps) {
-  const view = useSessionView()
-  const runtimeId = useStore(view.$runtimeId)
-  const storedId = useStore(view.$storedId)
   const answers = useStore($onboardingAnswers)
   const { commit, done } = useCardCommit('layout')
   // The stored answer defaults to 'basic', so nothing renders selected and Continue stays disabled until the user
@@ -166,9 +161,7 @@ export function LayoutCard({ locked }: CardProps) {
 
   const pickLayout = (id: string) => {
     $chatLayoutPicked.set(true)
-    setOnboardingAnswers({ layout: id, layoutSelected: true })
-    void finishOnboardingAllowance(runtimeId ?? storedId).catch(error =>
-      notifyError(error, 'Could not finish setup. Your choices are saved; please retry.'))
+    setOnboardingAnswers({ layout: id })
 
     const preset = registry.getArea('layouts').find(contribution => contribution.id === id)
 

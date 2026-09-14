@@ -1,16 +1,17 @@
 import { atom } from 'nanostores'
 
 import { getGlobalModelInfo } from '@/hermes'
+import { chatMessageText } from '@/lib/chat-messages'
 import { isMissingRpcMethod } from '@/lib/gateway-rpc'
+import { segmentTranscriptDirectives } from '@/lib/transcript-directives'
 import { type FreeTierRequester } from '@/store/free-tier'
 import { requestGatewayForAgent } from '@/store/gateway'
 import { notifyError } from '@/store/notifications'
-import { $onboardingAnswers } from '@/store/onboarding-answers'
 import { guidedOnboardingActive } from '@/store/onboarding-gate'
 import { onboardingSurfaceActive } from '@/store/onboarding-presence'
 import { $activeGatewayProfile, $newChatProfile, resolveNewChatOwnerRoute } from '@/store/profile'
 import { $currentModel, $currentProvider, setCurrentModel, setCurrentProvider } from '@/store/session'
-import { knownOwnerForSession } from '@/store/session-states'
+import { $sessionStates, knownOwnerForSession } from '@/store/session-states'
 import type { FreeTierStatus } from '@/types/hermes'
 
 export interface ContinuationOwner {
@@ -128,44 +129,47 @@ export async function refreshContinuation(
   return continuationRequired(target)
 }
 
-/** Idempotent on the backend. A renderer can end grace, never grant or renew it. */
-export async function finishOnboardingAllowance(sessionId: string | null): Promise<void> {
-  const target = continuationTarget(sessionId)
-
-  if (!target || !sessionId) {
-    throw new Error('Could not identify the setup conversation. Please retry.')
+/** Only the actual first-task response starts the clarification grace. Setup
+ * notes and the explicit "figure it out" fallback are not task choices. */
+function choosingFirstTask(sessionId: string | null, input?: { text: string; hidden?: boolean }): boolean {
+  if (!sessionId || !input || input.hidden || !input.text.trim() || input.text.trim() === "Let's figure it out together") {
+    return false
   }
 
-  try {
-    const result = await continuationRequester(target)<{ finished: boolean }>('free_tier.finish_onboarding', { session_id: sessionId })
+  const messages = $sessionStates.get()[sessionId]?.messages ?? []
+  const latest = messages.findLast(message => !message.hidden && (message.role === 'assistant' || message.role === 'user'))
 
-    if (result?.finished !== true) {
-      throw new Error('Could not confirm setup completion. Please retry.')
-    }
-  } catch (error) {
-    // Old backends have no continuation allowance to close.
-    if (!isMissingRpcMethod(error)) {
-      throw error
-    }
+  if (!latest || latest.role !== 'assistant') {
+    return false
   }
+
+  return chatMessageText(latest).split(/\n\s*\n/).some(paragraph =>
+    segmentTranscriptDirectives(paragraph)?.some(segment => segment.kind === 'directive'
+      && segment.directive.name === 'onboarding' && segment.directive.attrs.step === 'first'))
 }
 
 /** Runs before optimistic insertion or attachment/draft mutation, including
  * queue drains. The gateway still enforces the same rule for races/other clients. */
-export async function blockContinuationSend(sessionId: string | null): Promise<boolean> {
+export async function blockContinuationSend(sessionId: string | null, input?: { text: string; hidden?: boolean }): Promise<boolean> {
   const target = continuationTarget(sessionId)
 
   if (!target) {
     return false // Unresolved owners are handled by the submit router.
   }
 
-  if (target.owner.profile === 'hermes-setup' && ($onboardingAnswers.get().layoutSelected || $onboardingAnswers.get().committed.includes('layout'))) {
+  if (target.owner.profile === 'hermes-setup' && choosingFirstTask(sessionId, input)) {
     try {
-      await finishOnboardingAllowance(sessionId)
-    } catch (error) {
-      notifyError(error, 'Could not finish setup. Your draft is kept; please retry.')
+      const result = await continuationRequester(target)<{ chosen: boolean }>('free_tier.choose_onboarding_task', { session_id: sessionId })
 
-      return true
+      if (result?.chosen !== true) {
+        throw new Error('Could not confirm your task choice. Please retry.')
+      }
+    } catch (error) {
+      if (!isMissingRpcMethod(error)) {
+        notifyError(error, 'Could not save your task choice. Your draft is kept; please retry.')
+
+        return true
+      }
     }
   }
 

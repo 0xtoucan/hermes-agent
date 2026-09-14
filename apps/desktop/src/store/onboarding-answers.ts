@@ -13,8 +13,6 @@ export interface OnboardingAnswers {
   context: string
   name: string
   layout: string
-  /** Final setup choice was made; retain across a restart before Continue. */
-  layoutSelected?: boolean
 }
 
 // Keep existing fork users' answers when they move to upstream.
@@ -26,8 +24,7 @@ export const DEFAULT_ANSWERS: OnboardingAnswers = {
   connectors: [],
   context: '',
   name: '',
-  layout: 'basic',
-  layoutSelected: false
+  layout: 'basic'
 }
 
 export function loadAnswers(): OnboardingAnswers {
@@ -41,8 +38,7 @@ export function loadAnswers(): OnboardingAnswers {
     connectors: raw?.connectors ?? [...DEFAULT_ANSWERS.connectors],
     context: raw?.context ?? DEFAULT_ANSWERS.context,
     name: raw?.name ?? DEFAULT_ANSWERS.name,
-    layout: raw?.layout ?? DEFAULT_ANSWERS.layout,
-    layoutSelected: raw?.layoutSelected ?? raw?.committed?.includes('layout') ?? false
+    layout: raw?.layout ?? DEFAULT_ANSWERS.layout
   }
 }
 
