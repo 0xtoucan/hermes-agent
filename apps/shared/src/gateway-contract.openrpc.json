@@ -1616,8 +1616,60 @@
       }
     },
     {
+      "name": "connection.respond",
+      "summary": "Per-target outcomes from the card, and an optional Continue.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "profile",
+          "required": false,
+          "schema": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Profile"
+          }
+        },
+        {
+          "name": "session_id",
+          "required": true,
+          "schema": {
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        {
+          "name": "op_id",
+          "required": true,
+          "schema": {
+            "title": "Op Id",
+            "type": "string"
+          }
+        },
+        {
+          "name": "result",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/ConnectionAnswer"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/ConnectionRespondResult"
+        }
+      }
+    },
+    {
       "name": "connectors.connect",
-      "summary": "Start (or re-initiate) authorization for named connectors; returns per-connector links/status.",
+      "summary": "Start (or re-initiate) authorization for named connectors on the session's connection operation.",
       "paramStructure": "by-name",
       "params": [
         {
@@ -1706,6 +1758,51 @@
         "name": "result",
         "schema": {
           "$ref": "#/components/schemas/ConnectorsListResult"
+        }
+      }
+    },
+    {
+      "name": "connectors.operation.status",
+      "summary": "The current snapshot of one open operation on an owned session.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "profile",
+          "required": false,
+          "schema": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Profile"
+          }
+        },
+        {
+          "name": "session_id",
+          "required": true,
+          "schema": {
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        {
+          "name": "op_id",
+          "required": true,
+          "schema": {
+            "title": "Op Id",
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/ConnectorsOperationStatusResult"
         }
       }
     },
@@ -16322,6 +16419,186 @@
         ],
         "type": "object"
       },
+      "ConnectionAnswer": {
+        "additionalProperties": false,
+        "description": "The card's answer: per-target outcomes and an optional Continue\n(``settled_by: \"continue\"``). Settlement is derived from target states afterwards.",
+        "properties": {
+          "profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Profile"
+          },
+          "targets": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectionAnswerTarget"
+            },
+            "title": "Targets",
+            "type": "array"
+          },
+          "settled_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConnectionSettleReason"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "title": "ConnectionAnswer",
+        "type": "object"
+      },
+      "ConnectionAnswerTarget": {
+        "additionalProperties": false,
+        "description": "One row's answer from the card. ``status`` is what the card observed for that row\n(``tools/connectors/mcp.py::_OUTCOME_STATES`` maps it onto a target state); ``state`` is the\nolder spelling of the same field and one of the two is present.",
+        "properties": {
+          "profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Profile"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Status"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "State"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Detail"
+          },
+          "tools": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Tools"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "ConnectionAnswerTarget",
+        "type": "object"
+      },
+      "ConnectionSettleReason": {
+        "description": "``tools/connectors/contract.py::SettleReason``.",
+        "enum": [
+          "all_resolved",
+          "continue",
+          "deadline",
+          "interrupt",
+          "unavailable"
+        ],
+        "title": "ConnectionSettleReason",
+        "type": "string"
+      },
+      "ConnectionRespondParams": {
+        "additionalProperties": false,
+        "properties": {
+          "profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Profile"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "op_id": {
+            "title": "Op Id",
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/components/schemas/ConnectionAnswer"
+          }
+        },
+        "required": [
+          "session_id",
+          "op_id",
+          "result"
+        ],
+        "type": "object"
+      },
+      "ConnectionRespondResult": {
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "settled": {
+            "title": "Settled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "status",
+          "settled"
+        ],
+        "type": "object"
+      },
       "ConnectorsConnectParams": {
         "additionalProperties": false,
         "properties": {
@@ -16360,24 +16637,34 @@
         ],
         "type": "object"
       },
-      "ConnectorConnectEntry": {
+      "ConnectionOperationTarget": {
         "additionalProperties": false,
-        "description": "``tools/connections_tool.py:395-427`` authorization result.",
+        "description": "``Target.snapshot``: the link minted up front rides here, never in the model result. ``extra``\nkeys a leg records (``tools``, ``hint``) are typed here as they appear.",
         "properties": {
-          "connector": {
-            "title": "Connector",
+          "name": {
+            "title": "Name",
             "type": "string"
           },
-          "status": {
+          "kind": {
+            "$ref": "#/components/schemas/ConnectionTargetKind"
+          },
+          "action": {
+            "$ref": "#/components/schemas/ConnectionTargetAction"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ConnectionTargetState"
+          },
+          "detail": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/ConnectorConnectStatus"
+                "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "default": null
+            "default": null,
+            "title": "Detail"
           },
           "connect_url": {
             "anyOf": [
@@ -16391,6 +16678,147 @@
             "default": null,
             "title": "Connect Url"
           },
+          "attempt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Attempt"
+          },
+          "tools": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Tools"
+          },
+          "hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Hint"
+          }
+        },
+        "required": [
+          "name",
+          "kind",
+          "action",
+          "state"
+        ],
+        "title": "ConnectionOperationTarget",
+        "type": "object"
+      },
+      "ConnectionTargetAction": {
+        "enum": [
+          "authorize",
+          "connect",
+          "enable",
+          "install",
+          "reconnect"
+        ],
+        "title": "ConnectionTargetAction",
+        "type": "string"
+      },
+      "ConnectionTargetKind": {
+        "enum": [
+          "connector",
+          "mcp"
+        ],
+        "title": "ConnectionTargetKind",
+        "type": "string"
+      },
+      "ConnectionTargetState": {
+        "description": "``tools/connectors/contract.py::TargetState``.",
+        "enum": [
+          "pending",
+          "initiated",
+          "connected",
+          "skipped",
+          "failed",
+          "expired",
+          "unavailable",
+          "not_connected"
+        ],
+        "title": "ConnectionTargetState",
+        "type": "string"
+      },
+      "ConnectorsConnectResult": {
+        "additionalProperties": false,
+        "description": "The operation the connect opened (or re-minted on): ``tools/connectors/managed.py``\n``_off_desktop_result`` / ``methods_connectors._reissue``. ``status``/``note`` ride along from\nthe tool result when the call ran through ``manage_connections``.",
+        "properties": {
+          "op_id": {
+            "title": "Op Id",
+            "type": "string"
+          },
+          "deadline_at": {
+            "title": "Deadline At",
+            "type": "number"
+          },
+          "settled": {
+            "title": "Settled",
+            "type": "boolean"
+          },
+          "settled_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Settled At"
+          },
+          "settled_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConnectionSettleReason"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "targets": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectionOperationTarget"
+            },
+            "title": "Targets",
+            "type": "array"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Status"
+          },
           "note": {
             "anyOf": [
               {
@@ -16402,80 +16830,13 @@
             ],
             "default": null,
             "title": "Note"
-          },
-          "instruction": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Instruction"
           }
         },
         "required": [
-          "connector"
-        ],
-        "title": "ConnectorConnectEntry",
-        "type": "object"
-      },
-      "ConnectorConnectStatus": {
-        "enum": [
-          "active",
-          "initiated",
-          "failed"
-        ],
-        "title": "ConnectorConnectStatus",
-        "type": "string"
-      },
-      "ConnectorConnectSummary": {
-        "additionalProperties": false,
-        "description": "``tools/tool_gateway/wire.py:166-170`` summary passed through unchanged.",
-        "properties": {
-          "total": {
-            "default": 0,
-            "title": "Total",
-            "type": "integer"
-          },
-          "active": {
-            "default": 0,
-            "title": "Active",
-            "type": "integer"
-          },
-          "initiated": {
-            "default": 0,
-            "title": "Initiated",
-            "type": "integer"
-          },
-          "failed": {
-            "default": 0,
-            "title": "Failed",
-            "type": "integer"
-          }
-        },
-        "title": "ConnectorConnectSummary",
-        "type": "object"
-      },
-      "ConnectorsConnectResult": {
-        "additionalProperties": false,
-        "properties": {
-          "results": {
-            "items": {
-              "$ref": "#/components/schemas/ConnectorConnectEntry"
-            },
-            "title": "Results",
-            "type": "array"
-          },
-          "summary": {
-            "$ref": "#/components/schemas/ConnectorConnectSummary"
-          }
-        },
-        "required": [
-          "results",
-          "summary"
+          "op_id",
+          "deadline_at",
+          "settled",
+          "targets"
         ],
         "type": "object"
       },
@@ -16583,6 +16944,91 @@
         "required": [
           "available",
           "connectors"
+        ],
+        "type": "object"
+      },
+      "ConnectorsOperationStatusParams": {
+        "additionalProperties": false,
+        "properties": {
+          "profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Profile"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "op_id": {
+            "title": "Op Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "op_id"
+        ],
+        "type": "object"
+      },
+      "ConnectorsOperationStatusResult": {
+        "additionalProperties": false,
+        "description": "``methods_connectors._operation_view``: the operation's full snapshot.",
+        "properties": {
+          "op_id": {
+            "title": "Op Id",
+            "type": "string"
+          },
+          "deadline_at": {
+            "title": "Deadline At",
+            "type": "number"
+          },
+          "settled": {
+            "title": "Settled",
+            "type": "boolean"
+          },
+          "settled_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Settled At"
+          },
+          "settled_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConnectionSettleReason"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "targets": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectionOperationTarget"
+            },
+            "title": "Targets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "op_id",
+          "deadline_at",
+          "settled",
+          "targets"
         ],
         "type": "object"
       },
@@ -31836,6 +32282,51 @@
         "title": "AutoContinue",
         "type": "object"
       },
+      "ConnectionRequestPayload": {
+        "additionalProperties": false,
+        "description": "``ConnectionOperation.request_payload``: opens the card; also the ``pending_connection`` resume\nsnapshot so a client that missed the event restores the card with the server's deadline.",
+        "properties": {
+          "op_id": {
+            "title": "Op Id",
+            "type": "string"
+          },
+          "deadline_at": {
+            "title": "Deadline At",
+            "type": "number"
+          },
+          "timeout_seconds": {
+            "title": "Timeout Seconds",
+            "type": "number"
+          },
+          "targets": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectionOperationTarget"
+            },
+            "title": "Targets",
+            "type": "array"
+          },
+          "tool_call_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Tool Call Id"
+          }
+        },
+        "required": [
+          "op_id",
+          "deadline_at",
+          "timeout_seconds",
+          "targets"
+        ],
+        "title": "ConnectionRequestPayload",
+        "type": "object"
+      },
       "InflightErrorSurface": {
         "additionalProperties": false,
         "description": "``agent/error_surface.py:76``; the Desktop parses it at\n``apps/desktop/src/app/session/hooks/use-session-actions/utils.ts:785``.",
@@ -33057,6 +33548,17 @@
             ],
             "default": null,
             "title": "Open Requests"
+          },
+          "pending_connection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConnectionRequestPayload"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           },
           "todo_state": {
             "anyOf": [
@@ -36063,6 +36565,17 @@
             ],
             "default": null,
             "title": "Open Requests"
+          },
+          "pending_connection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConnectionRequestPayload"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           },
           "todo_state": {
             "anyOf": [
@@ -41898,68 +42411,6 @@
           }
         ]
       },
-      "McpSetupAction": {
-        "enum": [
-          "install",
-          "enable",
-          "authorize"
-        ],
-        "title": "McpSetupAction",
-        "type": "string"
-      },
-      "McpSetupParams": {
-        "additionalProperties": false,
-        "properties": {
-          "profile": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Profile"
-          },
-          "session_id": {
-            "title": "Session Id",
-            "type": "string"
-          },
-          "server": {
-            "title": "Server",
-            "type": "string"
-          },
-          "action": {
-            "$ref": "#/components/schemas/McpSetupAction"
-          },
-          "reason": {
-            "title": "Reason",
-            "type": "string"
-          }
-        },
-        "required": [
-          "session_id",
-          "server",
-          "action",
-          "reason"
-        ],
-        "type": "object"
-      },
-      "McpSetupResult": {
-        "additionalProperties": false,
-        "description": "One string-valued prompt answer; ``''`` means skipped or declined.",
-        "properties": {
-          "value": {
-            "title": "Value",
-            "type": "string"
-          }
-        },
-        "required": [
-          "value"
-        ],
-        "type": "object"
-      },
       "PreviewActAction": {
         "enum": [
           "elements",
@@ -42126,7 +42577,7 @@
       },
       "PreviewActResult": {
         "additionalProperties": false,
-        "description": "One string-valued prompt answer; ``''`` means skipped or declined.",
+        "description": "The answer to any one-string prompt (sudo, secret, vault prompts, desktop bridges):\n``''`` means skipped / declined.",
         "properties": {
           "value": {
             "title": "Value",
@@ -42189,7 +42640,7 @@
       },
       "PreviewReadResult": {
         "additionalProperties": false,
-        "description": "One string-valued prompt answer; ``''`` means skipped or declined.",
+        "description": "The answer to any one-string prompt (sudo, secret, vault prompts, desktop bridges):\n``''`` means skipped / declined.",
         "properties": {
           "value": {
             "title": "Value",
@@ -42300,7 +42751,7 @@
       },
       "SecretResult": {
         "additionalProperties": false,
-        "description": "One string-valued prompt answer; ``''`` means skipped or declined.",
+        "description": "The answer to any one-string prompt (sudo, secret, vault prompts, desktop bridges):\n``''`` means skipped / declined.",
         "properties": {
           "value": {
             "title": "Value",
@@ -42339,7 +42790,7 @@
       },
       "SudoResult": {
         "additionalProperties": false,
-        "description": "One string-valued prompt answer; ``''`` means skipped or declined.",
+        "description": "The answer to any one-string prompt (sudo, secret, vault prompts, desktop bridges):\n``''`` means skipped / declined.",
         "properties": {
           "value": {
             "title": "Value",
@@ -42402,7 +42853,7 @@
       },
       "TerminalReadResult": {
         "additionalProperties": false,
-        "description": "One string-valued prompt answer; ``''`` means skipped or declined.",
+        "description": "The answer to any one-string prompt (sudo, secret, vault prompts, desktop bridges):\n``''`` means skipped / declined.",
         "properties": {
           "value": {
             "title": "Value",
@@ -42630,7 +43081,7 @@
       },
       "TourResult": {
         "additionalProperties": false,
-        "description": "One string-valued prompt answer; ``''`` means skipped or declined.",
+        "description": "The answer to any one-string prompt (sudo, secret, vault prompts, desktop bridges):\n``''`` means skipped / declined.",
         "properties": {
           "value": {
             "title": "Value",
@@ -42693,7 +43144,7 @@
       },
       "VaultCodeResult": {
         "additionalProperties": false,
-        "description": "One string-valued prompt answer; ``''`` means skipped or declined.",
+        "description": "The answer to any one-string prompt (sudo, secret, vault prompts, desktop bridges):\n``''`` means skipped / declined.",
         "properties": {
           "value": {
             "title": "Value",
@@ -42742,7 +43193,7 @@
       },
       "VaultSaveLoginResult": {
         "additionalProperties": false,
-        "description": "One string-valued prompt answer; ``''`` means skipped or declined.",
+        "description": "The answer to any one-string prompt (sudo, secret, vault prompts, desktop bridges):\n``''`` means skipped / declined.",
         "properties": {
           "value": {
             "title": "Value",
@@ -42791,7 +43242,7 @@
       },
       "VaultUnlockPromptResult": {
         "additionalProperties": false,
-        "description": "One string-valued prompt answer; ``''`` means skipped or declined.",
+        "description": "The answer to any one-string prompt (sudo, secret, vault prompts, desktop bridges):\n``''`` means skipped / declined.",
         "properties": {
           "value": {
             "title": "Value",
@@ -42830,7 +43281,7 @@
       },
       "WindowReadResult": {
         "additionalProperties": false,
-        "description": "One string-valued prompt answer; ``''`` means skipped or declined.",
+        "description": "The answer to any one-string prompt (sudo, secret, vault prompts, desktop bridges):\n``''`` means skipped / declined.",
         "properties": {
           "value": {
             "title": "Value",
@@ -43042,6 +43493,129 @@
           "task_id",
           "question",
           "text"
+        ],
+        "type": "object"
+      },
+      "ConnectionActor": {
+        "description": "``tools/connectors/contract.py::Actor``.",
+        "enum": [
+          "user",
+          "renderer_flow",
+          "backend_watcher",
+          "clock"
+        ],
+        "title": "ConnectionActor",
+        "type": "string"
+      },
+      "ConnectionUpdatePayload": {
+        "additionalProperties": false,
+        "description": "``methods_connectors._connection_update``: one target transition (``target``/``from``/``to``/\n``actor``) or the settlement (none of those), with the full snapshot.",
+        "properties": {
+          "op_id": {
+            "title": "Op Id",
+            "type": "string"
+          },
+          "deadline_at": {
+            "title": "Deadline At",
+            "type": "number"
+          },
+          "settled": {
+            "title": "Settled",
+            "type": "boolean"
+          },
+          "settled_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Settled At"
+          },
+          "settled_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConnectionSettleReason"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "targets": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectionOperationTarget"
+            },
+            "title": "Targets",
+            "type": "array"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Target"
+          },
+          "from": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConnectionTargetState"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "to": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConnectionTargetState"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "actor": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConnectionActor"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Detail"
+          }
+        },
+        "required": [
+          "op_id",
+          "deadline_at",
+          "settled",
+          "targets"
         ],
         "type": "object"
       },
@@ -47321,66 +47895,6 @@
       }
     },
     {
-      "name": "mcp.setup",
-      "summary": "Consent card for installing, enabling, or authorising an MCP server.",
-      "paramStructure": "by-name",
-      "params": [
-        {
-          "name": "profile",
-          "required": false,
-          "schema": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Profile"
-          }
-        },
-        {
-          "name": "session_id",
-          "required": true,
-          "schema": {
-            "title": "Session Id",
-            "type": "string"
-          }
-        },
-        {
-          "name": "server",
-          "required": true,
-          "schema": {
-            "title": "Server",
-            "type": "string"
-          }
-        },
-        {
-          "name": "action",
-          "required": true,
-          "schema": {
-            "$ref": "#/components/schemas/McpSetupAction"
-          }
-        },
-        {
-          "name": "reason",
-          "required": true,
-          "schema": {
-            "title": "Reason",
-            "type": "string"
-          }
-        }
-      ],
-      "result": {
-        "name": "result",
-        "schema": {
-          "$ref": "#/components/schemas/McpSetupResult"
-        }
-      }
-    },
-    {
       "name": "preview.act",
       "summary": "Click, type, scroll, or annotate inside the in-app browser preview.",
       "paramStructure": "by-name",
@@ -48176,6 +48690,8 @@
               "browser.controller.command",
               "browser.progress",
               "btw.complete",
+              "connection.request",
+              "connection.update",
               "cron.changed",
               "error",
               "gateway.ready",
@@ -48317,6 +48833,20 @@
       "wireMethod": "event",
       "payload": {
         "$ref": "#/components/schemas/BtwCompletePayload"
+      }
+    },
+    {
+      "type": "connection.request",
+      "wireMethod": "event",
+      "payload": {
+        "$ref": "#/components/schemas/ConnectionRequestPayload"
+      }
+    },
+    {
+      "type": "connection.update",
+      "wireMethod": "event",
+      "payload": {
+        "$ref": "#/components/schemas/ConnectionUpdatePayload"
       }
     },
     {

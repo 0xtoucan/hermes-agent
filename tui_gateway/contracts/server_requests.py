@@ -22,7 +22,8 @@ class ServerRequestParams(Params):
 
 
 class ValueResult(Result):
-    """One string-valued prompt answer; ``''`` means skipped or declined."""
+    """The answer to any one-string prompt (sudo, secret, vault prompts, desktop bridges):
+    ``''`` means skipped / declined."""
 
     value: str
 
@@ -168,22 +169,6 @@ class VaultCodeRequestParams(ServerRequestParams):
 
 server_request("vault.code", params=VaultCodeRequestParams, result=ValueResult,
                doc="A one-time / 2FA code the user reads from their device.")
-
-
-class McpSetupAction(WireEnum):
-    install = "install"
-    enable = "enable"
-    authorize = "authorize"
-
-
-class McpSetupRequestParams(ServerRequestParams):
-    server: str
-    action: McpSetupAction
-    reason: str
-
-
-server_request("mcp.setup", params=McpSetupRequestParams, result=ValueResult,
-               doc="Consent card for installing, enabling, or authorising an MCP server.")
 
 
 # ── desktop GUI bridges ───────────────────────────────────────────────────────────────────────

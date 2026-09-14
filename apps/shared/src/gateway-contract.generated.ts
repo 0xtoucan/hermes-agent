@@ -540,31 +540,66 @@ export interface ConfigSection {
 export interface ConfigShowResult {
   sections: ConfigSection[]
 }
+/** The card's answer: per-target outcomes and an optional Continue (``settled_by: "continue"``). Settlement is derived from target states afterwards. */
+export interface ConnectionAnswer {
+  profile: string | null
+  targets: ConnectionAnswerTarget[]
+  settled_by: ConnectionSettleReason | null
+}
+/** One row's answer from the card. ``status`` is what the card observed for that row (``tools/connectors/mcp.py::_OUTCOME_STATES`` maps it onto a target state); ``state`` is the older spelling of the same field and one of the two is present. */
+export interface ConnectionAnswerTarget {
+  profile: string | null
+  name: string
+  status: string | null
+  state: string | null
+  detail: string | null
+  tools: string[] | null
+}
+/** ``tools/connectors/contract.py::SettleReason``. */
+export type ConnectionSettleReason = 'all_resolved' | 'continue' | 'deadline' | 'interrupt' | 'unavailable'
+export interface ConnectionRespondParams {
+  profile?: string | null
+  session_id: string
+  op_id: string
+  result: ConnectionAnswer
+}
+export interface ConnectionRespondResult {
+  status: string
+  settled: boolean
+}
 export interface ConnectorsConnectParams {
   profile?: string | null
   session_id: string
   connectors: string[]
   reconnect?: boolean
 }
-/** ``tools/connections_tool.py:395-427`` authorization result. */
-export interface ConnectorConnectEntry {
-  connector: string
-  status: ConnectorConnectStatus | null
+/** ``Target.snapshot``: the link minted up front rides here, never in the model result. ``extra`` keys a leg records (``tools``, ``hint``) are typed here as they appear. */
+export interface ConnectionOperationTarget {
+  name: string
+  kind: ConnectionTargetKind
+  action: ConnectionTargetAction
+  state: ConnectionTargetState
+  detail: string | null
   connect_url: string | null
-  note: string | null
-  instruction: string | null
+  attempt: string | null
+  tools: string[] | null
+  hint: string | null
 }
-export type ConnectorConnectStatus = 'active' | 'initiated' | 'failed'
-/** ``tools/tool_gateway/wire.py:166-170`` summary passed through unchanged. */
-export interface ConnectorConnectSummary {
-  total: number
-  active: number
-  initiated: number
-  failed: number
-}
+export type ConnectionTargetKind = 'connector' | 'mcp'
+export type ConnectionTargetAction = 'authorize' | 'connect' | 'enable' | 'install' | 'reconnect'
+/** ``tools/connectors/contract.py::TargetState``. */
+export type ConnectionTargetState =
+  'pending' | 'initiated' | 'connected' | 'skipped' | 'failed' | 'expired' | 'unavailable' | 'not_connected'
+/** The operation the connect opened (or re-minted on): ``tools/connectors/managed.py`` ``_off_desktop_result`` / ``methods_connectors._reissue``. ``status``/``note`` ride along from the tool result when the call ran through ``manage_connections``. */
 export interface ConnectorsConnectResult {
-  results: ConnectorConnectEntry[]
-  summary: ConnectorConnectSummary
+  op_id: string
+  deadline_at: number
+  settled: boolean
+  settled_at: number | null
+  settled_by: ConnectionSettleReason | null
+  targets: ConnectionOperationTarget[]
+  status: string | null
+  note: string | null
 }
 export interface ConnectorsListParams {
   profile?: string | null
@@ -582,6 +617,20 @@ export interface ConnectorRow {
 export interface ConnectorsListResult {
   available: boolean
   connectors: ConnectorRow[]
+}
+export interface ConnectorsOperationStatusParams {
+  profile?: string | null
+  session_id: string
+  op_id: string
+}
+/** ``methods_connectors._operation_view``: the operation's full snapshot. */
+export interface ConnectorsOperationStatusResult {
+  op_id: string
+  deadline_at: number
+  settled: boolean
+  settled_at: number | null
+  settled_by: ConnectionSettleReason | null
+  targets: ConnectionOperationTarget[]
 }
 export type CronAction = 'list' | 'add' | 'remove' | 'pause' | 'resume'
 export interface CronManageParams {
@@ -2765,6 +2814,14 @@ export interface AutoContinue {
   attempt: number
   interrupted_at: number
 }
+/** ``ConnectionOperation.request_payload``: opens the card; also the ``pending_connection`` resume snapshot so a client that missed the event restores the card with the server's deadline. */
+export interface ConnectionRequestPayload {
+  op_id: string
+  deadline_at: number
+  timeout_seconds: number
+  targets: ConnectionOperationTarget[]
+  tool_call_id: string | null
+}
 /** ``agent/error_surface.py:76``; the Desktop parses it at ``apps/desktop/src/app/session/hooks/use-session-actions/utils.ts:785``. */
 export interface InflightErrorSurface {
   layer: string
@@ -2920,6 +2977,7 @@ export interface SessionActivateResult {
   queued: QueuedPrompt | null
   pending_approval: PendingApproval | null
   open_requests: OpenRequestEntry[] | null
+  pending_connection: ConnectionRequestPayload | null
   todo_state: TodoState | null
   auto_continue: AutoContinue | null
 }
@@ -3374,6 +3432,7 @@ export interface SessionResumeResult {
   queued: QueuedPrompt | null
   pending_approval: PendingApproval | null
   open_requests: OpenRequestEntry[] | null
+  pending_connection: ConnectionRequestPayload | null
   todo_state: TodoState | null
   auto_continue: AutoContinue | null
 }
@@ -4205,18 +4264,6 @@ export interface ClarifyAnswers {
   timed_out: boolean
 }
 export type ClarifyResult = ClarifyAnswer | ClarifyAnswers
-export type McpSetupAction = 'install' | 'enable' | 'authorize'
-export interface McpSetupParams {
-  profile: string | null
-  session_id: string
-  server: string
-  action: McpSetupAction
-  reason: string
-}
-/** One string-valued prompt answer; ``''`` means skipped or declined. */
-export interface McpSetupResult {
-  value: string
-}
 export type PreviewActAction =
   | 'elements'
   | 'click'
@@ -4247,7 +4294,7 @@ export interface PreviewActParams {
   amount: number | null
   max: number | null
 }
-/** One string-valued prompt answer; ``''`` means skipped or declined. */
+/** The answer to any one-string prompt (sudo, secret, vault prompts, desktop bridges): ``''`` means skipped / declined. */
 export interface PreviewActResult {
   value: string
 }
@@ -4257,7 +4304,7 @@ export interface PreviewReadParams {
   start: number | null
   count: number | null
 }
-/** One string-valued prompt answer; ``''`` means skipped or declined. */
+/** The answer to any one-string prompt (sudo, secret, vault prompts, desktop bridges): ``''`` means skipped / declined. */
 export interface PreviewReadResult {
   value: string
 }
@@ -4275,7 +4322,7 @@ export interface SecretParams {
   prompt: string
   metadata: SecretMetadata | null
 }
-/** One string-valued prompt answer; ``''`` means skipped or declined. */
+/** The answer to any one-string prompt (sudo, secret, vault prompts, desktop bridges): ``''`` means skipped / declined. */
 export interface SecretResult {
   value: string
 }
@@ -4283,7 +4330,7 @@ export interface SudoParams {
   profile: string | null
   session_id: string
 }
-/** One string-valued prompt answer; ``''`` means skipped or declined. */
+/** The answer to any one-string prompt (sudo, secret, vault prompts, desktop bridges): ``''`` means skipped / declined. */
 export interface SudoResult {
   value: string
 }
@@ -4293,7 +4340,7 @@ export interface TerminalReadParams {
   start: number | null
   count: number | null
 }
-/** One string-valued prompt answer; ``''`` means skipped or declined. */
+/** The answer to any one-string prompt (sudo, secret, vault prompts, desktop bridges): ``''`` means skipped / declined. */
 export interface TerminalReadResult {
   value: string
 }
@@ -4321,7 +4368,7 @@ export interface TourParams {
   steps: TourStep[] | null
   step_index: number | null
 }
-/** One string-valued prompt answer; ``''`` means skipped or declined. */
+/** The answer to any one-string prompt (sudo, secret, vault prompts, desktop bridges): ``''`` means skipped / declined. */
 export interface TourResult {
   value: string
 }
@@ -4331,7 +4378,7 @@ export interface VaultCodeParams {
   site: string | null
   hint: string | null
 }
-/** One string-valued prompt answer; ``''`` means skipped or declined. */
+/** The answer to any one-string prompt (sudo, secret, vault prompts, desktop bridges): ``''`` means skipped / declined. */
 export interface VaultCodeResult {
   value: string
 }
@@ -4341,7 +4388,7 @@ export interface VaultSaveLoginParams {
   origin: string
   site: string
 }
-/** One string-valued prompt answer; ``''`` means skipped or declined. */
+/** The answer to any one-string prompt (sudo, secret, vault prompts, desktop bridges): ``''`` means skipped / declined. */
 export interface VaultSaveLoginResult {
   value: string
 }
@@ -4351,7 +4398,7 @@ export interface VaultUnlockPromptParams {
   backend: string
   display_name: string
 }
-/** One string-valued prompt answer; ``''`` means skipped or declined. */
+/** The answer to any one-string prompt (sudo, secret, vault prompts, desktop bridges): ``''`` means skipped / declined. */
 export interface VaultUnlockPromptResult {
   value: string
 }
@@ -4359,7 +4406,7 @@ export interface WindowReadParams {
   profile: string | null
   session_id: string
 }
-/** One string-valued prompt answer; ``''`` means skipped or declined. */
+/** The answer to any one-string prompt (sudo, secret, vault prompts, desktop bridges): ``''`` means skipped / declined. */
 export interface WindowReadResult {
   value: string
 }
@@ -4406,6 +4453,22 @@ export interface BtwCompletePayload {
   task_id: string
   question: string
   text: string
+}
+/** ``tools/connectors/contract.py::Actor``. */
+export type ConnectionActor = 'user' | 'renderer_flow' | 'backend_watcher' | 'clock'
+/** ``methods_connectors._connection_update``: one target transition (``target``/``from``/``to``/ ``actor``) or the settlement (none of those), with the full snapshot. */
+export interface ConnectionUpdatePayload {
+  op_id: string
+  deadline_at: number
+  settled: boolean
+  settled_at: number | null
+  settled_by: ConnectionSettleReason | null
+  targets: ConnectionOperationTarget[]
+  target: string | null
+  from: ConnectionTargetState | null
+  to: ConnectionTargetState | null
+  actor: ConnectionActor | null
+  detail: string | null
 }
 /** ``change_watcher._CHANGE_WATCHES`` sends ``{}`` for these signals. */
 export type CronChangedPayload = Record<string, never>
@@ -5036,10 +5099,14 @@ export interface RpcMethods {
   'config.set': { params: ConfigSetParams; result: ConfigSetResult }
   /** Masked, display-ready config summary (model / agent / environment rows). */
   'config.show': { params: ConfigShowParams; result: ConfigShowResult }
-  /** Start (or re-initiate) authorization for named connectors; returns per-connector links/status. */
+  /** Per-target outcomes from the card, and an optional Continue. */
+  'connection.respond': { params: ConnectionRespondParams; result: ConnectionRespondResult }
+  /** Start (or re-initiate) authorization for named connectors on the session's connection operation. */
   'connectors.connect': { params: ConnectorsConnectParams; result: ConnectorsConnectResult }
   /** Connector catalog + connection state for one owned session (``available=False`` when the toolset is off). */
   'connectors.list': { params: ConnectorsListParams; result: ConnectorsListResult }
+  /** The current snapshot of one open operation on an owned session. */
+  'connectors.operation.status': { params: ConnectorsOperationStatusParams; result: ConnectorsOperationStatusResult }
   /** List/add/remove/pause/resume cron jobs in the (optionally profile-scoped) cron store. */
   'cron.manage': { params: CronManageParams; result: CronManageResult }
   /** Block/unblock NEW spawns globally (active children keep running); returns the new state. */
@@ -5440,8 +5507,10 @@ export const RPC_METHODS = [
   'config.get',
   'config.set',
   'config.show',
+  'connection.respond',
   'connectors.connect',
   'connectors.list',
+  'connectors.operation.status',
   'cron.manage',
   'delegation.pause',
   'delegation.status',
@@ -5634,8 +5703,6 @@ export interface ServerRequestMap {
   approval: { params: ApprovalParams; result: ApprovalResult }
   /** The clarify tool: ask the user one question or a batch. */
   clarify: { params: ClarifyParams; result: ClarifyResult }
-  /** Consent card for installing, enabling, or authorising an MCP server. */
-  'mcp.setup': { params: McpSetupParams; result: McpSetupResult }
   /** Click, type, scroll, or annotate inside the in-app browser preview. */
   'preview.act': { params: PreviewActParams; result: PreviewActResult }
   /** Read the in-app browser preview's text (JSON text answer). */
@@ -5661,7 +5728,6 @@ export type ServerRequestMethod = keyof ServerRequestMap
 export const SERVER_REQUEST_METHODS = [
   'approval',
   'clarify',
-  'mcp.setup',
   'preview.act',
   'preview.read',
   'secret',
@@ -5692,6 +5758,10 @@ export interface BackendGatewayEventMap {
   'browser.progress': BrowserProgressPayload
   /** A /btw side question was answered. */
   'btw.complete': BtwCompletePayload
+  /** A connection operation opened on this session; the desktop renders its card. */
+  'connection.request': ConnectionRequestPayload
+  /** One transition or the settlement of an open connection operation. */
+  'connection.update': ConnectionUpdatePayload
   /** cron/jobs.json moved; refetch the cron list. */
   'cron.changed': CronChangedPayload
   /** A session-level failure outside a turn (agent init, model switch, compression, resume). */
@@ -5821,6 +5891,8 @@ export const GATEWAY_EVENT_TYPES = [
   'browser.controller.command',
   'browser.progress',
   'btw.complete',
+  'connection.request',
+  'connection.update',
   'cron.changed',
   'error',
   'gateway.ready',

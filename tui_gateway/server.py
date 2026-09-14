@@ -45,7 +45,7 @@ from tui_gateway.contracts.events import (
 from tui_gateway.contracts.sessions import LiveSessionSnapshot
 from tui_gateway.contracts.server_requests import (
     ApprovalRequestParams, ClarifyAnswer, ClarifyAnswers, ClarifyBatch, ClarifyQuestion,
-    ClarifySingle, EmptyRequestParams, McpSetupRequestParams, PreviewActRequestParams,
+    ClarifySingle, EmptyRequestParams, PreviewActRequestParams,
     ReadRangeRequestParams, SecretRequestParams, TourRequestParams, VaultCodeRequestParams,
     VaultSaveLoginRequestParams, VaultUnlockRequestParams)
 from tui_gateway.turn_marker import clear_turn_marker, read_turn_marker, record_turn_start  # noqa: F401
@@ -716,6 +716,16 @@ def _open_requests(sid: str) -> list[dict]:
     return []
 
 
+def _pending_connection_request_payload(sid: str) -> dict | None:
+    """The open connection operation on *sid* as its ``connection.request`` payload, so a client
+    that missed the event (or restarted) restores the card with the server's deadline."""
+    from tools.connectors import live
+
+    session = _sessions.get(sid)
+    operation = live.current(str(session.get("session_key") or "")) if session else None
+    return operation.request_payload() if operation is not None else None
+
+
 def _pending_approval_request_payload(session_key: str) -> dict | None:
     """Read the oldest unresolved approval in a session, if there is one."""
     try:
@@ -1361,6 +1371,7 @@ def _ask(method: str, sid: str, params: Params, timeout: float | None = 300) -> 
     return value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
 
 
+
 def _clarify_timeout_seconds() -> float | None:
     """Clarify wait for the TUI/desktop bridge from the canonical config (gateway/CLI parity); 300s
     historical default if config can't be read; ``<= 0`` = unlimited → None (never auto-skip)."""
@@ -1956,8 +1967,8 @@ def _tool_progress_enabled(sid: str) -> bool:
 
 
 def _tool_lifecycle_required_for_ui(name: str) -> bool:
-    """Interactive UI, not optional chrome: Desktop renders clarify / setup_mcp cards from the tool-call part."""
-    return name in ("clarify", "setup_mcp")
+    """Interactive UI, not optional chrome: Desktop renders clarify / connection cards from the tool-call part."""
+    return name in ("clarify", "manage_connections", "setup_mcp")
 
 
 def _restart_slash_worker(sid: str, session: dict):
@@ -2070,8 +2081,10 @@ def _current_profile_name() -> str:
 # Monotonic GUI<->backend contract version: the desktop refuses a backend reporting less (or none) with a
 # one-click "update to align" prompt; bump whenever the desktop's backend contract changes. v2 file.attach;
 # v3 approvals.mode RPCs + session.info reconciliation; v4 session.create fast=false = explicit normal tier;
-# v5 ws_max_size >16 MiB file.attach frames; v6 plugins.manage rows carry the canonical registry key.
-DESKTOP_BACKEND_CONTRACT = 6
+# v5 ws_max_size >16 MiB file.attach frames; v6 plugins.manage rows carry the canonical registry key;
+# v7 blocking prompts are JSON-RPC server->client requests (`srq-<n>` frames, `open_requests` replay) — a v6
+# backend still emits `<kind>.request` notifications the renderer no longer listens for.
+DESKTOP_BACKEND_CONTRACT = 7
 
 
 def _session_usage_snapshot(session: dict | None) -> Usage:
@@ -2837,7 +2850,8 @@ def _live_session_payload(
     }
     for key, value in (("inflight", inflight), ("queued", queued),
                        ("pending_approval", _pending_approval_request_payload(str(session.get("session_key") or ""))),
-                       ("open_requests", _open_requests(sid))):
+                       ("open_requests", _open_requests(sid)),
+                       ("pending_connection", _pending_connection_request_payload(sid))):
         if value:
             payload[key] = value
     return LiveSessionSnapshot.model_validate(_attach_todo_state(payload, session))

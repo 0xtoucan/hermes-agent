@@ -1,14 +1,19 @@
 import type { PreviewActParams, TourParams } from '@hermes/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { createClientSessionState } from '@/lib/chat-runtime'
 import type { ScopedServerRequest } from '@/store/gateway'
 import { $toursEnabled } from '@/store/tours'
 
 import { handleServerRequest } from './server-requests'
 import type { ServerRequestContext } from './server-requests'
 
-// SAFETY: the surface bridges under test never touch the session deps.
-const deps = {} as ServerRequestContext['deps']
+const deps = {
+  activeSessionIdRef: { current: null },
+  sessionInterrupted: () => false,
+  updateSessionState: (_sessionId, update) => update(createClientSessionState('stored-session')),
+  upsertToolCall: () => undefined
+} as ServerRequestContext['deps']
 
 const previewAct = (session_id: string): PreviewActParams => ({
   action: 'elements',

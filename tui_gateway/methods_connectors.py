@@ -1,9 +1,8 @@
-"""Connector list and connect RPCs for one session.
+"""Session-scoped connector RPCs and the connection-operation bridge.
 
-Both calls run on the RPC pool. Authorization comes from the WebSocket upgrade
-authentication (including legacy local and SSH tokens) and from live transport
-membership; a profile or identity sent by the renderer does not grant it.
-Neither call builds an agent, opens a browser, or waits in a loop.
+Live transport ownership, not renderer-supplied profile or identity, authorizes requests.
+The operation itself lives in ``tools.connectors.live``; this module reads and drives it and
+pushes every transition to the session as ``connection.update``.
 """
 
 import contextvars
@@ -13,6 +12,13 @@ from .contracts.config_free_tier_control import (
     ConnectorsConnectResult,
     ConnectorsListParams,
     ConnectorsListResult,
+)
+from .contracts.connectors_operation import (
+    ConnectionOperationParams,
+    ConnectionOperationStatus,
+    ConnectionRespondParams,
+    ConnectionRespondResult,
+    ConnectionUpdatePayload,
 )
 from .method_ctx import HandlerRegistry, bind_module
 
@@ -39,15 +45,26 @@ def _connector_owner_matches(sid, owner, profile_home):
             and owner.get("profile_home") == profile_home)
 
 
-def _connector_rpc(rid, params, action):
+def _owned_session(rid, params):
+    """(owner, None) for a session this transport owns; (None, error reply) otherwise."""
     sid = params.session_id
+    if not sid.strip():
+        return None, _connector_rpc_error(rid, 4000, "INVALID_PARAMS", "session_id required")
     _, owner = _current_session_steer_authority(sid)
     origin = _connector_rpc_origin.get()
     if (owner is None or owner.get("_finalized")
             or origin is not None and (origin[0] is not owner or origin[1] != owner.get("profile_home"))):
-        return _connector_rpc_error(rid, 4001, "NOT_OWNER", "session not found or not owned by this transport")
+        return None, _connector_rpc_error(rid, 4001, "NOT_OWNER", "session not found or not owned by this transport")
     if _session_uses_compute_host(owner):
-        return _connector_rpc_error(rid, 5033, "UNSUPPORTED_RUNTIME", "Connectors must be managed on the session's compute host.")
+        return None, _connector_rpc_error(rid, 5033, "UNSUPPORTED_RUNTIME", "Connectors must be managed on the session's compute host.")
+    return owner, None
+
+
+def _connector_rpc(rid, params, action):
+    owner, error = _owned_session(rid, params)
+    if error:
+        return error
+    sid = params.session_id
     args = {"action": action}
     if action != "status":
         import re
@@ -56,14 +73,12 @@ def _connector_rpc(rid, params, action):
             re.fullmatch(r"[a-z0-9][a-z0-9_-]*", connector) is None
             for connector in params.connectors
         ):
-            return _connector_rpc_error(
-                rid, 4000, "INVALID_PARAMS", "connectors must be nonempty slugs")
+            return _connector_rpc_error(rid, 4000, "INVALID_PARAMS", "connectors must be nonempty slugs")
         args.update(action="reconnect" if params.reconnect else "connect", connectors=params.connectors)
     profile_home = owner.get("profile_home")
     runtime_token = _current_runtime_session_record.set(owner)
     try:
-        # Bind launch explicitly too: an ambient sibling-profile override must not
-        # leak into a session whose profile_home=None means the launch profile.
+        # Bind the launch profile to prevent ambient sibling-profile leakage.
         scope = {"profile_home": profile_home or str(_hermes_home)}
         with _session_profile_runtime_scope(scope):
             tokens = _set_session_context(owner["session_key"], cwd=_session_cwd(owner), ui_session_id=sid)
@@ -75,7 +90,7 @@ def _connector_rpc(rid, params, action):
             return _connector_rpc_error(rid, 4001, "NOT_OWNER", "session ownership changed")
         return result
     except Exception:
-        # Do not send exception strings: HTTP errors can contain headers/tokens.
+        # Do not expose exception strings: HTTP errors can contain credentials.
         return _connector_rpc_error(rid, 5034, "CONNECTOR_REQUEST_FAILED", "Connector request failed. Try again explicitly.")
     finally:
         _current_runtime_session_record.reset(runtime_token)
@@ -83,12 +98,10 @@ def _connector_rpc(rid, params, action):
 
 def _dispatch_connector_rpc(rid, sid, owner, profile_home, args):
     import model_tools
-    from tools.tool_gateway.config import connectors_available
+    from tools.connectors import connectors_available, live
     from tui_gateway.connector_payload import connector_ui_payload
 
     agent = owner.get("agent")
-    # A cold session has no cached grant yet. Resolve exactly as _make_agent
-    # does, under that session's profile/cwd, without constructing an LLM.
     enabled = (agent.enabled_toolsets if agent is not None
                else _load_enabled_toolsets(_resolve_agent_platform(_session_source(owner))))
     disabled = agent.disabled_toolsets if agent is not None else None
@@ -99,6 +112,9 @@ def _dispatch_connector_rpc(rid, sid, owner, profile_home, args):
         return _connector_rpc_error(rid, 4031, "CONNECTORS_UNAVAILABLE", "Connectors are not available in this session.")
     if not _connector_owner_matches(sid, owner, profile_home):
         return _connector_rpc_error(rid, 4001, "NOT_OWNER", "session ownership changed")
+    if args["action"] != "status" and (operation := live.current(owner["session_key"])) is not None:
+        # The card's Try again / Connect while the model's operation is open: reissue on that op.
+        return _reissue(rid, operation, args)
     raw = model_tools.handle_function_call(
         "manage_connections", args, task_id=owner["session_key"],
         session_id=getattr(agent, "session_id", None) or owner["session_key"],
@@ -108,14 +124,46 @@ def _dispatch_connector_rpc(rid, sid, owner, profile_home, args):
     data = json.loads(raw) if isinstance(raw, str) else raw
     if not isinstance(data, dict) or "error" in data:
         return _connector_rpc_error(rid, 5034, "CONNECTOR_REQUEST_FAILED", "Connector request failed or was refused by policy.")
-    key = "connectors" if args["action"] == "status" else "results"
-    if not isinstance(data.get(key), list) or any(not isinstance(row, dict) for row in data[key]):
-        return _connector_rpc_error(rid, 5034, "INVALID_CONNECTOR_RESPONSE", "Connector service returned an invalid response.")
-    if key == "connectors":
-        return ConnectorsListResult(available=True, connectors=connector_ui_payload(data[key]))
-    if not data["results"] or not isinstance(data.get("summary"), dict):
+    if args["action"] == "status":
+        if not isinstance(data.get("connectors"), list) or any(not isinstance(row, dict) for row in data["connectors"]):
+            return _connector_rpc_error(rid, 5034, "INVALID_CONNECTOR_RESPONSE", "Connector service returned an invalid response.")
+        return ConnectorsListResult(available=True, connectors=connector_ui_payload(data["connectors"]))
+    if not isinstance(data.get("targets"), list):
         return _connector_rpc_error(rid, 5034, "INVALID_CONNECTOR_RESPONSE", "Connector service returned no authorization results.")
-    return ConnectorsConnectResult(**connector_ui_payload(data))
+    # ``ConnectionOperation.result()`` carries ``settled_at``; the wire snapshot names ``settled`` too.
+    data.setdefault("settled", data.get("settled_at") is not None)
+    return ConnectorsConnectResult.model_validate(connector_ui_payload(data))
+
+
+def _reissue(rid, operation, args):
+    """Re-mint links for the named targets on the open operation (user actor)."""
+    from tools.connectors.contract import Actor, TargetState
+    from tools.connectors.gateway.client import ConnectorClient
+    from tools.connectors.managed import mint
+    from tui_gateway.connector_payload import connector_ui_payload
+
+    # Only a dead link is re-minted. A waiting target already holds its link (minted up front);
+    # the card re-opens that one and never calls here for it.
+    targets = [operation.target(n) for n in args["connectors"]]
+    if any(t is None for t in targets):
+        return _connector_rpc_error(rid, 4004, "UNKNOWN_TARGET", "no such target on the open operation")
+    stale = [t.name for t in targets if t.state in (TargetState.failed, TargetState.expired)]
+    if len(stale) != len(targets):
+        return _connector_rpc_error(rid, 4002, "LINK_STILL_VALID",
+                                    "only a failed or expired target can be re-minted; reopen the stored link")
+    mint(ConnectorClient(), operation, stale, reinitiate=True, actor=Actor.user)
+    return ConnectorsConnectResult.model_validate(connector_ui_payload(_operation_view(operation)))
+
+
+def _live_operation(rid, params, owner):
+    from tools.connectors import live
+
+    if not params.op_id:
+        return None, _connector_rpc_error(rid, 4000, "INVALID_PARAMS", "op_id required")
+    operation = live.get(owner["session_key"], params.op_id)
+    if operation is None:
+        return None, _connector_rpc_error(rid, 4004, "UNKNOWN_OPERATION", "no open operation with that op_id in this session")
+    return operation, None
 
 
 @method("connectors.list")
@@ -130,6 +178,73 @@ def _(rid, params: ConnectorsConnectParams) -> ConnectorsConnectResult | dict:
     return _connector_rpc(rid, params, "connect")
 
 
+@method("connectors.operation.status")
+def _(rid, params: ConnectionOperationParams) -> ConnectionOperationStatus | dict:
+    from tui_gateway.connector_payload import connector_ui_payload
+
+    owner, error = _owned_session(rid, params)
+    if error:
+        return error
+    operation, error = _live_operation(rid, params, owner)
+    if error:
+        return error
+    return ConnectionOperationStatus.model_validate(connector_ui_payload(_operation_view(operation)))
+
+
+@method("connection.respond")
+def _(rid, params: ConnectionRespondParams) -> ConnectionRespondResult | dict:
+    """The card's answer for the operation named by ``op_id``: per-target user / renderer-flow
+    transitions and an optional Continue. The contract decides what the card may claim."""
+    from tools.connectors import live
+    from tools.connectors.contract import SettleReason
+    from tools.connectors.mcp import apply_answer
+    from tools.connectors.operation import IllegalTransition
+
+    owner, error = _owned_session(rid, params)
+    if error:
+        return error
+    operation, error = _live_operation(rid, params, owner)
+    if error:
+        return error
+    try:
+        apply_answer(operation, params.result.model_dump_json(exclude_none=True))
+    except IllegalTransition as exc:
+        return _connector_rpc_error(rid, 4002, "ILLEGAL_TRANSITION", str(exc))
+    if not operation.settled and operation.all_resolved:
+        operation.settle(SettleReason.all_resolved)
+    if operation.settled:
+        live.close(operation)
+    return ConnectionRespondResult(status="ok", settled=operation.settled)
+
+
+def _operation_view(operation):
+    return {**operation.result(), "settled": operation.settled}
+
+
+def _connection_update(operation, change=None):
+    """Emit ``connection.update`` for one transition, a link refresh, or settlement. Every frame
+    carries the full target snapshot so the renderer never reconstructs state from deltas."""
+    from tui_gateway import server
+
+    with server._sessions_lock:
+        sid = next((s for s, c in server._sessions.items() if c.get("session_key") == operation.session_key), None)
+    if sid is None:
+        return
+    server._emit("connection.update", sid, ConnectionUpdatePayload.model_validate({**_operation_view(operation), **(change or {})}))
+
+
+def _install_update_hook():
+    """Route every operation change through ``_connection_update``. Idempotent: ``register`` can run
+    more than once (reload, tests) and must not stack wrappers."""
+    from tools.connectors import operation as op_module
+
+    if getattr(op_module.ConnectionOperation, "_update_hook_installed", False):
+        return
+    op_module.ConnectionOperation._update_hook_installed = True
+    op_module.ConnectionOperation.on_change = staticmethod(_connection_update)
+
+
 def register(server):
     bind_module(globals(), server, skip=("_",))
     server._LONG_HANDLERS = server._LONG_HANDLERS | _CONNECTOR_RPC_METHODS
+    _install_update_hook()

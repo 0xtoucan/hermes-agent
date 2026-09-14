@@ -1,22 +1,33 @@
 import type { ToolCallMessagePart } from '@assistant-ui/react'
+import type { RpcMethods } from '@hermes/shared'
 import { map } from 'nanostores'
 
 import { endFirstBuildConnect, isFirstBuildSession } from '@/app/contrib/handoff-receipt'
 import {
   connectionRows,
   connectorAuthorizationUrl,
+  type ConnectorRow,
+  connectorRowFromWire,
   connectorText,
   recordOf
 } from '@/lib/connector-tools'
 import { buildConnectionStartMessage, canStartWithConnections } from '@/lib/first-build-start'
 import { readKey, writeKey } from '@/lib/storage'
-import type { ConnectorFlowDeps, ConnectorFlowRow } from '@/store/connector-flow'
-
 export type FirstBuildConnectorPart = Pick<ToolCallMessagePart, 'toolCallId' | 'toolName' | 'args' | 'result'>
 
-export interface FirstBuildConnectorRow extends ConnectorFlowRow {
+// Onboarding's own poller; PR3 (NS-869) moves the guided flow onto the connection operation.
+export type FirstBuildConnectorPhase = 'idle' | 'opening' | 'waiting' | 'connected' | 'timeout' | 'error' | 'skipped'
+
+export interface FirstBuildConnectorRow extends ConnectorRow {
+  phase: FirstBuildConnectorPhase
+  error?: string
   connectUrl?: string
 }
+
+export type FirstBuildConnectorRequest = <M extends 'connectors.connect' | 'connectors.list'>(
+  method: M,
+  params: RpcMethods[M]['params']
+) => Promise<RpcMethods[M]['result']>
 
 export interface FirstBuildConnectorState {
   toolCallId: string
@@ -127,7 +138,7 @@ export function watchFirstBuildRows(
   storedId: string,
   runtimeId: string,
   part: FirstBuildConnectorPart,
-  request: ConnectorFlowDeps['request']
+  request: FirstBuildConnectorRequest
 ) {
   const action = recordOf(part.args).action
 
@@ -226,7 +237,12 @@ export function watchFirstBuildRows(
           return row.phase === 'connected' ? row : { ...row, enabled: false, phase: 'error', error: 'unavailable' }
         }
 
-        return { ...row, ...live, phase: live.connected ? 'connected' : 'waiting', error: undefined }
+        return {
+          ...row,
+          ...connectorRowFromWire(live),
+          phase: live.connected ? 'connected' : 'waiting',
+          error: undefined
+        }
       })
 
       $firstBuildConnections.setKey(storedId, { ...state, rows })

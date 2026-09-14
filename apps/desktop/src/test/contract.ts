@@ -10,7 +10,6 @@ import type {
   CommandsCatalogResult,
   ConnectorRow,
   InflightTurn,
-  McpSetupParams,
   MessageCompletePayload,
   MessageDeltaPayload,
   MoaReferencePayload,
@@ -119,6 +118,7 @@ export const sessionResumeResult = (over: Partial<SessionResumeResult> = {}): Se
   session_id: '',
   message_count: 0,
   messages: [],
+  pending_connection: null,
   info: sessionLiveInfo(),
   stored_session_id: null,
   resumed: null,
@@ -418,15 +418,6 @@ export const approvalParams = (over: Partial<ApprovalParams> = {}): ApprovalPara
   allow_session: null,
   smart_denied: null,
   choices: ['once', 'session', 'always', 'deny'],
-  ...over
-})
-
-export const mcpSetupParams = (over: Partial<McpSetupParams> = {}): McpSetupParams => ({
-  profile: null,
-  session_id: '',
-  server: '',
-  action: 'install',
-  reason: '',
   ...over
 })
 

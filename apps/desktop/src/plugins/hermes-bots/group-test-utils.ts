@@ -79,6 +79,7 @@ export function resumeSnapshot(overrides: Partial<SessionResumeResult> = {}): Se
     session_id: '',
     message_count: 0,
     messages: [],
+    pending_connection: null,
     info: scriptedSessionInfo(),
     stored_session_id: null,
     resumed: null,

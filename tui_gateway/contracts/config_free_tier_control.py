@@ -14,6 +14,7 @@ from typing import Literal
 from pydantic import Field, StrictInt
 
 from .base import JsonValue, Params, Result, WireEnum
+from .connectors_operation import ConnectionOperationStatus
 from .registry import method
 
 # ── config.get ────────────────────────────────────────────────────────────────────────────────
@@ -311,31 +312,6 @@ class ConnectorRow(Result):
     description: str | None = None
 
 
-class ConnectorConnectStatus(WireEnum):
-    active = "active"
-    initiated = "initiated"
-    failed = "failed"
-
-
-class ConnectorConnectEntry(Result):
-    """``tools/connections_tool.py:395-427`` authorization result."""
-
-    connector: str
-    status: ConnectorConnectStatus | None = None
-    connect_url: str | None = None
-    note: str | None = None
-    instruction: str | None = None
-
-
-class ConnectorConnectSummary(Result):
-    """``tools/tool_gateway/wire.py:166-170`` summary passed through unchanged."""
-
-    total: int = 0
-    active: int = 0
-    initiated: int = 0
-    failed: int = 0
-
-
 class ConnectorsListResult(Result):
     available: bool
     connectors: list[ConnectorRow]
@@ -351,13 +327,17 @@ class ConnectorsConnectParams(Params):
     reconnect: bool = False
 
 
-class ConnectorsConnectResult(Result):
-    results: list[ConnectorConnectEntry]
-    summary: ConnectorConnectSummary
+class ConnectorsConnectResult(ConnectionOperationStatus):
+    """The operation the connect opened (or re-minted on): ``tools/connectors/managed.py``
+    ``_off_desktop_result`` / ``methods_connectors._reissue``. ``status``/``note`` ride along from
+    the tool result when the call ran through ``manage_connections``."""
+
+    status: str | None = None
+    note: str | None = None
 
 
 method("connectors.connect", params=ConnectorsConnectParams, result=ConnectorsConnectResult,
-       doc="Start (or re-initiate) authorization for named connectors; returns per-connector links/status.")
+       doc="Start (or re-initiate) authorization for named connectors on the session's connection operation.")
 
 
 # ── image.generate ────────────────────────────────────────────────────────────────────────────

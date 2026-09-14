@@ -9,7 +9,6 @@ import type { PreviewActAction, PreviewActResult } from '@/lib/preview-act/act-i
 import type { TourAction, TourResult, TourStep } from '@/lib/tour'
 import { type ClarifyRequest, displayChoices, setClarifyRequest } from '@/store/clarify'
 import type { ScopedServerRequest } from '@/store/gateway'
-import { setMcpSetupRequest } from '@/store/mcp-setup'
 import { dispatchNativeNotification } from '@/store/native-notifications'
 import {
   receiveApprovalRequest,
@@ -241,32 +240,6 @@ const vaultUnlockPrompt: Handler<'vault.unlock_prompt'> = ctx => {
   notifyInput(ctx, translateNow('prompts.vaultUnlockTitle', displayName))
 }
 
-const mcpSetup: Handler<'mcp.setup'> = ctx => {
-  // setup_mcp tool (desktop GUI): the agent proposed an MCP server. Park the
-  // request per-session (like clarify) and upsert a stable pending tool row so
-  // the inline consent card has somewhere to render even when the tool.start
-  // event was missed (stream reconnect / hydration race).
-  const { deps, request, sessionId } = ctx
-  const { action, reason, server } = request.params
-
-  // The contract types `server` as a string, not a non-empty one; a nameless proposal has no card.
-  if (!server) {
-    request.respond({ value: '' })
-
-    return
-  }
-
-  rememberServerRequest(request)
-  setMcpSetupRequest({ action, reason, requestId: request.id, server, sessionId: sessionId || null })
-
-  if (sessionId) {
-    deps.upsertToolCall(sessionId, { args: { action, reason, server }, name: 'setup_mcp', tool_id: request.id }, 'running')
-  }
-
-  markNeedsInput(ctx)
-  notifyInput(ctx, reason || server)
-}
-
 // ── Desktop-surface bridges (answered immediately, no card) ─────────────────
 
 type SurfaceRequest = ScopedServerRequest<'preview.act' | 'preview.read' | 'terminal.read' | 'tour' | 'window.read'>
@@ -401,7 +374,6 @@ const tour: Handler<'tour'> = ({ isActiveSession, request, sessionId }) => {
 const HANDLERS: { [M in keyof ServerRequestMap]: Handler<M> } = {
   approval,
   clarify,
-  'mcp.setup': mcpSetup,
   'preview.act': previewAct,
   'preview.read': previewRead,
   secret,
