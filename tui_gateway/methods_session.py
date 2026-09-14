@@ -2179,7 +2179,7 @@ def _(rid, params: dict) -> dict:
     # Pending questions are outside the event ring, so reconnects must fetch them separately.
     return _ok(rid, {"events": frames, "latest_seq": er.latest_seq(sid), "truncated": er.is_truncated(sid, last_seen),
                      "count": len(frames), "epoch": er.replay_epoch(),
-                     "open_requests": server_requests.open_requests(sid) + _compute_host_open_requests(sid)})
+                     "open_requests": server_requests.open_requests(sid)})
 
 
 @method("session.events.stats")

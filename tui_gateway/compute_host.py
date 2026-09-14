@@ -200,7 +200,7 @@ class ComputeHost:
                 self._reply("respond.error", sid, request_id, message="reply frame must be an object")
                 return
             from tui_gateway import server_requests
-            self._reply("respond.ack", sid, request_id, delivered=server_requests.handle_client_frame(reply))
+            self._reply("respond.ack", sid, request_id, delivered=server_requests.take(reply))
         self._guarded(frame, "respond.error", body)
 
     def _run_real_turn(self, frame: dict[str, Any]) -> None:

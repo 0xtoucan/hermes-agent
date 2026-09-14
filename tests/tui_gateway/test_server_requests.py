@@ -45,16 +45,16 @@ def test_request_frame_has_srq_id_and_result_returns_to_caller():
     t, box = _run_in_thread(lambda: sr.server_request("clarify.request", "s1", {"question": "?"}, timeout=5, write=sink))
     req = _wait_for_frame(sink, lambda f: f.get("method") == "clarify.request")
 
-    handled = sr.handle_client_frame({"jsonrpc": "2.0", "id": req["id"], "result": {"answer": "yes"}})
+    handled = sr.take({"jsonrpc": "2.0", "id": req["id"], "result": {"answer": "yes"}})
     assert handled is True
     t.join(2)
-    assert box["result"] == sr.Answer(result={"answer": "yes"}, timed_out=False, cancelled=False)
+    assert box["result"] == sr.Answer("answered", result={"answer": "yes"})
 
 
 def test_timeout_emits_request_cancel_and_returns_timed_out():
     sink = _Sink()
     answer = sr.server_request("secret.request", "s1", {"name": "X"}, timeout=0, write=sink)
-    assert answer.timed_out is True and answer.result is None
+    assert answer.kind == "timeout"
     req = next(f for f in sink.frames if f.get("method") == "secret.request")
     cancel = next(f for f in sink.frames if f.get("method") == "request.cancel")
     assert "id" not in cancel
@@ -63,18 +63,20 @@ def test_timeout_emits_request_cancel_and_returns_timed_out():
 
 
 def test_unknown_response_id_is_dropped_not_raised():
-    assert sr.handle_client_frame({"jsonrpc": "2.0", "id": "srq-nope", "result": {}}) is False
-    assert sr.handle_client_frame({"jsonrpc": "2.0", "id": 42, "result": {}}) is False
+    # A late reply to an expired id is still ours (swallowed, not routed to the method table);
+    # a reply to a client-style id is not.
+    assert sr.take({"jsonrpc": "2.0", "id": "srq-nope", "result": {}}) is True
+    assert sr.take({"jsonrpc": "2.0", "id": 42, "result": {}}) is False
 
 
 def test_error_response_settles_as_error():
     sink = _Sink()
     t, box = _run_in_thread(lambda: sr.server_request("tour.request", "s1", {}, timeout=5, write=sink))
     req = _wait_for_frame(sink, lambda f: f.get("method") == "tour.request")
-    sr.handle_client_frame({"jsonrpc": "2.0", "id": req["id"], "error": {"code": 4009, "message": "no window"}})
+    sr.take({"jsonrpc": "2.0", "id": req["id"], "error": {"code": 4009, "message": "no window"}})
     t.join(2)
-    assert box["result"].result is None
-    assert box["result"].error == {"code": 4009, "message": "no window"}
+    assert box["result"].kind == "error"
+    assert box["result"].result == {"code": 4009, "message": "no window"}
 
 
 def test_open_requests_lists_unanswered_for_session_only():
@@ -104,13 +106,13 @@ def test_cancel_open_releases_waiters_with_cancelled_and_emits_cancel_only_for_t
 
     sr.cancel_open("s1", reason="interrupt", write=sink)
     t1.join(2)
-    assert b1["result"].cancelled is True and b1["result"].result is None
+    assert b1["result"].kind == "cancelled"
     cancels = [f for f in sink.frames if f.get("method") == "request.cancel"]
     assert [c["params"]["session_id"] for c in cancels] == ["s1"]
     assert t2.is_alive()
     sr.cancel_open(None, reason="shutdown", write=sink)
     t2.join(2)
-    assert b2["result"].cancelled is True
+    assert b2["result"].kind == "cancelled"
 
 
 def test_progress_notification_accumulates_partial_answers_and_survives_timeout():
@@ -118,9 +120,9 @@ def test_progress_notification_accumulates_partial_answers_and_survives_timeout(
     t, box = _run_in_thread(lambda: sr.server_request(
         "clarify.request", "s1", {"questions": [{"qid": "q0"}, {"qid": "q1"}]}, timeout=0.3, write=sink))
     req = _wait_for_frame(sink, lambda f: f.get("method") == "clarify.request")
-    assert sr.handle_client_frame({"jsonrpc": "2.0", "method": "clarify.progress",
+    assert sr.take({"jsonrpc": "2.0", "method": "clarify.progress",
                                    "params": {"id": req["id"], "question_id": "q0", "answer": "A"}}) is True
     assert sr.open_requests("s1")[0]["partial"] == {"q0": "A"}
     t.join(2)
-    assert box["result"].timed_out is True
+    assert box["result"].kind == "timeout"
     assert box["result"].partial == {"q0": "A"}

@@ -13542,7 +13542,7 @@ def test_interrupt_only_clears_own_session_pending():
         resp = server.handle_request({"id": "1", "method": "session.interrupt", "params": {"session_id": "sid_a"}})
         assert resp.get("result"), f"got error: {resp.get('error')}"
         ta.join(2)
-        assert results["sid_a"].cancelled is True
+        assert results["sid_a"].kind == "cancelled"
         assert tb.is_alive(), "session.interrupt on sid_a released sid_b's open request"
         assert server_requests.open_requests("sid_b")
     finally:
@@ -13572,7 +13572,7 @@ def test_interrupt_clears_multiple_own_pending():
         assert resp.get("result")
         for t in threads:
             t.join(2)
-        assert [r.cancelled for r in results] == [True, True]
+        assert [r.kind for r in results] == ["cancelled", "cancelled"]
     finally:
         server._sessions.pop("sid", None)
 
@@ -14221,7 +14221,7 @@ def test_clear_pending_without_sid_clears_all():
     server._clear_pending(None)
     for t in threads:
         t.join(2)
-    assert [r.cancelled for r in results] == [True, True, True]
+    assert [r.kind for r in results] == ["cancelled"] * 3
 
 
 # ---------------------------------------------------------------------------

@@ -90,7 +90,8 @@ def _compute_host_adopt_frame_meta(session: dict, frame: dict) -> None:
 
 
 def _relay_compute_host_rpc(message: dict) -> bool:
-    """Mirror host-owned questions so reconnects can replay them and replies return to the host."""
+    """Frames the child writes for the renderer pass through here. A child's question is mirrored into
+    the one open-request registry with a forward back to the child; its cancel drops the mirror."""
     params = message.get("params") if isinstance(message, dict) else None
     if isinstance(message, dict) and message.get("method") == "compute_host.activity":
         if isinstance(params, dict):
@@ -104,16 +105,10 @@ def _relay_compute_host_rpc(message: dict) -> bool:
     if isinstance(message, dict) and isinstance(params, dict):
         rid = message.get("id")
         if isinstance(rid, str) and rid.startswith("srq-") and message.get("method"):
-            session = _sessions.get(str(params.get("session_id") or ""))
-            if session is not None:
-                with _history_lock(session):
-                    session.setdefault("_compute_host_open_requests", {})[rid] = {
-                        "id": rid, "method": message["method"], "params": dict(params), "partial": {}}
+            sid = str(params.get("session_id") or "")
+            server_requests.mirror_open(message, forward=lambda reply, sid=sid: _forward_to_compute_host(sid, reply))
         elif message.get("method") == server_requests.CANCEL_METHOD:
-            session = _sessions.get(str(params.get("session_id") or ""))
-            if session is not None:
-                with _history_lock(session):
-                    (session.get("_compute_host_open_requests") or {}).pop(str(params.get("id") or ""), None)
+            server_requests.take(message)
     return write_json(message)
 
 
@@ -121,40 +116,12 @@ def _history_lock(session: dict):
     return session.get("history_lock", threading.Lock())
 
 
-def _compute_host_open_requests(sid: str) -> list[dict]:
-    session = _sessions.get(sid)
-    if session is None:
-        return []
-    with _history_lock(session):
-        return [dict(v) for v in (session.get("_compute_host_open_requests") or {}).values()]
-
-
-def _compute_host_session_for_reply(rid: str) -> tuple[str, dict] | None:
-    for sid, session in list(_sessions.items()) if rid else ():
-        with _history_lock(session):
-            if rid in (session.get("_compute_host_open_requests") or {}):
-                return sid, session
-    return None
-
-
-def _forward_reply_to_compute_host(frame: dict) -> bool:
-    rid = frame.get("id") if "method" not in frame else ((frame.get("params") or {}).get("id"))
-    located = _compute_host_session_for_reply(str(rid or ""))
-    if located is None or not _session_uses_compute_host(located[1]):
-        return False
-    sid, session = located
+def _forward_to_compute_host(sid: str, reply: dict) -> bool:
     try:
-        _get_compute_host_supervisor().respond(sid, frame)
+        _get_compute_host_supervisor().respond(sid, reply)
     except Exception:
-        logger.debug("compute-host reply forward failed sid=%s id=%s", sid, rid, exc_info=True)
-        return True
-    with _history_lock(session):
-        open_map = session.get("_compute_host_open_requests") or {}
-        if "method" not in frame:
-            open_map.pop(str(rid), None)
-        elif (entry := open_map.get(str(rid))) is not None:
-            p = frame.get("params") or {}
-            entry["partial"][str(p.get("question_id") or "")] = str(p.get("answer") or "")
+        logger.debug("compute-host reply forward failed sid=%s", sid, exc_info=True)
+        return False
     return True
 
 
@@ -180,7 +147,6 @@ def _on_compute_host_turn_done(rid: str, sid: str, session: dict, frame: dict) -
         session["running"] = False
         session["last_active"] = time.time()
         _clear_inflight_turn(session)
-        session.pop("_compute_host_open_requests", None)
     if frame.get("type") == "turn.error":
         message = str(frame.get("message") or "compute host turn failed")
         _emit("message.complete", sid, {"text": f"Error: {message}", "status": "error"})
