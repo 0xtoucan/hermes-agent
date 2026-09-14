@@ -736,15 +736,6 @@ def _normalize_request(req: Any) -> tuple[Any, str, dict] | dict:
     return rid, method, params if params is not None else {}
 
 
-def _is_server_request_reply(req: Any) -> bool:
-    """Keep renderer reply frames out of the RPC method table."""
-    if not isinstance(req, dict):
-        return False
-    if req.get("method") == server_requests.PROGRESS_METHOD:
-        return True
-    return "method" not in req and ("result" in req or "error" in req) and isinstance(req.get("id"), str)
-
-
 def handle_request(req: dict) -> dict | None:
     normalized = _normalize_request(req)
     if isinstance(normalized, dict):
@@ -789,9 +780,7 @@ def dispatch(req: dict, transport: Optional[Transport] = None) -> dict | None:
     t = transport or _stdio_transport
     token = bind_transport(t)
     try:
-        if _is_server_request_reply(req):
-            if not _forward_reply_to_compute_host(req):
-                server_requests.handle_client_frame(req)
+        if server_requests.take(req):
             return None
         normalized = _normalize_request(req)
         if isinstance(normalized, dict):
@@ -1241,9 +1230,7 @@ def _enable_gateway_prompts() -> None:
 def _ask(method: str, sid: str, payload: dict, timeout: float | None = 300) -> str:
     """Collapse renderer answers to the callback string contract."""
     answer = server_requests.server_request(method, sid, payload, timeout=timeout)
-    if answer.result is None:
-        return ""
-    return str(answer.result.get("value", "") or "")
+    return str(answer.result.get("value") or "") if answer.answered else ""
 
 
 def _clarify_timeout_seconds() -> float | None:
@@ -1262,13 +1249,13 @@ def _clarify_block(sid: str, q, c, multi_select=False, questions=None) -> str:
         wire = [{"qid": e["qid"], "question": e["question"], "choices": e["choices"], "multi_select": bool(e["multi_select"])}
                 for e in questions]
         answer = server_requests.server_request("clarify.request", sid, {"questions": wire}, timeout=_clarify_timeout_seconds())
-        if answer.result is not None and "value" in answer.result:
-            return str(answer.result.get("value") or "")
+        if answer.answered and "value" in answer.result:
+            return str(answer.result.get("value") or "")  # cancel-all: one value for the whole batch
         answers = dict(answer.partial)
-        if answer.result is not None and isinstance(answer.result.get("answers"), dict):
+        if answer.answered and isinstance(answer.result.get("answers"), dict):
             answers.update({str(k): str(v) for k, v in answer.result["answers"].items()})
         result: dict[str, object] = {"answers": answers}
-        if answer.timed_out:
+        if answer.kind == "timeout":
             result["timed_out"] = True
         return json.dumps(result, ensure_ascii=False)
     payload = {"question": q, "choices": c, "multi_select": True} if multi_select else {"question": q, "choices": c}
