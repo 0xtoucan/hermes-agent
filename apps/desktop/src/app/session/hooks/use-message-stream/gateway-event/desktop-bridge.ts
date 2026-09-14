@@ -93,12 +93,10 @@ function requestResponder(request: ServerRequest): (result: unknown) => void {
   }
 }
 
-/** Prevent an in-flight request from replying after the backend withdrew it. */
 export function cancelDesktopBridgeServerRequest(id: string): void {
   pendingDesktopBridgeRequests.delete(id)
 }
 
-/** Answer desktop-specific backend requests that do not need persistent UI state. */
 export function handleDesktopBridgeServerRequest(request: ServerRequest, deps: GatewayEventDeps): boolean {
   if (reattachPendingDesktopBridgeRequest(request)) {
     return true
@@ -109,7 +107,6 @@ export function handleDesktopBridgeServerRequest(request: ServerRequest, deps: G
 
   const handlers = new Map<string, () => void>([
     ['preview.act.request', () => {
-      // A scoped request belongs to another window when its session is not active here.
       if (request.sessionId && !isActiveRequest) {
         return
       }
@@ -152,7 +149,6 @@ export function handleDesktopBridgeServerRequest(request: ServerRequest, deps: G
       request.respond({ value: result ? JSON.stringify(result) : '' })
     }],
     ['tour.request', () => {
-      // A scoped request belongs to another window when its session is not active here.
       if (request.sessionId && !isActiveRequest) {
         return
       }
@@ -206,20 +202,16 @@ export function handleDesktopBridgeServerRequest(request: ServerRequest, deps: G
   return true
 }
 
-/** Desktop-surface bridge events: agent terminal streaming, pane reveal, and message reactions. */
 export function handleDesktopBridgeEvent(ctx: GatewayEventContext): boolean {
   const { event, payload, isActiveEvent } = ctx
 
   if (event.type === 'agent.terminal.output') {
-    // Live chunk from a background process → its read-only agent terminal tab.
     writeAgentTerminalChunk(payload?.process_id ?? '', payload?.chunk ?? '')
 
     return true
   }
 
   if (event.type === 'terminal.close') {
-    // Agent closed its own read-only tab via the desktop-gated close_terminal tool.
-    // The process is untouched — this only drops the view.
     closeAgentTerminalByProc(payload?.process_id ?? '')
 
     return true

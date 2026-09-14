@@ -1,7 +1,6 @@
 import type { GatewayEventPayload } from '@/lib/chat-messages'
 import type { ClarifyRequest } from '@/store/clarify'
 
-/** Convert a live server request into the matching clarify tool-call payload. */
 export function pendingClarifyToolPayload(request: ClarifyRequest): GatewayEventPayload {
   return {
     args: request.questions?.length

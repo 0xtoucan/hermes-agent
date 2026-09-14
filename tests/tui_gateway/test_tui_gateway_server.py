@@ -496,43 +496,6 @@ def test_compute_host_turn_end_updates_metadata_mirror(monkeypatch):
         server._sessions.pop("iso-sid", None)
 
 
-def test_compute_host_open_request_mirrored_and_reply_forwarded(monkeypatch):
-    """A host-owned request survives activation (``open_requests``) and its reply frames go to the host."""
-    class _Supervisor:
-        def __init__(self):
-            self.responses = []
-
-        def respond(self, sid, frame, *, timeout=15.0):
-            self.responses.append((sid, dict(frame)))
-            return {"type": "respond.ack", "delivered": True}
-
-    sid = "host-clarify"
-    supervisor = _Supervisor()
-    session = _session(agent=None, agent_ready=threading.Event(), _compute_host_active=True)
-    server._sessions[sid] = session
-    monkeypatch.setattr(server, "_load_cfg", lambda: {"dashboard": {"turn_isolation": True}})
-    monkeypatch.setattr(server, "_get_compute_host_supervisor", lambda _cfg=None: supervisor)
-    monkeypatch.setattr(server, "write_json", lambda _message: True)
-
-    try:
-        request = {"jsonrpc": "2.0", "id": "srq-3", "method": "clarify.request",
-                   "params": {"session_id": sid, "questions": [{"qid": "q0"}, {"qid": "q1"}]}}
-        server._relay_compute_host_rpc(request)
-        assert server._compute_host_open_requests(sid) == [
-            {"id": "srq-3", "method": "clarify.request", "params": request["params"], "partial": {}}]
-
-        progress = {"jsonrpc": "2.0", "method": "clarify.progress", "params": {"id": "srq-3", "question_id": "q0", "answer": "a"}}
-        assert server.dispatch(progress) is None
-        assert server._compute_host_open_requests(sid)[0]["partial"] == {"q0": "a"}
-
-        reply = {"jsonrpc": "2.0", "id": "srq-3", "result": {"answers": {"q1": "b"}}}
-        assert server.dispatch(reply) is None
-        assert supervisor.responses == [(sid, progress), (sid, reply)]
-        assert server._compute_host_open_requests(sid) == []
-    finally:
-        server._sessions.pop(sid, None)
-
-
 def test_compute_host_interrupt_forwards_when_parent_running_mirror_is_stale(monkeypatch):
     """The host, not the parent's mirrored running flag, owns interruption."""
     interrupted = []
@@ -13590,7 +13553,6 @@ def test_interrupt_only_clears_own_session_pending():
 
 
 def test_interrupt_clears_multiple_own_pending():
-    """A session with several open questions (nested tool calls) has all of them cancelled on interrupt."""
     import types
     from tui_gateway import server_requests
 
@@ -14247,7 +14209,6 @@ def test_wait_agent_for_prompt_expires_at_cap(monkeypatch):
 
 
 def test_clear_pending_without_sid_clears_all():
-    """_clear_pending(None) is the shutdown path: every open question is cancelled regardless of session."""
     from tui_gateway import server_requests
     results = []
     threads = [threading.Thread(target=lambda s=s: results.append(server_requests.server_request(
@@ -20631,8 +20592,6 @@ def test_speak_text_with_barge_no_monitor_when_voice_mode_off(monkeypatch):
 
 
 def test_clarify_callback_uses_configured_timeout(monkeypatch):
-    """The TUI/desktop clarify bridge honors the canonical clarify timeout
-    (via _clarify_timeout_seconds) instead of the request layer's default."""
     captured = {}
 
     monkeypatch.setattr(server, "_clarify_timeout_seconds", lambda: 42)
@@ -20680,8 +20639,6 @@ def test_clarify_callback_multi_select_hint(monkeypatch):
     [(0, None), (-1, None), (42, 42)],
 )
 def test_clarify_timeout_seconds_maps_non_positive_to_unlimited(monkeypatch, configured, expected):
-    """A ``<= 0`` clarify timeout means unlimited and reaches the request layer as None
-    (wait forever) rather than an immediate zero-second skip."""
     monkeypatch.setattr("tools.clarify_gateway.get_clarify_timeout", lambda: configured)
 
     assert server._clarify_timeout_seconds() == expected

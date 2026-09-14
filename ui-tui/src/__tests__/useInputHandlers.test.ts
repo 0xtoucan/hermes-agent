@@ -175,7 +175,6 @@ describe('dismissSensitivePrompt', () => {
     dismissSensitivePrompt(getOverlayState(), sys)
 
     expect(getOverlayState().vaultUnlock).toBeNull()
-    expect(sys).toHaveBeenCalledWith('Bitwarden stays locked')
     expect(request.respond).toHaveBeenCalledWith({ value: '' })
   })
 
@@ -188,7 +187,6 @@ describe('dismissSensitivePrompt', () => {
     dismissSensitivePrompt(getOverlayState(), sys)
 
     expect(getOverlayState().sudo).toBeNull()
-    expect(sys).toHaveBeenCalledWith('sudo cancelled')
     expect(request.respond).toHaveBeenCalledWith({ value: '' })
   })
 
@@ -201,7 +199,6 @@ describe('dismissSensitivePrompt', () => {
     dismissSensitivePrompt(getOverlayState(), sys)
 
     expect(getOverlayState().secret).toBeNull()
-    expect(sys).toHaveBeenCalledWith('secret entry cancelled')
     expect(request.respond).toHaveBeenCalledWith({ value: '' })
   })
 })

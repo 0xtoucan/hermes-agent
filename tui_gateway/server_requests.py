@@ -1,14 +1,7 @@
-"""Backend→renderer questions as JSON-RPC requests.
+"""Backend→renderer JSON-RPC requests.
 
-The backend sends ``{"id": "srq-N", "method": "<name>", "params": {...}}`` and blocks the agent thread
-until the renderer answers with a response frame carrying that id. JSON-RPC 2.0 is peer-to-peer, so this
-uses the protocol's own correlation instead of a ``request_id`` field inside a notification plus a
-separate ``*.respond`` method per question kind (#110521).
-
-Ids are strings with an ``srq-`` prefix so they never collide with the renderer's own request ids on the
-same socket. Timeouts and interrupts send one ``request.cancel`` notification; the renderer tears the card
-down on it. Unanswered requests are listed by :func:`open_requests` so ``session.events.since`` can re-show
-them after a reconnect.
+``srq-`` ids avoid client-id collisions. Timeouts and interrupts send ``request.cancel`` so clients close
+cards; unanswered requests remain available to reconnecting clients.
 """
 
 from __future__ import annotations
@@ -62,9 +55,7 @@ def _cancel_frame(sid: str, rid: str, reason: str) -> dict:
 
 def server_request(method: str, sid: str, params: dict, *, timeout: float | None = 300,
                    write: Write | None = None) -> Answer:
-    """Ask the renderer and block until its response, a timeout, or a cancel. ``timeout=None`` waits
-    until answered or cancelled; ``0`` returns after sending (probe shape used by tests and the tour
-    bridge)."""
+    """``None`` waits until cancelled or answered; ``0`` sends without waiting."""
     write = write or _default_write
     rid = f"{_ID_PREFIX}{next(_ids)}"
     entry = _Open(sid=sid, method=method, params=dict(params), event=threading.Event())
@@ -81,9 +72,7 @@ def server_request(method: str, sid: str, params: dict, *, timeout: float | None
 
 
 def handle_client_frame(frame: dict) -> bool:
-    """Route an inbound frame that belongs to this layer. Returns False when it does not: a response with
-    an unknown id (already timed out or cancelled) or any request/notification other than
-    ``clarify.progress``."""
+    """Unknown and expired response ids must fall through without a protocol error."""
     if not isinstance(frame, dict):
         return False
     rid = frame.get("id")
@@ -112,21 +101,20 @@ def handle_client_frame(frame: dict) -> bool:
 
 
 def open_requests(sid: str) -> list[dict]:
-    """Unanswered requests for *sid*, in send order, in the shape ``session.events.since`` returns."""
+    """Preserve send order for reconnect replay."""
+
     with _lock:
         return [{"id": rid, "method": e.method, "params": {"session_id": e.sid, **e.params}, "partial": dict(e.partial)}
                 for rid, e in _open.items() if e.sid == sid]
 
 
 def open_kind(sid: str) -> str:
-    """Method name of the oldest unanswered request for *sid*, ``""`` when none (session status)."""
     with _lock:
         return next((e.method for e in _open.values() if e.sid == sid), "")
 
 
 def cancel_open(sid: str | None, *, reason: str, write: Write | None = None) -> int:
-    """Release waiters with ``cancelled=True``: only *sid*'s, or every one when *sid* is None
-    (shutdown). Sends ``request.cancel`` per released request so live cards close."""
+    """Send ``request.cancel`` so live cards close."""
     write = write or _default_write
     with _lock:
         targets = [(rid, e) for rid, e in _open.items() if sid is None or e.sid == sid]

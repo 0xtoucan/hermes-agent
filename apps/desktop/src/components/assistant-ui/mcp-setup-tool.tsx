@@ -183,9 +183,7 @@ function McpSetupPending({ args }: ToolCallMessagePartProps) {
   const [envDraft, setEnvDraft] = useState<Record<string, string>>({})
   const [entry, setEntry] = useState<McpCatalogEntry | null | undefined>(undefined)
   const [envOpen, setEnvOpen] = useState(false)
-  // Set when the user cancels mid-flight (a stuck OAuth tab, a hung install).
-  // The in-flight flow checks it at every poll boundary and aborts via the
-  // CANCELLED sentinel; the declined respond has already been sent by then.
+  // The poll loop stops after a cancel because the declined response is already sent.
   const cancelRef = useRef(false)
 
   // Race: tool.start fires a tick before mcp.setup.request — hold the buttons
@@ -201,12 +199,9 @@ function McpSetupPending({ args }: ToolCallMessagePartProps) {
         return
       }
 
-      // Clear first: the answer is decided, and an in-flight request must not
-      // leave a live card that can be answered a second time.
       clearMcpSetupRequest(request.requestId, request.sessionId)
 
       // A successful outcome changed mcp_servers — reload the live session
-      // before unblocking the tool so its tool snapshot includes the server.
       if (outcome.status === 'installed' || outcome.status === 'enabled' || outcome.status === 'authorized') {
         try {
           await gateway?.request('reload.mcp', { confirm: true, session_id: request.sessionId ?? undefined })

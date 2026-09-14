@@ -140,9 +140,7 @@ describe('clarify.request stream hydration', () => {
   it('merges with the real tool.start row even though its id differs from the request id', () => {
     mountStream()
 
-    // tool.start carries the model's tool_call_id and clarify.request a
-    // separately-generated server request id. They must still collapse to ONE card
-    // (correlated by question), not two.
+    // The model tool id and server request id differ, so correlation uses the question.
     toolStart({ args: { choices: ['a'], question: 'Pick' }, name: 'clarify', tool_id: 'call-abc' })
     clarifyRequest({ choices: ['a'], question: 'Pick' })
 

@@ -21,10 +21,7 @@ interface PromptStore<T extends KeyedPrompt> {
   set: (request: T) => void
 }
 
-// One per-session prompt kind: a map keyed by session, plus an active-session
-// view for the overlays. `clear` drops one session's entry (a request-id
-// mismatch is a no-op so a stale cancellation can't wipe a newer prompt); with
-// no session hint it drops every entry, optionally filtered by request id.
+// A request-id mismatch must not let a stale cancellation clear a newer prompt.
 function keyedPromptStore<T extends KeyedPrompt>(): PromptStore<T> {
   const $all = atom<Record<string, T>>({})
   const idOf = (value: T): string | undefined => (value as { requestId?: string }).requestId
@@ -59,8 +56,7 @@ function keyedPromptStore<T extends KeyedPrompt>(): PromptStore<T> {
   }
 }
 
-// Approval stays on its separate event/RPC bridge until the backend moves it
-// to ServerRequest too.
+// Approval remains event/RPC based until it migrates to ServerRequest.
 export interface ApprovalRequest extends KeyedPrompt {
   allowPermanent?: boolean
   choices?: string[]
@@ -199,8 +195,6 @@ export async function replayPendingApproval(gateway: ApprovalGateway | null, ses
   })
 }
 
-/** The prompt request for one specific session — the tile counterpart of the
- * active-session `$*Request` views (same map, fixed key). */
 export const sessionApprovalRequest = (sessionId: string | null) =>
   computed(approval.$all, all => all[keyFor(sessionId)] ?? null)
 export const sessionSudoRequest = (sessionId: string | null) =>
@@ -222,8 +216,6 @@ export function registerApprovalInlineAnchor(sessionId: string | null): () => vo
   return () => bump(-1)
 }
 
-/** True when session `sessionId` has an inline approval bar mounted, so its
- * floating fallback should stand down. Per-session (not global). */
 export const sessionApprovalInlineVisible = (sessionId: string | null) =>
   computed($approvalInlineAnchors, anchors => (anchors[keyFor(sessionId)] ?? 0) > 0)
 
@@ -289,9 +281,7 @@ export const hasBlockingPromptRequest = (sessionId: string | null | undefined): 
   )
 }
 
-/** Reactive twin of `hasBlockingPromptRequest`, for the composer's busy-action
- * affordance (the primary button must advertise queue, not steer, while the
- * turn is parked on a prompt Enter can't answer). */
+/** The busy action must queue while Enter cannot answer the pending prompt. */
 export const sessionBlockingPrompt = (sessionId: string | null) =>
   computed(
     [approval.$all, sudo.$all, secret.$all, vaultUnlock.$all, vaultSave.$all, vaultCode.$all],
@@ -302,9 +292,6 @@ export const sessionBlockingPrompt = (sessionId: string | null) =>
     }
   )
 
-/** Per-session `awaitingInput` — the tile composer's counterpart of
- * `$activeSessionAwaitingInput` (same sources, fixed session instead of the
- * active one). */
 export function sessionAwaitingInput(sessionId: string | null) {
   return computed(
     [$clarifyRequests, approval.$all, sudo.$all, secret.$all, vaultUnlock.$all, vaultSave.$all, vaultCode.$all],

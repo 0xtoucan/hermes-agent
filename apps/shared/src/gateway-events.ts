@@ -308,7 +308,6 @@ export interface MoaPhasePayload {
 // `request_id`; the matching `*.expire` names the same id when the wait timed out.
 
 export interface RequestCancelPayload {
-  /** The `srq-…` id of the backend→renderer request being withdrawn. */
   id: string
   reason: 'interrupt' | 'shutdown' | 'timeout'
 }

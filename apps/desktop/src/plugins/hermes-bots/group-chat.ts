@@ -25,20 +25,10 @@ import type {
   RosterRow
 } from './types'
 
-/** Optional secondary navigation inside the Bots pane (group-chat rooms). */
-
-/** Group-chat rooms: { [group]: { log: [{from:{kind,name},text,at}], watermarks:{[member]:idx}, epoch, running } }.
- *  Log + watermarks persist via plugin storage; epoch/running are runtime-only. */
 export const $groupChats = atom<Record<string, GroupChatRoom>>({})
-/** Group whose room view is open in the Bots pane (secondary navigation
- *  inside the pane; a normal row click returns to the roster). */
 export const $groupChatWorkspace = atom<null | string>(null)
-/** Groups whose latest room activity mentions @user — the needs-you badge. */
 export const $groupNeedsYou = atom<Record<string, boolean>>({})
-// Pending prompts (clarify questions AND command approvals) raised inside
-// hidden group-member sessions, keyed `${group}::${memberKey}` (#90694).
-// Members run in invisible plumbing sessions, so a member's blocking prompt
-// needs a room card to expose an answerable surface.
+// Member sessions are hidden, so their blocking prompts need room cards.
 export const $groupClarify = atom<Record<string, GroupPrompt>>({})
 
 const GROUP_CHAT_SYNC_META_KEY = 'hermes-bots-groups'

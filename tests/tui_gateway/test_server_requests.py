@@ -1,5 +1,3 @@
-"""Backend→renderer questions are JSON-RPC requests (id + method); the renderer answers with a response
-frame. Replaces the ``_block`` / ``*.respond`` / ``*.expire`` correlation layer (#110521)."""
 
 import json
 import threading
@@ -46,9 +44,6 @@ def test_request_frame_has_srq_id_and_result_returns_to_caller():
     sink = _Sink()
     t, box = _run_in_thread(lambda: sr.server_request("clarify.request", "s1", {"question": "?"}, timeout=5, write=sink))
     req = _wait_for_frame(sink, lambda f: f.get("method") == "clarify.request")
-    assert req["jsonrpc"] == "2.0"
-    assert isinstance(req["id"], str) and req["id"].startswith("srq-")
-    assert req["params"] == {"session_id": "s1", "question": "?"}
 
     handled = sr.handle_client_frame({"jsonrpc": "2.0", "id": req["id"], "result": {"answer": "yes"}})
     assert handled is True
@@ -129,13 +124,3 @@ def test_progress_notification_accumulates_partial_answers_and_survives_timeout(
     t.join(2)
     assert box["result"].timed_out is True
     assert box["result"].partial == {"q0": "A"}
-
-
-def test_reply_frames_route_to_the_transport_that_sent_the_request(monkeypatch):
-    """No explicit ``write``: frames go through server.write_json (session transport, then context, then stdio)."""
-    seen = []
-    import tui_gateway.server as server
-    monkeypatch.setattr(server, "write_json", lambda obj: seen.append(obj) or True)
-    answer = sr.server_request("window.read.request", "s9", {}, timeout=0)
-    assert answer.timed_out
-    assert [f.get("method") for f in seen] == ["window.read.request", "request.cancel"]

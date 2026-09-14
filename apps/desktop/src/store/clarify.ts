@@ -4,7 +4,6 @@ import { atom, computed } from 'nanostores'
 import { $activeSessionId } from './session'
 
 export interface ClarifyQuestion {
-  /** Server-generated wire id (q0..qN) — clarify.progress keys locks by it. */
   qid: string
   question: string
   choices: string[] | null
@@ -17,12 +16,9 @@ export interface ClarifyRequest {
   question: string
   choices: string[] | null
   multiSelect: boolean
-  /** Local receipt time (Unix seconds), used to reject stale resume cleanup. */
   receivedAt?: number
   sessionId: string | null
-  /** Batch (multi-question) clarify: present instead of question/choices. */
   questions?: ClarifyQuestion[]
-  /** Answers already locked server-side (reconnect replay): qid → answer. */
   lockedAnswers?: Record<string, string>
 }
 
@@ -37,13 +33,6 @@ export const RECOMMENDED_LABEL = '(Recommended)'
 export const bareChoice = (choice: string): string =>
   choice.endsWith(RECOMMENDED_LABEL) ? choice.slice(0, -RECOMMENDED_LABEL.length).trim() : choice
 
-/**
- * Validate and normalize a choices array.
- *
- * Keeps non-blank, newline-free strings of length ≤ 200; drops everything else
- * and returns an empty array when nothing usable survives — the caller then
- * falls back to a free-text answer instead of dead buttons.
- */
 export function normalizeChoices(choices: unknown): string[] {
   if (!Array.isArray(choices)) {
     return []
@@ -67,15 +56,6 @@ export function warnDroppedChoices(source: 'gateway' | 'tool_args', question: st
   })
 }
 
-/**
- * Validate and normalize a batch clarify payload's `questions` array.
- *
- * Keeps entries with a non-blank string `qid` and `question`; per-question
- * choices go through `normalizeChoices` (all-blank → open-ended) and
- * multi_select is only honored alongside surviving choices. Returns an empty
- * array when nothing usable remains — the caller treats that as "not a
- * batch" instead of rendering an unanswerable form.
- */
 export function normalizeQuestions(questions: unknown): ClarifyQuestion[] {
   if (!Array.isArray(questions)) {
     return []
@@ -109,25 +89,16 @@ export function normalizeQuestions(questions: unknown): ClarifyQuestion[] {
   return normalized
 }
 
-// Pending clarify requests keyed by the runtime session id that raised them.
-// Storing per-session (instead of one shared slot) lets a *background* session
-// park its clarify request while the user is looking at a different chat, then
-// resolve it once they switch over — without a second concurrent clarify
-// clobbering the first. A request with no session id lands under the empty key.
+// Per-session storage preserves background requests until their transcript opens.
 const keyFor = (sessionId: string | null | undefined): string => sessionId ?? ''
 
 export const $clarifyRequests = atom<Record<string, ClarifyRequest>>({})
 
-// The clarify request for the currently-viewed session. The inline ClarifyTool
-// only ever mounts inside the active session's transcript, so it reads this
-// focus-scoped view rather than reaching into the whole map.
 export const $clarifyRequest = computed(
   [$clarifyRequests, $activeSessionId],
   (requests, activeId) => requests[keyFor(activeId)] ?? null
 )
 
-/** The clarify request for one specific session — the tile counterpart of the
- *  active-session `$clarifyRequest` view (same map, fixed key). */
 export const sessionClarifyRequest = (sessionId: string | null) =>
   computed($clarifyRequests, requests => requests[keyFor(sessionId)] ?? null)
 

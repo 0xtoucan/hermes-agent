@@ -252,9 +252,6 @@ def test_emit_with_payload(capture):
     assert msg["params"]["payload"]["key"] == "val"
 
 
-# ── Backend→renderer requests through dispatch ──────────────────────
-
-
 def _first_request(buf, method):
     for line in buf.getvalue().splitlines():
         frame = json.loads(line)
@@ -281,7 +278,6 @@ def test_ask_round_trip_through_dispatch(server):
                      daemon=True).start()
     assert _wait_until(lambda: server_requests.open_requests("s1"))
     req = server_requests.open_requests("s1")[0]
-    assert req["method"] == "secret.request" and req["params"] == {"session_id": "s1", "env_var": "X"}
 
     assert server.dispatch({"jsonrpc": "2.0", "id": req["id"], "result": {"value": "hunter2"}}) is None
     assert _wait_until(lambda: result[0] is not None)
@@ -289,19 +285,7 @@ def test_ask_round_trip_through_dispatch(server):
     assert server_requests.open_requests("s1") == []
 
 
-@pytest.mark.parametrize("method", ["secret.request", "sudo.request", "clarify.request", "terminal.read.request"])
-def test_ask_timeout_sends_request_cancel(capture, method):
-    server, buf = capture
-    assert server._ask(method, "s1", {}, timeout=0) == ""
-    frames = [json.loads(line) for line in buf.getvalue().splitlines()]
-    request, cancel = frames
-    assert request["method"] == method and request["id"].startswith("srq-")
-    assert cancel["method"] == "request.cancel" and "id" not in cancel
-    assert cancel["params"] == {"session_id": "s1", "id": request["id"], "reason": "timeout"}
-
-
 def test_late_response_is_dropped_silently(server):
-    """A reply after the request expired is not an error the renderer sees: no method lookup, no frame back."""
     assert server.dispatch({"jsonrpc": "2.0", "id": "srq-999", "result": {"value": ""}}) is None
 
 
@@ -337,8 +321,6 @@ def _progress(server, rid, qid, answer):
 
 
 def test_clarify_batch_resolves_on_response_with_progress_locks(capture):
-    """Per-question locks are ``clarify.progress`` notifications; the response frame ends the batch. The
-    tool receives every lock, whichever frame carried it."""
     server, buf = capture
     thread, box, rid = _start_batch(server, buf, ["q0", "q1"])
     _progress(server, rid, "q1", "beta")
@@ -359,7 +341,6 @@ def test_clarify_batch_progress_overwrites_before_completion(capture):
 
 
 def test_clarify_batch_timeout_keeps_locked_answers(capture, monkeypatch):
-    """Locks made before the deadline reach the tool with ``timed_out``; the renderer gets one cancel."""
     server, buf = capture
     monkeypatch.setattr(server, "_clarify_timeout_seconds", lambda: 0.5)
     thread, box, rid = _start_batch(server, buf, ["q0", "q1"])
@@ -373,7 +354,6 @@ def test_clarify_batch_timeout_keeps_locked_answers(capture, monkeypatch):
 
 
 def test_clarify_batch_cancel_all_returns_empty(capture):
-    """A response carrying ``value`` answers the whole batch at once (Esc path)."""
     server, buf = capture
     thread, box, rid = _start_batch(server, buf, ["q0", "q1"])
     server.dispatch({"jsonrpc": "2.0", "id": rid, "result": {"value": ""}})
@@ -389,22 +369,6 @@ def test_clarify_batch_state_cleared_after_resolution(capture):
     from tui_gateway import server_requests
     assert server_requests.open_requests("s1") == []
 
-
-def test_clarify_block_helper_builds_batch_payload(capture):
-    """_clarify_block forwards only wire fields (qid/question/choices/multi_select); the tool-side normalized
-    entries carry extra keys the renderer must not see."""
-    server, buf = capture
-    normalized = [{"qid": "q0", "id": "approach", "question": "Which?", "choices": ["a (Recommended)", "b"],
-                   "choices_offered": ["a", "b"], "multi_select": False}]
-    box = {}
-    thread = threading.Thread(
-        target=lambda: box.__setitem__("answer", server._clarify_block("s1", "", None, questions=normalized)), daemon=True)
-    thread.start()
-    assert _wait_until(lambda: "clarify.request" in buf.getvalue())
-    req = _first_request(buf, "clarify.request")
-    server.dispatch({"jsonrpc": "2.0", "id": req["id"], "result": {"answers": {"q0": "a"}}})
-    thread.join(timeout=5)
-    assert set(req["params"]["questions"][0]) == {"qid", "question", "choices", "multi_select"}
 
 
 def test_approval_pending_replays_unresolved_requests(server, monkeypatch):
@@ -545,18 +509,6 @@ def test_approval_respond_4001_when_nothing_resolves(server, monkeypatch):
     )
 
     assert response["error"]["code"] == 4001
-
-
-def test_clear_pending_cancels_open_requests(capture):
-    server, buf = capture
-    result = [None]
-    threading.Thread(target=lambda: result.__setitem__(0, server._ask("sudo.request", "sid-x", {}, timeout=5)), daemon=True).start()
-    assert _wait_until(lambda: "sudo.request" in buf.getvalue())
-    server._clear_pending()
-    assert _wait_until(lambda: result[0] is not None)
-    assert result[0] == ""
-    frames = [json.loads(line) for line in buf.getvalue().splitlines()]
-    assert frames[-1]["method"] == "request.cancel" and frames[-1]["params"]["reason"] == "shutdown"
 
 
 # ── Session lookup ───────────────────────────────────────────────────

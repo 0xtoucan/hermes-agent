@@ -90,9 +90,7 @@ def _compute_host_adopt_frame_meta(session: dict, frame: dict) -> None:
 
 
 def _relay_compute_host_rpc(message: dict) -> bool:
-    """Relay host frames to the client. Backend→renderer requests the host sends are mirrored per session
-    (``_compute_host_open_requests``) so ``session.events.since`` can re-show them and so the parent knows
-    which reply frames to forward back into the host."""
+    """Mirror host-owned questions so reconnects can replay them and replies return to the host."""
     params = message.get("params") if isinstance(message, dict) else None
     if isinstance(message, dict) and message.get("method") == "compute_host.activity":
         if isinstance(params, dict):
@@ -140,7 +138,6 @@ def _compute_host_session_for_reply(rid: str) -> tuple[str, dict] | None:
 
 
 def _forward_reply_to_compute_host(frame: dict) -> bool:
-    """A response or ``clarify.progress`` whose id the host owns goes to the host's pending map."""
     rid = frame.get("id") if "method" not in frame else ((frame.get("params") or {}).get("id"))
     located = _compute_host_session_for_reply(str(rid or ""))
     if located is None or not _session_uses_compute_host(located[1]):

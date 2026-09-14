@@ -190,7 +190,7 @@ class ComputeHost:
         self._guarded(frame, "interrupt.ack", body, applied=False)
 
     def _handle_respond(self, frame: dict[str, Any]) -> None:
-        """Deliver a renderer reply frame (response or ``clarify.progress``) to the host-owned pending map."""
+        """The host owns pending requests, so replies must return there."""
         def body(server: Any, sid: str, request_id: Any) -> None:
             reply = frame.get("params")
             if sid not in server._sessions:

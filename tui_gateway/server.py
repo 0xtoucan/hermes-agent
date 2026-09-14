@@ -737,8 +737,7 @@ def _normalize_request(req: Any) -> tuple[Any, str, dict] | dict:
 
 
 def _is_server_request_reply(req: Any) -> bool:
-    """A response frame (``id`` + ``result``/``error``, no ``method``) or a ``clarify.progress`` notification
-    belongs to the backend→renderer request layer, not to the method table."""
+    """Keep renderer reply frames out of the RPC method table."""
     if not isinstance(req, dict):
         return False
     if req.get("method") == server_requests.PROGRESS_METHOD:
@@ -1239,13 +1238,8 @@ def _enable_gateway_prompts() -> None:
     os.environ.update(HERMES_GATEWAY_SESSION="1", HERMES_EXEC_ASK="1", HERMES_INTERACTIVE="1")
 
 
-# ── Backend→renderer requests ────────────────────────────────────────
-
-
 def _ask(method: str, sid: str, payload: dict, timeout: float | None = 300) -> str:
-    """Ask the renderer one question and return its string reply ("" on timeout, cancel or error).
-    Every reply carries the value under ``value`` so the eleven per-kind ``*.respond`` methods and their
-    per-kind reply keys collapse into one shape."""
+    """Collapse renderer answers to the callback string contract."""
     answer = server_requests.server_request(method, sid, payload, timeout=timeout)
     if answer.result is None:
         return ""
@@ -1263,16 +1257,12 @@ def _clarify_timeout_seconds() -> float | None:
 
 
 def _clarify_block(sid: str, q, c, multi_select=False, questions=None) -> str:
-    """Bridge the clarify tool callback onto a ``clarify.request`` server request. Single-question payloads
-    keep their historical shape (``multi_select`` only when True); batch calls send one request with only
-    the wire fields and return the tool's ``{"answers", "timed_out"?}`` JSON, keeping answers the renderer
-    locked with ``clarify.progress`` before the deadline."""
+    """Batch replies retain progress recorded before their deadline."""
     if questions:
         wire = [{"qid": e["qid"], "question": e["question"], "choices": e["choices"], "multi_select": bool(e["multi_select"])}
                 for e in questions]
         answer = server_requests.server_request("clarify.request", sid, {"questions": wire}, timeout=_clarify_timeout_seconds())
         if answer.result is not None and "value" in answer.result:
-            # Cancel-all: the renderer answered the whole batch with one value (an empty skip).
             return str(answer.result.get("value") or "")
         answers = dict(answer.partial)
         if answer.result is not None and isinstance(answer.result.get("answers"), dict):
@@ -1300,16 +1290,7 @@ _TOUR_BRIDGE_UNAVAILABLE = json.dumps({
 
 
 def _tour_request(sid: str, payload: dict) -> str:
-    """Bridge the tour tool callback onto a ``tour.request`` server request without paying for a client that cannot answer: against
-    an older app nobody answers ``tour.request`` and each action would block the full deadline, stacking per
-    turn. First action per session gets the short probe deadline; unanswered → bridge marked unavailable
-    for that session; once answered, the full deadline. Verdict lives on the record, so a new session re-probes.
-
-    The renderer's ``tour.request`` handler ships in the desktop bundle, but the tool is offered by this
-    backend — and the two update on different clocks. The model then does what the schema tells it to and
-    tries the next action, so a single "give me a tour" turn stacks those waits (the timeouts reported
-    against #89620).
-    """
+    """Probe once because independently updated clients may lack this handler."""
     session = _sessions.get(sid)
     if session is None:  # detached caller: throwaway record, plain bridge, unprobed ({} is falsy but a REAL record)
         session = {}
@@ -1326,8 +1307,7 @@ def _tour_request(sid: str, payload: dict) -> str:
 
 
 def _clear_pending(sid: str | None = None) -> None:
-    """Cancel open renderer questions: only *sid*'s (session.interrupt must not cancel other sessions'), or
-    every one when *sid* is None (shutdown)."""
+    """A session interrupt must not cancel another session's question."""
     server_requests.cancel_open(sid, reason="interrupt" if sid else "shutdown")
 
 

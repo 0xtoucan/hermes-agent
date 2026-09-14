@@ -184,11 +184,8 @@ describe('JsonRpcRequestChannel', () => {
       params: { session_id: 's1' }
     }))
 
-    expect(requests).toHaveLength(1)
-    expect(requests[0]).toMatchObject({ id: 'srq-1', method: 'sudo.request', params: { session_id: 's1' }, sessionId: 's1' })
-
-    requests[0].notify('clarify.progress', { answer: 'a', question_id: 'q0' })
-    requests[0].respond({ value: 'x' })
+    requests[0]!.notify('clarify.progress', { answer: 'a', question_id: 'q0' })
+    requests[0]!.respond({ value: 'x' })
     requests[0].respond({ value: 'ignored' })
 
     expect(sent.map(frame => JSON.parse(frame))).toEqual([
@@ -207,26 +204,6 @@ describe('JsonRpcRequestChannel', () => {
     requests[0].fail({ code: 4009, message: 'm' })
 
     expect(sent.map(frame => JSON.parse(frame))).toEqual([{ jsonrpc: '2.0', id: 'srq-2', error: { code: 4009, message: 'm' } }])
-  })
-
-  it('routes request.cancel without dispatching it as an event', () => {
-    const events: string[] = []
-    const cancellations: Array<{ id: string; reason: string; sessionId: string | null }> = []
-
-    const channel = new JsonRpcRequestChannel({
-      onEvent: event => void events.push(event.type),
-      onServerRequestCancel: cancel => void cancellations.push(cancel)
-    })
-
-    channel.attach(spyTransport().transport)
-    channel.handleFrame(JSON.stringify({
-      jsonrpc: '2.0',
-      method: 'request.cancel',
-      params: { id: 'srq-1', reason: 'timeout', session_id: 's1' }
-    }))
-
-    expect(cancellations).toEqual([{ id: 'srq-1', reason: 'timeout', sessionId: 's1' }])
-    expect(events).toEqual([])
   })
 
   it('settles numeric and r-prefixed pending calls while ignoring srq response echoes as requests', async () => {

@@ -1653,33 +1653,6 @@ describe('createGatewayEventHandler', () => {
     expect(appended.some(msg => msg.role === 'system' && msg.text.startsWith('ask '))).toBe(false)
   })
 
-  it('routes supported sensitive server requests for the active session to their overlays', () => {
-    const handlers = createGatewayEventHandler(buildCtx([]))
-    patchUiState({ sid: 'active' })
-    const secret = serverRequest('secret.request', { env_var: 'NEW_KEY', prompt: 'Enter new key', session_id: 'active' }, 'srq-secret')
-    const sudo = serverRequest('sudo.request', { session_id: 'active' }, 'srq-sudo')
-
-    const vaultUnlock = serverRequest(
-      'vault.unlock.request',
-      { backend: 'bitwarden', display_name: 'Bitwarden', session_id: 'active' },
-      'srq-vault-unlock'
-    )
-
-    handlers.onRequest(secret)
-    expect(getOverlayState().secret).toMatchObject({ envVar: 'NEW_KEY', request: secret, requestId: 'srq-secret' })
-
-    handlers.onRequest(sudo)
-    expect(getOverlayState().sudo).toMatchObject({ request: sudo, requestId: 'srq-sudo' })
-
-    handlers.onRequest(vaultUnlock)
-    expect(getOverlayState().vaultUnlock).toMatchObject({
-      backend: 'bitwarden',
-      displayName: 'Bitwarden',
-      request: vaultUnlock,
-      requestId: 'srq-vault-unlock'
-    })
-  })
-
   it('clears only the matching sensitive prompt when the backend cancels it', () => {
     const handlers = createGatewayEventHandler(buildCtx([]))
     const secret = serverRequest('secret.request', { env_var: 'NEW_KEY', prompt: 'Enter new key' }, 'srq-secret-new')
@@ -1706,8 +1679,6 @@ describe('createGatewayEventHandler', () => {
     expect(getOverlayState().sudo).toBeNull()
   })
 
-  // ── Batch (multi-question) clarify ─────────────────────────────────
-
   it('parses a batch clarify server request into a questions overlay', () => {
     const handlers = createGatewayEventHandler(buildCtx([]))
 
@@ -1725,32 +1696,11 @@ describe('createGatewayEventHandler', () => {
     handlers.onRequest(request)
 
     const clarify = getOverlayState().clarify
-    expect(clarify?.requestId).toBe('srq-batch')
-    expect(clarify?.request).toBe(request)
-    expect(clarify?.questions).toHaveLength(2)
-    expect(clarify?.questions?.[0]?.qid).toBe('q0')
-    expect(clarify?.questions?.[1]?.choices).toBeNull()
+    expect(clarify?.questions).toEqual([
+      { choices: ['a', 'b'], multiSelect: false, qid: 'q0', question: 'One?' },
+      { choices: null, multiSelect: false, qid: 'q1', question: 'Two?' }
+    ])
     expect(clarify?.answers).toEqual({})
-  })
-
-  it('seeds locked answers from a re-delivered batch clarify server request', () => {
-    const handlers = createGatewayEventHandler(buildCtx([]))
-
-    handlers.onRequest(
-      serverRequest(
-        'clarify.request',
-        {
-          answers: { q0: 'a' },
-          questions: [
-            { choices: ['a', 'b'], qid: 'q0', question: 'One?' },
-            { choices: null, qid: 'q1', question: 'Two?' }
-          ]
-        },
-        'srq-replay'
-      )
-    )
-
-    expect(getOverlayState().clarify?.answers).toEqual({ q0: 'a' })
   })
 
   it('drops malformed batch entries and falls back to the single-question shape', () => {

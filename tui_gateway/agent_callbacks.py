@@ -80,8 +80,6 @@ def _mirror_subagent_to_child(event_type: str, payload: dict) -> None:
 
 def _agent_cbs(sid: str) -> dict:
     def _read_ask(method: str, timeout: int):
-        # read_terminal / read_preview (desktop GUI): the preview read gets longer since a URL tab extracts
-        # text from a live page.
         return lambda start=None, count=None: _ask(
             method, sid, {k: v for k, v in (("start", start), ("count", count)) if v is not None},
             timeout=timeout)
@@ -115,7 +113,6 @@ def _agent_cbs(sid: str) -> dict:
         # (typing an API key, browser OAuth) and, like clarify, a late answer is tolerated.
         "setup_mcp_callback": lambda server, action, reason: _ask(
             "mcp.setup.request", sid, {"server": server, "action": action, "reason": reason}, timeout=600),
-        # tour (desktop GUI): renderer drives driver.js and answers the tour.request.
         "tour_callback": lambda payload: _tour_request(sid, payload)}
 
     # Interim assistant commentary (text alongside tool calls), gated on display.interim_assistant_

@@ -487,7 +487,6 @@ interface ClarifyPromptProps {
   cols?: number
   onAnswer: (s: string) => void
   onCancel: () => void
-  /** Batch mode: lock one question's answer without completing the request. */
   onQuestionAnswer?: (qid: string, s: string) => void
   req: ClarifyReq
   t: Theme

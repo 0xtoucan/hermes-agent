@@ -724,6 +724,7 @@ export function useMainApp(gw: GatewayClient) {
         appendMessage({ role: 'user', text: answer })
         patchUiState({ status: 'running…' })
       } else {
+        // Preserve cancelled questions in the transcript because the request has no completion event.
         appendMessage({
           role: 'system',
           text: clarify.questions?.length

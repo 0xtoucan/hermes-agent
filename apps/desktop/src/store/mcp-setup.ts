@@ -16,7 +16,6 @@ export interface McpSetupRequest {
   sessionId: string | null
 }
 
-/** The card's answer serialized as the server request value. */
 export interface McpSetupOutcome {
   status: 'authorized' | 'declined' | 'enabled' | 'error' | 'installed'
   server: string
@@ -29,8 +28,6 @@ const keyFor = (sessionId: string | null | undefined): string => sessionId ?? ''
 
 export const $mcpSetupRequests = atom<Record<string, McpSetupRequest>>({})
 
-/** The setup request for one specific session — the transcript card reads
- * this fixed-key view, same shape as `sessionClarifyRequest`. */
 export const sessionMcpSetupRequest = (sessionId: string | null) =>
   computed($mcpSetupRequests, requests => requests[keyFor(sessionId)] ?? null)
 
@@ -72,12 +69,9 @@ export function clearMcpSetupRequest(requestId?: string, sessionId?: string | nu
   }
 }
 
-/** Whether `sessionId` has a setup card pending right now (imperative read —
- * the composer checks this on Enter, not on every render). */
 export const hasMcpSetupRequest = (sessionId: string | null | undefined): boolean =>
   Boolean($mcpSetupRequests.get()[keyFor(sessionId)])
 
-/** Answer `sessionId`'s pending setup card as declined before sending typed text. */
 export async function skipMcpSetupRequest(sessionId: string | null | undefined): Promise<boolean> {
   const request = $mcpSetupRequests.get()[keyFor(sessionId)]
 

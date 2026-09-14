@@ -50,8 +50,7 @@ def emitted_event_names() -> set[str]:
         names.update(_LITERAL_EMIT.findall(text))
         names.update(_LITERAL_FRAME.findall(text))
         names.update(_SIDE_AGENT.findall(text))
-    # Backend→renderer requests are JSON-RPC requests, not notifications; only their cancel signal is
-    # a notification the renderer must know by name.
+    # ``request.cancel`` remains a notification, so it stays in the event contract.
     from tui_gateway.server_requests import CANCEL_METHOD
 
     names.add(CANCEL_METHOD)

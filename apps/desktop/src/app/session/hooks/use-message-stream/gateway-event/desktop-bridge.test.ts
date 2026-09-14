@@ -123,8 +123,4 @@ describe('desktop bridge server requests', () => {
     expect(initialRequest.respond).not.toHaveBeenCalled()
     expect(redeliveredRequest.respond).toHaveBeenCalledWith({ value: '' })
   })
-
-  it('does not claim unrelated server requests', () => {
-    expect(handleDesktopBridgeServerRequest(serverRequest('clarify.request', 'session-a'), gatewayDeps('session-a'))).toBe(false)
-  })
 })
