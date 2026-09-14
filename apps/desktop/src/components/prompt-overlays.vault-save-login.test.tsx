@@ -1,92 +1,74 @@
-import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import type { ServerRequest } from '@hermes/shared'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 
+import { PromptOverlays } from '@/components/prompt-overlays'
+import { clearAllPrompts, sessionVaultSaveLoginRequest, setVaultSaveLoginRequest } from '@/store/prompts'
 import { stubResizeObserver } from '@/test/jsdom'
 
-const gatewayMocks = vi.hoisted(() => ({
-  requestGatewayForAgent: vi.fn(async () => ({ status: 'ok' }))
-}))
-
-vi.mock('@/store/gateway', async importActual => ({
-  ...(await importActual<Record<string, unknown>>()),
-  requestGatewayForAgent: gatewayMocks.requestGatewayForAgent
-}))
-vi.mock('@/lib/haptics', () => ({ triggerHaptic: vi.fn() }))
-vi.mock('@/store/notifications', () => ({ notify: vi.fn(), notifyError: vi.fn() }))
-
-import { PromptOverlays } from '@/components/prompt-overlays'
-import { $gateway } from '@/store/gateway'
-import { $profiles } from '@/store/profile'
-import { clearAllPrompts, sessionVaultSaveLoginRequest, setVaultSaveLoginRequest } from '@/store/prompts'
-import { $activeSessionId, _resetSessionOwnerHintsForTests, setSessionOwnerHint } from '@/store/session'
+function fakeServerRequest(id: string, method: string): ServerRequest {
+  return {
+    fail: vi.fn(),
+    id,
+    method,
+    notify: vi.fn(),
+    params: {},
+    respond: vi.fn(),
+    sessionId: 'session-a'
+  }
+}
 
 stubResizeObserver()
 
 afterEach(() => {
   cleanup()
   clearAllPrompts()
-  _resetSessionOwnerHintsForTests()
-  $gateway.set(null)
   vi.clearAllMocks()
 })
 
-// The "save this login" card is the zero-setup path: the pair goes to the OWNING profile's socket as
-// one JSON answer, the password field is masked, and Save is disabled until both fields are filled.
-it('sends identifier + password as one vault.save_login.respond to the owning profile socket', async () => {
-  $profiles.set([{ name: 'owner' }, { name: 'profile-b' }] as never)
-  setSessionOwnerHint('session-a', { connectionId: 'conn-1', profile: 'owner' })
-  const ambient = vi.fn().mockResolvedValue({ status: 'ok' })
-  $activeSessionId.set('session-b')
-  $gateway.set({ request: ambient } as never)
+it('answers the vault-login request with the encoded login', async () => {
+  const request = fakeServerRequest('req-s', 'vault.save_login.request')
   setVaultSaveLoginRequest({
     origin: 'https://github.com',
-    requestId: 'req-s',
+    request,
+    requestId: request.id,
     sessionId: 'session-a',
     site: 'github.com'
   })
 
   render(<PromptOverlays sessionId="session-a" />)
-  expect(document.body.textContent).toContain('Save your github.com login?')
-  const identifier = document.querySelector('input[autocomplete=username]') as HTMLInputElement
-  const password = document.querySelector('input[type=password]') as HTMLInputElement
-  const submit = document.querySelector('button[type=submit]') as HTMLButtonElement
-  expect(submit.disabled).toBe(true)
+  expect(screen.getByText('Save your github.com login?')).toBeTruthy()
+  const identifier = screen.getByLabelText('Email or username')
+  const password = screen.getByLabelText('Password')
+  const submit = screen.getByRole('button', { name: 'Save & sign in' })
+  expect(submit).toHaveProperty('disabled', true)
   fireEvent.change(identifier, { target: { value: 'tek@acme.test' } })
-  expect(submit.disabled).toBe(true)
+  expect(submit).toHaveProperty('disabled', true)
   fireEvent.change(password, { target: { value: 'fixture-pw' } })
-  expect(submit.disabled).toBe(false)
+  expect(submit).toHaveProperty('disabled', false)
   fireEvent.submit(password.closest('form')!)
 
-  await waitFor(() => expect(gatewayMocks.requestGatewayForAgent).toHaveBeenCalledTimes(1))
-  const [conn, profile, method, params] = gatewayMocks.requestGatewayForAgent.mock.calls[0] as unknown[]
-  expect([conn, profile, method]).toEqual(['conn-1', 'owner', 'vault.save_login.respond'])
-  expect(JSON.parse((params as { login: string }).login)).toEqual({
-    identifier: 'tek@acme.test',
-    password: 'fixture-pw'
+  await waitFor(() => expect(request.respond).toHaveBeenCalledOnce())
+  expect(request.respond).toHaveBeenCalledWith({
+    value: JSON.stringify({ identifier: 'tek@acme.test', password: 'fixture-pw' })
   })
-  expect(ambient).not.toHaveBeenCalled()
   await waitFor(() => expect(sessionVaultSaveLoginRequest('session-a').get()).toBeNull())
 })
 
-it("Don't save answers an empty login and clears the card", async () => {
-  $profiles.set([{ name: 'owner' }] as never)
-  setSessionOwnerHint('session-a', { connectionId: 'conn-1', profile: 'owner' })
-  $gateway.set({ request: vi.fn() } as never)
+it("answers an empty login when saving is declined and clears the card", async () => {
+  const request = fakeServerRequest('req-d', 'vault.save_login.request')
   setVaultSaveLoginRequest({
     origin: 'https://github.com',
-    requestId: 'req-d',
+    request,
+    requestId: request.id,
     sessionId: 'session-a',
     site: 'github.com'
   })
 
   render(<PromptOverlays sessionId="session-a" />)
-  const decline = Array.from(document.querySelectorAll('button')).find(b => b.textContent === "Don't save")!
-  fireEvent.click(decline)
+  fireEvent.click(screen.getByRole('button', { name: "Don't save" }))
 
-  await waitFor(() => expect(gatewayMocks.requestGatewayForAgent).toHaveBeenCalledTimes(1))
-  expect((gatewayMocks.requestGatewayForAgent.mock.calls[0] as unknown[])[3]).toEqual({
-    login: '',
-    request_id: 'req-d'
-  })
+  await waitFor(() => expect(request.respond).toHaveBeenCalledOnce())
+  expect(request.respond).toHaveBeenCalledWith({ value: '' })
   await waitFor(() => expect(sessionVaultSaveLoginRequest('session-a').get()).toBeNull())
 })

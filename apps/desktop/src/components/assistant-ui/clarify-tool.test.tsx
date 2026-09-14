@@ -1,4 +1,5 @@
 import type { ToolCallMessagePartProps } from '@assistant-ui/react'
+import type { ServerRequest } from '@hermes/shared'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { atom } from 'nanostores'
 import type { ReactNode } from 'react'
@@ -10,25 +11,9 @@ import { hiddenPaneProps } from '@/components/pane-shell/pane-visibility'
 import { $activeTreeGroup, $hoveredTreeGroup } from '@/components/pane-shell/tree/store'
 import { I18nProvider } from '@/i18n'
 import { clearClarifyRequest, setClarifyRequest } from '@/store/clarify'
-import { $gateway } from '@/store/gateway'
-import { $profiles } from '@/store/profile'
-import { $activeSessionId, _resetSessionOwnerHintsForTests, setSessionOwnerHint } from '@/store/session'
+import { $activeSessionId } from '@/store/session'
 
-import { ClarifyTool, readClarifyBatchResult, readClarifyResult } from './clarify-tool'
-
-// The OWNER-socket seam (`requestForOwnedSession` → `requestForSessionProfile`
-// → here). Mocked so the real owner ladder still runs against real fixtures and
-// only the dial is observed; the rest of the gateway store stays actual, so
-// `$gateway` remains the genuine ambient atom every other test in this file
-// drives.
-const gatewayMocks = vi.hoisted(() => ({
-  requestGatewayForAgent: vi.fn(async () => ({ ok: true }))
-}))
-
-vi.mock('@/store/gateway', async importActual => ({
-  ...(await importActual<Record<string, unknown>>()),
-  requestGatewayForAgent: gatewayMocks.requestGatewayForAgent
-}))
+import { ClarifyTool } from './clarify-tool'
 
 // The live pending card used to require message-running. Tests that exercise
 // the pending form force that on; the settle-shift case flips it off.
@@ -42,7 +27,6 @@ afterEach(() => {
   cleanup()
   clearClarifyRequest()
   $activeSessionId.set(null)
-  $gateway.set(null)
   messageRunning = true
   vi.clearAllMocks()
 })
@@ -97,15 +81,31 @@ function liveClarifyProps(choices = ['staging', 'production']): ToolCallMessageP
   }
 }
 
+function clarifyRequest(id: string, params: ServerRequest['params'], sessionId = 'session-1'): ServerRequest {
+  return {
+    fail: vi.fn(),
+    id,
+    method: 'clarify.request',
+    notify: vi.fn(),
+    params,
+    respond: vi.fn(),
+    sessionId
+  }
+}
+
 function renderLiveClarify({ multiSelect = false }: { multiSelect?: boolean } = {}) {
-  const request = vi.fn().mockResolvedValue({ ok: true })
+  const request = clarifyRequest(
+    'request-1',
+    { choices: ['staging', 'production'], multi_select: multiSelect, question: 'Which deployment target?' },
+    'session-1'
+  )
 
   $activeSessionId.set('session-1')
-  $gateway.set({ request } as never)
   setClarifyRequest({
     choices: ['staging', 'production'],
     multiSelect,
     question: 'Which deployment target?',
+    request,
     requestId: 'request-1',
     sessionId: 'session-1'
   })
@@ -127,7 +127,6 @@ describe('ClarifyTool live card stays mounted across settle', () => {
   it('demotes to a tool row when the turn stopped and no request is left to answer', () => {
     messageRunning = false
     $activeSessionId.set('session-1')
-    $gateway.set({ request: vi.fn() } as never)
     renderClarify(<ClarifyTool {...liveClarifyProps()} />)
 
     expect(document.querySelector('[data-clarify-choices]')).toBeNull()
@@ -141,7 +140,7 @@ describe('ClarifyTool live card stays mounted across settle', () => {
     fireEvent.click(screen.getByRole('button', { name: /Continue/ }))
 
     await waitFor(() => {
-      expect(request).toHaveBeenCalled()
+      expect(request.respond).toHaveBeenCalledWith({ value: 'staging' })
     })
 
     // tool.complete is what swaps in the settled card; the turn can already
@@ -166,7 +165,6 @@ describe('ClarifyTool live card stays mounted across settle', () => {
 
   it('paints the question from tool args instead of a spinner while request_id is still racing', () => {
     $activeSessionId.set('session-1')
-    $gateway.set({ request: vi.fn() } as never)
     renderClarify(<ClarifyTool {...liveClarifyProps()} />)
 
     expect(screen.getByText('Which deployment target?')).toBeTruthy()
@@ -197,10 +195,7 @@ describe('ClarifyTool choice selection', () => {
     fireEvent.click(screen.getByRole('button', { name: /Continue/ }))
 
     await waitFor(() => {
-      expect(request).toHaveBeenCalledWith('clarify.respond', {
-        answer: JSON.stringify(['production', 'staging']),
-        request_id: 'request-1'
-      })
+      expect(request.respond).toHaveBeenCalledWith({ value: JSON.stringify(['production', 'staging']) })
     })
   })
 
@@ -218,49 +213,7 @@ describe('ClarifyTool choice selection', () => {
     fireEvent.click(screen.getByRole('button', { name: /Continue/ }))
 
     await waitFor(() => {
-      expect(request).toHaveBeenCalledWith('clarify.respond', {
-        answer: 'production',
-        request_id: 'request-1'
-      })
-    })
-  })
-})
-
-describe('readClarifyResult', () => {
-  it('reads question + user_response from the tool JSON payload', () => {
-    expect(
-      readClarifyResult({
-        question: 'Which target?',
-        choices_offered: ['staging', 'prod'],
-        user_response: 'staging'
-      })
-    ).toEqual({
-      question: 'Which target?',
-      answer: 'staging',
-      error: undefined
-    })
-  })
-
-  it('parses a JSON string result the same way as an object', () => {
-    expect(
-      readClarifyResult(
-        JSON.stringify({
-          question: 'Ship it?',
-          user_response: 'yes'
-        })
-      )
-    ).toEqual({
-      question: 'Ship it?',
-      answer: 'yes',
-      error: undefined
-    })
-  })
-
-  it('keeps an empty user_response so Skip can render as skipped', () => {
-    expect(readClarifyResult({ question: 'Ok?', user_response: '' })).toEqual({
-      question: 'Ok?',
-      answer: '',
-      error: undefined
+      expect(request.respond).toHaveBeenCalledWith({ value: 'production' })
     })
   })
 })
@@ -403,10 +356,7 @@ describe('ClarifyTool keyboard navigation', () => {
     fireEvent.keyDown(window, { key: 'Enter' })
 
     await waitFor(() => {
-      expect(request).toHaveBeenCalledWith('clarify.respond', {
-        answer: 'production',
-        request_id: 'request-1'
-      })
+      expect(request.respond).toHaveBeenCalledWith({ value: 'production' })
     })
   })
 
@@ -418,15 +368,12 @@ describe('ClarifyTool keyboard navigation', () => {
     fireEvent.keyDown(window, { key: 'Enter' })
 
     expect(production.getAttribute('aria-pressed')).toBe('true')
-    expect(request).not.toHaveBeenCalled()
+    expect(request.respond).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByRole('button', { name: /Continue/ }))
 
     await waitFor(() => {
-      expect(request).toHaveBeenCalledWith('clarify.respond', {
-        answer: JSON.stringify(['production']),
-        request_id: 'request-1'
-      })
+      expect(request.respond).toHaveBeenCalledWith({ value: JSON.stringify(['production']) })
     })
   })
 
@@ -452,20 +399,24 @@ describe('ClarifyTool keyboard navigation', () => {
 
     expect(fireEvent.keyDown(window, { key: 'Enter' })).toBe(true)
     expect(fireEvent.keyDown(window, { key: 'ArrowDown' })).toBe(true)
-    expect(request).not.toHaveBeenCalled()
+    expect(request.respond).not.toHaveBeenCalled()
   })
 })
 
 describe('ClarifyTool recommended option', () => {
   it('dims the (Recommended) label and answers with the choice the backend sent', async () => {
-    const request = vi.fn().mockResolvedValue({ ok: true })
+    const request = clarifyRequest(
+      'request-1',
+      { choices: ['staging (Recommended)', 'production'], question: 'Which deployment target?' },
+      'session-1'
+    )
 
     $activeSessionId.set('session-1')
-    $gateway.set({ request } as never)
     setClarifyRequest({
       choices: ['staging (Recommended)', 'production'],
       multiSelect: false,
       question: 'Which deployment target?',
+      request,
       requestId: 'request-1',
       sessionId: 'session-1'
     })
@@ -479,13 +430,8 @@ describe('ClarifyTool recommended option', () => {
     fireEvent.click(recommended)
     fireEvent.keyDown(window, { key: 'Enter' })
 
-    // The decorated string goes back verbatim; the tool strips the label before
-    // the agent ever sees the answer.
     await waitFor(() => {
-      expect(request).toHaveBeenCalledWith('clarify.respond', {
-        answer: 'staging (Recommended)',
-        request_id: 'request-1'
-      })
+      expect(request.respond).toHaveBeenCalledWith({ value: 'staging (Recommended)' })
     })
   })
 })
@@ -504,12 +450,14 @@ describe('ClarifyTool pending marker', () => {
   })
 
   it('does not mark a free-text (no-choice) pending card', () => {
+    const request = clarifyRequest('request-1', { question: 'Anything else?' }, 'session-1')
+
     $activeSessionId.set('session-1')
-    $gateway.set({ request: vi.fn().mockResolvedValue({ ok: true }) } as never)
     setClarifyRequest({
       choices: null,
       multiSelect: false,
       question: 'Anything else?',
+      request,
       requestId: 'request-1',
       sessionId: 'session-1'
     })
@@ -563,10 +511,18 @@ function liveBatchProps(): ToolCallMessagePartProps {
 }
 
 function renderLiveBatch(lockedAnswers?: Record<string, string>, multiSelect = false) {
-  const request = vi.fn().mockResolvedValue({ ok: true, remaining: [] })
+  const request = clarifyRequest(
+    'request-batch',
+    {
+      questions: [
+        { choices: ['red', 'blue'], multi_select: multiSelect, qid: 'q0', question: 'Color?' },
+        { qid: 'q1', question: 'Name?' }
+      ]
+    },
+    'session-1'
+  )
 
   $activeSessionId.set('session-1')
-  $gateway.set({ request } as never)
   setClarifyRequest({
     choices: null,
     lockedAnswers,
@@ -576,6 +532,7 @@ function renderLiveBatch(lockedAnswers?: Record<string, string>, multiSelect = f
       { choices: ['red', 'blue'], multiSelect, qid: 'q0', question: 'Color?' },
       { choices: null, multiSelect: false, qid: 'q1', question: 'Name?' }
     ],
+    request,
     requestId: 'request-batch',
     sessionId: 'session-1'
   })
@@ -583,30 +540,6 @@ function renderLiveBatch(lockedAnswers?: Record<string, string>, multiSelect = f
 
   return request
 }
-
-describe('readClarifyBatchResult', () => {
-  it('parses responses with string and list answers plus timed_out', () => {
-    const parsed = readClarifyBatchResult(
-      JSON.stringify({
-        responses: [
-          { question: 'Color?', user_response: 'red' },
-          { question: 'Tools?', user_response: ['a', 'b'] },
-          { question: 'Name?', user_response: '' }
-        ],
-        timed_out: true
-      })
-    )
-
-    expect(parsed.timedOut).toBe(true)
-    expect(parsed.responses).toHaveLength(3)
-    expect(parsed.responses[1]?.answer).toEqual(['a', 'b'])
-    expect(parsed.responses[2]?.answer).toBe('')
-  })
-
-  it('returns empty responses for single-question payloads', () => {
-    expect(readClarifyBatchResult({ question: 'Q?', user_response: 'a' }).responses).toEqual([])
-  })
-})
 
 describe('ClarifyTool submit shortcut', () => {
   it('submits selected choices with Cmd/Ctrl+Enter without toggling the focused option', async () => {
@@ -616,11 +549,8 @@ describe('ClarifyTool submit shortcut', () => {
       fireEvent.click(choice)
       choice.focus()
       fireEvent.keyDown(choice, { key: 'Enter', ...modifier })
-      await waitFor(() => expect(request).toHaveBeenCalledTimes(1))
-      expect(request).toHaveBeenCalledWith('clarify.respond', {
-        request_id: 'request-1',
-        answer: '["staging"]'
-      })
+      await waitFor(() => expect(request.respond).toHaveBeenCalledTimes(1))
+      expect(request.respond).toHaveBeenCalledWith({ value: '["staging"]' })
       cleanup()
     }
   })
@@ -632,18 +562,13 @@ describe('ClarifyTool submit shortcut', () => {
       fireEvent.change(field, { target: { value: 'packet' } })
       field.focus()
       fireEvent.keyDown(field, { key: 'Enter', ...modifier })
-      expect(request).not.toHaveBeenCalled()
+      expect(request.respond).not.toHaveBeenCalled()
       fireEvent.click(screen.getByRole('button', { name: /red/ }))
       fireEvent.keyDown(field, { key: 'Enter', shiftKey: true })
       fireEvent.keyDown(field, { key: 'Enter', isComposing: true, ...modifier })
-      expect(request).not.toHaveBeenCalled()
+      expect(request.respond).not.toHaveBeenCalled()
       fireEvent.keyDown(field, { key: 'Enter', ...modifier })
-      await waitFor(() => expect(request).toHaveBeenCalledTimes(2))
-      expect(request).toHaveBeenNthCalledWith(2, 'clarify.respond', {
-        answer: 'packet',
-        question_id: 'q1',
-        request_id: 'request-batch'
-      })
+      await waitFor(() => expect(request.respond).toHaveBeenCalledWith({ answers: { q0: 'red', q1: 'packet' } }))
       cleanup()
     }
   })
@@ -664,19 +589,20 @@ describe('ClarifyTool batch card', () => {
 
     expect((confirm as HTMLButtonElement).disabled).toBe(true)
 
-    // Staging a pick sends NOTHING to the server.
     fireEvent.click(screen.getByRole('button', { name: /red/ }))
     expect(screen.getByText('1 of 2 answered')).toBeTruthy()
-    expect(request).not.toHaveBeenCalled()
+    expect(request.notify).not.toHaveBeenCalled()
+    expect(request.respond).not.toHaveBeenCalled()
     expect((confirm as HTMLButtonElement).disabled).toBe(true)
 
     fireEvent.change(screen.getByPlaceholderText('Type your answer…'), { target: { value: 'packet' } })
     expect(screen.getByText('2 of 2 answered')).toBeTruthy()
-    expect(request).not.toHaveBeenCalled()
+    expect(request.notify).not.toHaveBeenCalled()
+    expect(request.respond).not.toHaveBeenCalled()
     expect((confirm as HTMLButtonElement).disabled).toBe(false)
   })
 
-  it('confirm sends every per-question lock in order and completes the batch', async () => {
+  it('confirms the batch through its request object', async () => {
     const request = renderLiveBatch()
 
     fireEvent.click(screen.getByRole('button', { name: /red/ }))
@@ -684,17 +610,7 @@ describe('ClarifyTool batch card', () => {
     fireEvent.submit(document.querySelector('form') as HTMLFormElement)
 
     await waitFor(() => {
-      expect(request).toHaveBeenCalledTimes(2)
-    })
-    expect(request).toHaveBeenNthCalledWith(1, 'clarify.respond', {
-      answer: 'red',
-      question_id: 'q0',
-      request_id: 'request-batch'
-    })
-    expect(request).toHaveBeenNthCalledWith(2, 'clarify.respond', {
-      answer: 'packet',
-      question_id: 'q1',
-      request_id: 'request-batch'
+      expect(request.respond).toHaveBeenCalledWith({ answers: { q0: 'red', q1: 'packet' } })
     })
   })
 
@@ -707,13 +623,7 @@ describe('ClarifyTool batch card', () => {
     fireEvent.submit(document.querySelector('form') as HTMLFormElement)
 
     await waitFor(() => {
-      expect(request).toHaveBeenCalledTimes(2)
-    })
-    // The re-pick won: blue, not red.
-    expect(request).toHaveBeenNthCalledWith(1, 'clarify.respond', {
-      answer: 'blue',
-      question_id: 'q0',
-      request_id: 'request-batch'
+      expect(request.respond).toHaveBeenCalledWith({ answers: { q0: 'blue', q1: 'packet' } })
     })
   })
 
@@ -738,10 +648,7 @@ describe('ClarifyTool batch card', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Skip' }))
 
     await waitFor(() => {
-      expect(request).toHaveBeenCalledWith('clarify.respond', {
-        answer: '',
-        request_id: 'request-batch'
-      })
+      expect(request.respond).toHaveBeenCalledWith({ value: '' })
     })
   })
 
@@ -768,58 +675,22 @@ describe('ClarifyTool batch card', () => {
   })
 })
 
-// ─── Owner routing (#91684 client half) ─────────────────────────────────────
-// The clarify card used to answer on the AMBIENT socket. That socket follows
-// foreground focus, so after a profile / Bot Chat switch it can be profile B
-// while the blocking clarify belongs to profile A — the response lands on a
-// backend that never held the request and the owner stays blocked until the
-// tool times out. Every live clarify.respond now routes by request.sessionId.
+describe('ClarifyTool reply routing', () => {
+  it('answers through the visible card’s request object', async () => {
+    const request = clarifyRequest(
+      'request-1',
+      { choices: ['staging', 'production'], question: 'Which deployment target?' },
+      'session-1'
+    )
 
-const OWNER_CONNECTION_ID = 'conn-profile-a'
-const OWNER_PROFILE = 'profile-a'
-
-/** Profile A owns the clarify's session; the window has since switched to
- *  profile B, so `$gateway` (ambient) is profile B's socket. */
-function armCrossProfileOwner() {
-  // Two profiles exist → the ambient gateway is not provably the sole backend,
-  // so the legacy single-backend escape hatch stays shut.
-  $profiles.set([{ name: OWNER_PROFILE }, { name: 'profile-b' }] as never)
-  setSessionOwnerHint('session-a', { connectionId: OWNER_CONNECTION_ID, profile: OWNER_PROFILE })
-
-  const ambient = vi.fn().mockResolvedValue({ ok: true })
-
-  $activeSessionId.set('session-a')
-  $gateway.set({ request: ambient } as never)
-
-  return ambient
-}
-
-function expectOwnerCall(nth: number, params: Record<string, unknown>) {
-  expect(gatewayMocks.requestGatewayForAgent).toHaveBeenNthCalledWith(
-    nth,
-    OWNER_CONNECTION_ID,
-    OWNER_PROFILE,
-    'clarify.respond',
-    params
-  )
-}
-
-describe('ClarifyTool owner routing', () => {
-  afterEach(() => {
-    $profiles.set([])
-    _resetSessionOwnerHintsForTests({ storage: true })
-    gatewayMocks.requestGatewayForAgent.mockClear()
-  })
-
-  it('answers a single clarify on the owner socket, never profile B ambient', async () => {
-    const ambient = armCrossProfileOwner()
-
+    $activeSessionId.set('session-1')
     setClarifyRequest({
       choices: ['staging', 'production'],
       multiSelect: false,
       question: 'Which deployment target?',
+      request,
       requestId: 'request-1',
-      sessionId: 'session-a'
+      sessionId: 'session-1'
     })
     renderClarify(<ClarifyTool {...liveClarifyProps()} />)
 
@@ -827,64 +698,8 @@ describe('ClarifyTool owner routing', () => {
     fireEvent.click(screen.getByRole('button', { name: /Continue/ }))
 
     await waitFor(() => {
-      expect(gatewayMocks.requestGatewayForAgent).toHaveBeenCalledTimes(1)
+      expect(request.respond).toHaveBeenCalledWith({ value: 'staging' })
     })
-    expectOwnerCall(1, { answer: 'staging', request_id: 'request-1' })
-    expect(ambient).not.toHaveBeenCalled()
-  })
-
-  it('sends both sequential batch locks on the owner socket, in order', async () => {
-    const ambient = armCrossProfileOwner()
-
-    setClarifyRequest({
-      choices: null,
-      multiSelect: false,
-      question: '',
-      questions: [
-        { choices: ['red', 'blue'], multiSelect: false, qid: 'q0', question: 'Color?' },
-        { choices: null, multiSelect: false, qid: 'q1', question: 'Name?' }
-      ],
-      requestId: 'request-batch',
-      sessionId: 'session-a'
-    })
-    renderClarify(<ClarifyTool {...liveBatchProps()} />)
-
-    fireEvent.click(screen.getByRole('button', { name: /red/ }))
-    fireEvent.change(screen.getByPlaceholderText('Type your answer…'), { target: { value: 'packet' } })
-    fireEvent.click(screen.getByRole('button', { name: /Confirm and continue/ }))
-
-    await waitFor(() => {
-      expect(gatewayMocks.requestGatewayForAgent).toHaveBeenCalledTimes(2)
-    })
-    // The LAST lock resolves the blocked tool, so order is load-bearing.
-    expectOwnerCall(1, { answer: 'red', question_id: 'q0', request_id: 'request-batch' })
-    expectOwnerCall(2, { answer: 'packet', question_id: 'q1', request_id: 'request-batch' })
-    expect(ambient).not.toHaveBeenCalled()
-  })
-
-  it('sends a batch skip/cancel on the owner socket', async () => {
-    const ambient = armCrossProfileOwner()
-
-    setClarifyRequest({
-      choices: null,
-      multiSelect: false,
-      question: '',
-      questions: [
-        { choices: ['red', 'blue'], multiSelect: false, qid: 'q0', question: 'Color?' },
-        { choices: null, multiSelect: false, qid: 'q1', question: 'Name?' }
-      ],
-      requestId: 'request-batch',
-      sessionId: 'session-a'
-    })
-    renderClarify(<ClarifyTool {...liveBatchProps()} />)
-
-    fireEvent.click(screen.getByRole('button', { name: 'Skip' }))
-
-    await waitFor(() => {
-      expect(gatewayMocks.requestGatewayForAgent).toHaveBeenCalledTimes(1)
-    })
-    expectOwnerCall(1, { answer: '', request_id: 'request-batch' })
-    expect(ambient).not.toHaveBeenCalled()
   })
 })
 
@@ -916,13 +731,18 @@ describe('ClarifyTool visible-card scoping', () => {
   }
 
   function parkClarify(requestId: string, sessionId: string) {
+    const request = clarifyRequest(requestId, { choices: ['staging', 'production'], question: QUESTION }, sessionId)
+
     setClarifyRequest({
       choices: ['staging', 'production'],
       multiSelect: false,
       question: QUESTION,
+      request,
       requestId,
       sessionId
     })
+
+    return request
   }
 
   /** A card inside an inactive tab layer — mounted and live, just not on screen. */
@@ -937,15 +757,9 @@ describe('ClarifyTool visible-card scoping', () => {
   }
 
   it('answers the visible card, not a background one that mounted first', async () => {
-    const request = vi.fn().mockResolvedValue({ ok: true })
+    const backgroundRequest = parkClarify(BACKGROUND_REQUEST, BACKGROUND_SESSION)
+    const foregroundRequest = parkClarify(FOREGROUND_REQUEST, FOREGROUND_SESSION)
 
-    $gateway.set({ request } as never)
-    parkClarify(BACKGROUND_REQUEST, BACKGROUND_SESSION)
-    parkClarify(FOREGROUND_REQUEST, FOREGROUND_SESSION)
-
-    // The background card is rendered FIRST, so its window listener registers
-    // first. Registration order used to decide the winner, which meant the card
-    // the user was looking at lost to one parked in an inactive tab.
     renderClarify(
       <>
         {backgroundCard()}
@@ -958,29 +772,18 @@ describe('ClarifyTool visible-card scoping', () => {
     fireEvent.keyDown(window, { key: 'Enter' })
 
     await waitFor(() => {
-      expect(request).toHaveBeenCalledTimes(1)
+      expect(foregroundRequest.respond).toHaveBeenCalledWith({ value: 'staging' })
     })
-
-    // Exactly one answer, carrying the FOREGROUND request id — the background
-    // session's turn must not be resumed by a keystroke aimed at this one.
-    expect(request).toHaveBeenCalledWith('clarify.respond', {
-      answer: 'staging',
-      request_id: FOREGROUND_REQUEST
-    })
+    expect(backgroundRequest.respond).not.toHaveBeenCalled()
   })
 
   it('leaves the key alone when the only pending card is hidden', () => {
-    const request = vi.fn().mockResolvedValue({ ok: true })
-
-    $gateway.set({ request } as never)
-    parkClarify(BACKGROUND_REQUEST, BACKGROUND_SESSION)
+    const request = parkClarify(BACKGROUND_REQUEST, BACKGROUND_SESSION)
 
     renderClarify(backgroundCard())
 
-    // Untouched (no preventDefault) ⇒ the keystroke stays available to the
-    // composer, matching what `clarifyCardOwnsKey` reports with no visible card.
     expect(fireEvent.keyDown(window, { key: 'Enter' })).toBe(true)
-    expect(request).not.toHaveBeenCalled()
+    expect(request.respond).not.toHaveBeenCalled()
   })
 
   /** A card in its own split zone — unlike `backgroundCard` this one IS on
@@ -996,13 +799,9 @@ describe('ClarifyTool visible-card scoping', () => {
     )
   }
 
-  /** Both zones visible, zone-a first in document order. */
   function renderSplit() {
-    const request = vi.fn().mockResolvedValue({ ok: true })
-
-    $gateway.set({ request } as never)
-    parkClarify(ZONE_A_REQUEST, ZONE_A_SESSION)
-    parkClarify(ZONE_B_REQUEST, ZONE_B_SESSION)
+    const zoneARequest = parkClarify(ZONE_A_REQUEST, ZONE_A_SESSION)
+    const zoneBRequest = parkClarify(ZONE_B_REQUEST, ZONE_B_SESSION)
 
     renderClarify(
       <>
@@ -1011,42 +810,30 @@ describe('ClarifyTool visible-card scoping', () => {
       </>
     )
 
-    return request
+    return { zoneARequest, zoneBRequest }
   }
 
   it('answers the later-in-document card when its zone is the focused one', async () => {
-    const request = renderSplit()
+    const { zoneARequest, zoneBRequest } = renderSplit()
 
     $activeTreeGroup.set('zone-b')
     fireEvent.keyDown(window, { key: 'Enter' })
 
     await waitFor(() => {
-      expect(request).toHaveBeenCalledTimes(1)
+      expect(zoneBRequest.respond).toHaveBeenCalledWith({ value: 'staging' })
     })
-
-    // Both cards are visible and both hold a live window listener, so this is
-    // the case document order gets wrong: it would answer zone-a's question.
-    expect(request).toHaveBeenCalledWith('clarify.respond', {
-      answer: 'staging',
-      request_id: ZONE_B_REQUEST
-    })
+    expect(zoneARequest.respond).not.toHaveBeenCalled()
   })
 
   it('answers the other visible card once the focus moves to its zone', async () => {
-    const request = renderSplit()
+    const { zoneARequest, zoneBRequest } = renderSplit()
 
     $activeTreeGroup.set('zone-a')
     fireEvent.keyDown(window, { key: 'Enter' })
 
     await waitFor(() => {
-      expect(request).toHaveBeenCalledTimes(1)
+      expect(zoneARequest.respond).toHaveBeenCalledWith({ value: 'staging' })
     })
-
-    // The direct pin for "the other visible card then cannot receive its
-    // shortcut": neither zone may be permanently starved of its own keys.
-    expect(request).toHaveBeenCalledWith('clarify.respond', {
-      answer: 'staging',
-      request_id: ZONE_A_REQUEST
-    })
+    expect(zoneBRequest.respond).not.toHaveBeenCalled()
   })
 })

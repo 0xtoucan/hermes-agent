@@ -22,6 +22,8 @@ const sent: { method: string; params: Record<string, unknown>; url: string }[] =
 
 class FakeHermesGateway {
   connectionState = 'closed'
+  onServerRequest = () => () => {}
+  onServerRequestCancel = () => () => {}
   private url = ''
 
   async connect(wsUrl: string) {

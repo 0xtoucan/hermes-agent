@@ -16,6 +16,8 @@ vi.mock('@/hermes', async importOriginal => {
 
   class FakeHermesGateway {
     connectionState = 'closed'
+    onServerRequest = () => () => {}
+    onServerRequestCancel = () => () => {}
     wsUrl = ''
     request = vi.fn()
     connect = vi.fn(async (wsUrl: string) => {

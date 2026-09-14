@@ -181,6 +181,8 @@ vi.mock('@/hermes', async importOriginal => ({
         )
       }
     })
+    onServerRequest = vi.fn(() => () => {})
+    onServerRequestCancel = vi.fn(() => () => {})
     onEvent = vi.fn((listener: (event: GatewayEvent) => void) => {
       this.eventListeners.add(listener)
 
