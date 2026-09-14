@@ -4,9 +4,12 @@ import type {
   ProjectTreeNode,
   ProjectTreeRepo,
   ProjectTreeSession,
+  RepoDiscoveryPolicy,
   RepoDiscoveryPolicyParams,
   RpcMethods
 } from '@hermes/shared'
+
+export type { RepoDiscoveryPolicy }
 import { atom } from 'nanostores'
 
 import type { NewSessionPlacement } from '@/app/chat/new-session-drag'
@@ -365,11 +368,7 @@ export async function refreshProjects(): Promise<void> {
   try {
     context = await activeProjectsContext()
 
-    const payload = await gatewayRequestOn(
-      context.gateway,
-      'projects.list',
-      projectParams({}, context.profile)
-    )
+    const payload = await gatewayRequestOn(context.gateway, 'projects.list', projectParams({}, context.profile))
 
     if (generation !== projectsRefreshGeneration || !stillOnProjectsContext(context)) {
       return
@@ -505,7 +504,11 @@ async function refreshProjectTreeOn(context: ActiveProjectsContext): Promise<voi
 
     try {
       res = treePayload(
-        await gatewayRequestOn(gateway, 'projects.tree', projectParams({ preview_limit: projectTreePreviewLimit() }, profile))
+        await gatewayRequestOn(
+          gateway,
+          'projects.tree',
+          projectParams({ preview_limit: projectTreePreviewLimit() }, profile)
+        )
       )
     } catch (error) {
       // A remote source switch can leave the first read RPC on a newly-opened
@@ -517,7 +520,11 @@ async function refreshProjectTreeOn(context: ActiveProjectsContext): Promise<voi
       }
 
       res = treePayload(
-        await gatewayRequestOn(gateway, 'projects.tree', projectParams({ preview_limit: projectTreePreviewLimit() }, profile))
+        await gatewayRequestOn(
+          gateway,
+          'projects.tree',
+          projectParams({ preview_limit: projectTreePreviewLimit() }, profile)
+        )
       )
     }
 
@@ -628,7 +635,6 @@ export async function fetchProjectSessions(projectId: string): Promise<SidebarPr
   }
 }
 
-
 // Re-home a stored session into another project's root folder — the fix for a
 // chat created in the wrong directory. The backend replaces cwd + git identity
 // (so the tree's grouping follows) and re-anchors any live agent bound to the
@@ -660,12 +666,6 @@ export async function moveSessionToProject(
     )
   )
   void refreshProjectTree()
-}
-
-export interface RepoDiscoveryPolicy {
-  enabled: boolean
-  roots: string[]
-  exclude_paths: string[]
 }
 
 // `projects.record_repos` spells the legacy and the repo_scan_* spellings of the same policy.

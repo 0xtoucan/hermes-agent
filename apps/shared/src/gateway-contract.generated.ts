@@ -3109,7 +3109,7 @@ export interface GoalGateSnapshot {
 /** ``methods_session_control.py::_safe_goal_snapshot`` — the frontend-safe GoalState subset. */
 export interface GoalSnapshot {
   title: string
-  status: string
+  status: GoalStatus
   turns_used: number
   max_turns: number
   contract: GoalContractSnapshot
@@ -3118,33 +3118,45 @@ export interface GoalSnapshot {
   created_at: number | null
   updated_at: number | null
   paused_reason: string | null
-  last_verdict: string | null
+  last_verdict: GoalVerdict | null
   last_reason: string | null
-  wait_barrier: WaitBarrierUntil | WaitBarrierTarget | null
+  wait_barrier: WaitBarrierUntil | WaitBarrierSession | WaitBarrierPid | null
 }
+/** ``hermes_cli/goals.py::GoalState.status`` minus ``cleared``, which the snapshot drops. */
+export type GoalStatus = 'active' | 'paused' | 'done'
+/** ``hermes_cli/goals.py::GoalState.last_verdict``. */
+export type GoalVerdict = 'done' | 'blocked' | 'continue' | 'wait' | 'skipped'
 export interface WaitBarrierUntil {
   type: 'until'
   until_at: number
   reason: string
 }
-export interface WaitBarrierTarget {
-  type: 'session' | 'pid'
-  target: string | number
+export interface WaitBarrierSession {
+  type: 'session'
+  target: string
+  reason: string
+}
+export interface WaitBarrierPid {
+  type: 'pid'
+  target: number
   reason: string
 }
 export interface HeartbeatSnapshot {
   prompt: string
-  status: string
+  status: HeartbeatStatus
   interval_seconds: number
   created_at: number
   last_fired_at: number
   fire_count: number
 }
+/** ``hermes_cli/heartbeat.py::HeartbeatState.status`` minus ``cleared``. */
+export type HeartbeatStatus = 'active' | 'paused'
+export type LoopMode = 'interval' | 'self_paced'
 /** ``_safe_loop_snapshot`` — persisted LoopState fields, never its route. */
 export interface LoopSnapshot {
   prompt: string
-  status: string
-  mode: string
+  status: LoopStatus
+  mode: LoopMode
   interval_seconds: number
   current_delay: number
   times: number
@@ -3159,9 +3171,11 @@ export interface LoopSnapshot {
   paused_reason: string | null
   last_stop_reason: string | null
 }
+/** ``hermes_cli/loops.py::LoopState.status`` minus ``cleared``. */
+export type LoopStatus = 'active' | 'paused' | 'done'
 /** ``_dispatch_envelope`` always serializes all user-visible directive fields. */
 export interface SessionControlDispatch {
-  type: string | null
+  type: DispatchType | null
   output: string | null
   notice: string | null
   message: string | null

@@ -1,6 +1,6 @@
-import type { JsonValue, MessageReaction } from '@hermes/shared'
+import type { JsonValue, MessageReaction, ProjectInfo } from '@hermes/shared'
 
-export type { SessionCreateResult, SessionResumeResult } from '@hermes/shared'
+export type { ProjectFolder, ProjectInfo, SessionCreateResult, SessionResumeResult } from '@hermes/shared'
 export type { MessageReaction }
 
 export interface ConfigFieldSchema {
@@ -463,7 +463,6 @@ export interface PaginatedSessions {
   errors?: Array<{ profile: string; error: string }>
 }
 
-
 export interface SessionInfo {
   archived?: boolean
   cwd?: null | string
@@ -552,7 +551,6 @@ export type TimelineDisplayMetadata =
   | { display_text: string }
   | { reactions: MessageReaction[] }
 
-
 export interface SessionMessage {
   /**
    * Full tool arguments for a gateway-projected tool row (`role: 'tool'`).
@@ -618,7 +616,6 @@ export interface SessionMessagesResponse {
   }
   session_id: string
 }
-
 
 /** The runtime block both the gateway `SessionLiveInfo` and the REST session payload satisfy.
  *  It keeps the REST-only warnings the generated contract does not carry. */
@@ -917,27 +914,6 @@ export interface ProfileDesktopOverlay {
 // ── Projects ───────────────────────────────────────────────────────────────
 // A first-class, per-profile, human-named workspace spanning one or more
 // folders. Mirrors hermes_cli/projects_db.Project.to_dict().
-export interface ProjectFolder {
-  path: string
-  label: null | string
-  is_primary: boolean
-  added_at: number
-}
-
-export interface ProjectInfo {
-  id: string
-  slug: string
-  name: string
-  description: null | string
-  icon: null | string
-  color: null | string
-  board_slug: null | string
-  primary_path: null | string
-  archived: boolean
-  created_at: number
-  folders: ProjectFolder[]
-}
-
 export interface ProjectsPayload {
   projects: ProjectInfo[]
   active_id: null | string

@@ -244,11 +244,7 @@ async function pluginRequest<M extends keyof RpcMethods>(
   params: RpcMethods[M]['params'],
   timeoutMs?: number
 ): Promise<RpcMethods[M]['result']>
-async function pluginRequest(
-  method: string,
-  params?: Record<string, JsonValue>,
-  timeoutMs?: number
-): Promise<JsonValue>
+async function pluginRequest(method: string, params?: Record<string, JsonValue>, timeoutMs?: number): Promise<JsonValue>
 async function pluginRequest(
   method: string,
   params: Record<string, JsonValue> = {},
@@ -1823,12 +1819,16 @@ export type { StatusResponse } from '@/types/hermes'
 export type {
   ClarifyParams,
   ClarifyQuestion,
+  CronJobRow,
+  CronManageResult,
   JsonValue,
+  ModelOptionsResult,
   OpenRequestEntry,
   PendingApproval,
   PetGalleryEntry,
   ProfileRow,
   ProfilesConfigureParams,
+  ProfilesConfigureResult,
   RelayAgentRow,
   RelayEnvelope,
   RpcMethods,
