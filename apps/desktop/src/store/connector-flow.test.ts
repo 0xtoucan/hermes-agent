@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { connectorRow } from '@/test/contract'
+
 import { createConnectorFlow } from './connector-flow'
 
 const listed = (connected: boolean) => ({
   available: true,
-  connectors: [{ connector: 'gmail', connected, enabled: true }]
+  connectors: [connectorRow({ connector: 'gmail', connected, enabled: true })]
 })
 
 function flowWith(responses: { list: () => unknown; connect?: () => unknown }, onWaiting = vi.fn()) {
@@ -18,7 +20,7 @@ function flowWith(responses: { list: () => unknown; connect?: () => unknown }, o
     return responses.connect?.() ?? { results: [] }
   })
 
-  const flow = createConnectorFlow('session', [{ connector: 'gmail' }], {
+  const flow = createConnectorFlow('session', [connectorRow({ connector: 'gmail' })], {
     request: request as never,
     open,
     onWaiting,
@@ -94,7 +96,7 @@ describe('the moment the browser has the sign-in', () => {
         : { results: [{ connector: 'gmail', status: 'initiated', connect_url: 'https://auth.test/x' }] }
     )
 
-    const flow = createConnectorFlow('session', [{ connector: 'gmail' }], {
+    const flow = createConnectorFlow('session', [connectorRow({ connector: 'gmail' })], {
       request: request as never,
       open,
       onWaiting,

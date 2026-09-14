@@ -13,7 +13,14 @@ import { ConnectorCard, type ConnectorCardCopy } from '@/components/ui/connector
 import { Loader } from '@/components/ui/loader'
 import { SearchField } from '@/components/ui/search-field'
 import { useI18n } from '@/i18n'
-import { connectionRows, connectorCalls, connectorTitle, connectorToolName, recordOf } from '@/lib/connector-tools'
+import {
+  connectionRows,
+  connectorCalls,
+  connectorRowsFromSlugs,
+  connectorTitle,
+  connectorToolName,
+  recordOf
+} from '@/lib/connector-tools'
 import { cn } from '@/lib/utils'
 import { createConnectorFlow } from '@/store/connector-flow'
 import { requestGatewayForAgent } from '@/store/gateway'
@@ -163,7 +170,7 @@ export function ConnectorTool(props: ToolCallMessagePartProps) {
       return null
     }
 
-    const seeds = signature ? signature.split('|').map(connector => ({ connector })) : []
+    const seeds = signature ? connectorRowsFromSlugs(signature.split('|')) : []
 
     return createConnectorFlow(runtimeId, seeds, {
       request: (method, params) => requestGatewayForAgent(owner.connectionId, owner.profile, method, params, 45000),

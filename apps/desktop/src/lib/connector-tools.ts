@@ -1,5 +1,6 @@
 import { isRecord } from '@assistant-ui/core/internal'
 import type { ToolCallMessagePart } from '@assistant-ui/react'
+import type { ConnectorRow } from '@hermes/shared'
 
 import type { ChatMessage } from '@/lib/chat-messages'
 
@@ -25,14 +26,20 @@ export function latestConnectorPart(messages: ChatMessage[]) {
 }
 
 /** Connector names and statuses from the tool payload, for display only. No field here grants access. */
-export interface ConnectorRow {
-  connector: string
-  connected?: boolean
-  enabled?: boolean
-  connectionStatus?: string | null
-  name?: string
-  description?: string
-}
+export type { ConnectorRow }
+
+/** Seed rows for connector slugs the tool named but has not described yet. */
+export const connectorRowsFromSlugs = (slugs: string[]): ConnectorRow[] => slugs.map(blankConnectorRow)
+
+/** A connector the tool named but did not describe yet. */
+const blankConnectorRow = (connector: string): ConnectorRow => ({
+  connectionStatus: null,
+  connected: false,
+  connector,
+  description: null,
+  enabled: false,
+  name: null
+})
 
 export function connectorText(value: ToolCallMessagePart['result']): string | undefined {
   return typeof value === 'string' ? value : undefined
@@ -123,7 +130,7 @@ export function connectionRows(
 
     if (slug !== undefined) {
       if (/^[a-z0-9_-]+$/i.test(slug)) {
-        rows.set(slug, rows.get(slug) ?? { connector: slug })
+        rows.set(slug, rows.get(slug) ?? blankConnectorRow(slug))
       }
 
       return
@@ -136,7 +143,7 @@ export function connectionRows(
       return
     }
 
-    const merged: ConnectorRow = { ...rows.get(connector), connector }
+    const merged: ConnectorRow = { ...blankConnectorRow(connector), ...rows.get(connector) }
 
     if (row.connected === true || row.connected === false) {
       merged.connected = row.connected

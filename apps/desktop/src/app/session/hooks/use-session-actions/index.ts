@@ -1,3 +1,4 @@
+import type { ApprovalChoice } from '@hermes/shared'
 import { useStore } from '@nanostores/react'
 import { type MutableRefObject, useCallback, useEffect, useRef } from 'react'
 import type { NavigateFunction } from 'react-router'
@@ -22,7 +23,9 @@ import {
   stripPendingClarifyProjectionForCache,
   toChatMessages
 } from '@/lib/chat-messages'
+import { toSessionMessages } from '@/lib/chat-messages/hydration'
 import { isMissingRpcMethod } from '@/lib/gateway-rpc'
+import type { GatewayRequest } from '@/lib/gateway-rpc'
 import { recoverInFlightTurnJournal } from '@/lib/inflight-turn-journal'
 import { setSessionYolo } from '@/lib/yolo-session'
 import { $clarifyRequests } from '@/store/clarify'
@@ -131,14 +134,19 @@ import {
   saveTranscriptTail
 } from '@/store/transcript-tail-cache'
 import { isWatchWindow } from '@/store/windows'
-import type { SessionCreateResponse, SessionMessage, SessionResumeResult, UsageStats } from '@/types/hermes'
+import type { SessionCreateResult, SessionMessage, SessionResumeResult } from '@/types/hermes'
 
 import { navigateToWorkspacePage, NEW_CHAT_ROUTE, sessionRoute, SETTINGS_ROUTE } from '../../../routes'
 import type { ClientSessionState, SidebarNavItem } from '../../../types'
 import { sessionContextDrift } from '../session-context-drift'
 import { singleFlightSessionResume } from '../use-prompt-actions/single-flight-resume'
 
-import { sessionCreateOverrideParams, type SessionCreateOverrides, type SessionSeedMessage } from './create-overrides'
+import {
+  seedMessage,
+  sessionCreateOverrideParams,
+  type SessionCreateOverrides,
+  type SessionSeedMessage
+} from './create-overrides'
 import { pendingClarifyToolPayload, restorePendingClarifyFromSnapshot } from './restore-pending-clarify'
 import {
   createPersistedDisplayTranscriptProvenance,
@@ -187,7 +195,7 @@ interface SessionActionsOptions {
   holdSessionTranscriptView?: (runtimeId: string) => () => void
   navigate: NavigateFunction
   onFreshDraftRouteIntent?: () => void
-  requestGateway: <T>(method: string, params?: Record<string, unknown>) => Promise<T>
+  requestGateway: GatewayRequest
   resetViewSync: () => void
   runtimeIdByStoredSessionIdRef: MutableRefObject<Map<string, string>>
   selectedStoredSessionId: string | null
@@ -271,7 +279,7 @@ function reconcileAuthoritativeChatMessages(
 }
 
 function reconcileAuthoritativeMessages(
-  authoritativeMessages: SessionResumeResult['messages'],
+  authoritativeMessages: SessionMessage[],
   previousMessages: ChatMessage[],
   liveProjection?: Pick<SessionResumeResult, 'inflight' | 'queued' | 'session_id'>
 ): ChatMessage[] {
@@ -338,7 +346,12 @@ interface FreshSessionDraftOptions {
   workspaceTarget?: NewChatWorkspaceTarget
 }
 
-function restorePendingApproval(response: SessionResumeResult, sessionId: string): boolean {
+const APPROVAL_CHOICES: readonly ApprovalChoice[] = ['once', 'session', 'always', 'deny']
+
+// `pending_approval` renders choices as plain strings; the response contract wants the closed set.
+const isApprovalChoice = (choice: string): choice is ApprovalChoice => APPROVAL_CHOICES.some(known => known === choice)
+
+function restorePendingApproval(response: Pick<SessionResumeResult, 'pending_approval'>, sessionId: string): boolean {
   const pending = response.pending_approval
 
   if (!pending) {
@@ -350,10 +363,10 @@ function restorePendingApproval(response: SessionResumeResult, sessionId: string
   // clobber it with a copy that can only answer through the RPC fallback.
   void receiveApprovalRequest(null, {
     allowPermanent: pending.allow_permanent !== false,
-    choices: pending.choices,
+    choices: pending.choices?.filter(isApprovalChoice),
     command: pending.command ?? '',
     description: pending.description ?? 'dangerous command',
-    requestId: typeof pending.request_id === 'string' ? pending.request_id : undefined,
+    requestId: pending.request_id ?? undefined,
     sessionId,
     smartDenied: pending.smart_denied === true
   })
@@ -388,7 +401,7 @@ export function useSessionActions({
   const { t } = useI18n()
   const copy = t.desktop
   const resumeRequestRef = useRef(0)
-  const branchCreateFlightsRef = useRef(new Map<string, Promise<SessionCreateResponse>>())
+  const branchCreateFlightsRef = useRef(new Map<string, Promise<SessionCreateResult>>())
 
   // Follow auto-compression's stored-id rotation only while the exact runtime,
   // selection, and route intent still belong to the rotating conversation.
@@ -592,18 +605,18 @@ export function useSessionActions({
           ? await retainGatewayForAgent(capturedRoute.connectionId, capturedRoute.profile)
           : () => undefined
 
-        let created: SessionCreateResponse
+        let created: SessionCreateResult
         let stored: null | string
 
         try {
           created = capturedRoute
-            ? await requestGatewayForAgent<SessionCreateResponse>(
+            ? await requestGatewayForAgent(
                 capturedRoute.connectionId,
                 capturedRoute.profile,
                 'session.create',
                 params
               )
-            : await requestGateway<SessionCreateResponse>('session.create', params)
+            : await requestGateway('session.create', params)
 
           stored = created.stored_session_id ?? null
 
@@ -812,18 +825,18 @@ export function useSessionActions({
           ? await retainGatewayForAgent(capturedRoute.connectionId, capturedRoute.profile)
           : () => undefined
 
-        let created: SessionCreateResponse
+        let created: SessionCreateResult
         let stored: string | undefined
 
         try {
           created = capturedRoute
-            ? await requestGatewayForAgent<SessionCreateResponse>(
+            ? await requestGatewayForAgent(
                 capturedRoute.connectionId,
                 capturedRoute.profile,
                 'session.create',
                 params
               )
-            : await requestGateway<SessionCreateResponse>('session.create', params)
+            : await requestGateway('session.create', params)
 
           stored = created.stored_session_id
 
@@ -1079,8 +1092,8 @@ export function useSessionActions({
       // its bounded retries into the "retries gave up" screen while the bot's
       // own backend is healthy one port over (#89206: local pool AND SSH).
       // requestForSessionProfile re-resolves the route at each call.
-      const requestForSession = <T>(method: string, params: Record<string, unknown> = {}): Promise<T> =>
-        requestForSessionProfile<T>(sessionOwner, requestGateway, method, params)
+      const requestForSession: GatewayRequest = (method, params, timeoutMs, signal) =>
+        requestForSessionProfile(sessionOwner, requestGateway, method, params, timeoutMs, signal)
 
       const sessionRestScope = resolvedConnectionId
         ? {
@@ -1203,7 +1216,7 @@ export function useSessionActions({
             const clarifyRequestIdAtActivateStart = $clarifyRequests.get()[cachedRuntimeId]?.requestId
 
             try {
-              activated = await requestForSession<SessionResumeResult>('session.activate', {
+              activated = await requestForSession('session.activate', {
                 session_id: cachedRuntimeId,
                 cols: 96,
                 omit_messages: true
@@ -1216,7 +1229,7 @@ export function useSessionActions({
                 throw error
               }
 
-              const usage = await requestForSession<UsageStats>('session.usage', { session_id: cachedRuntimeId })
+              const usage = await requestForSession('session.usage', { session_id: cachedRuntimeId })
 
               if (!isCurrentResume()) {
                 return
@@ -1271,7 +1284,11 @@ export function useSessionActions({
               let activatedMessages = activated.messages_omitted
                 ? appendLiveSessionProjection(cachedViewState.messages, activated)
                 : activated.messages.length || activated.inflight || activated.queued
-                  ? reconcileAuthoritativeMessages(activated.messages, cachedViewState.messages, activated)
+                  ? reconcileAuthoritativeMessages(
+                      toSessionMessages(activated.messages),
+                      cachedViewState.messages,
+                      activated
+                    )
                   : cachedViewState.messages
 
               // #70449: never let the activate snapshot's stale running:false
@@ -1387,7 +1404,7 @@ export function useSessionActions({
                     cachedViewState.messages
                   )
 
-                  const runtimeMessages = toChatMessages(activated.messages)
+                  const runtimeMessages = toChatMessages(toSessionMessages(activated.messages))
                   const previousMessages = removeRepresentedLocalLiveProjection(cachedViewState.messages, activated)
 
                   const liveProjection = dedupeInflightUserAgainstTranscript(
@@ -1602,7 +1619,7 @@ export function useSessionActions({
         const resumeStartedAt = Date.now() / 1000
 
         const resumePromise = singleFlightSessionResume(storedSessionId, () =>
-          requestForSession<SessionResumeResult>('session.resume', {
+          requestForSession('session.resume', {
             session_id: storedSessionId,
             cols: 96,
             source: 'desktop',
@@ -1690,7 +1707,7 @@ export function useSessionActions({
         const preferredMessages = (() => {
           if (prefetchApplied && prefetchMatchesResumedSession) {
             if (hasLiveProjection && prefetchedTranscriptMessages) {
-              const runtimeMessages = toChatMessages(resumed.messages)
+              const runtimeMessages = toChatMessages(toSessionMessages(resumed.messages))
               const previousMessages = removeRepresentedLocalLiveProjection(currentMessages, resumed)
 
               // Omitted-messages resumes stay safe here: `resumed.messages`
@@ -1731,7 +1748,11 @@ export function useSessionActions({
             ? preserveLocalPendingTurnMessages(currentMessages, resumeStartMessages)
             : currentMessages
 
-          const resumedMessages = reconcileAuthoritativeMessages(resumed.messages, previousMessages, resumed)
+          const resumedMessages = reconcileAuthoritativeMessages(
+            toSessionMessages(resumed.messages),
+            previousMessages,
+            resumed
+          )
 
           return chatMessageArraysEquivalent(currentMessages, resumedMessages) ? currentMessages : resumedMessages
         })()
@@ -1750,7 +1771,7 @@ export function useSessionActions({
         // rebound runtime busy via gateway events; the snapshot must not
         // rewind it to idle just because the user opened the chat.
         resumedRunning = resolveResumedBusy(
-          (resumed as { running?: boolean }).running,
+          resumed.running ?? undefined,
           Boolean(sessionStateByRuntimeIdRef.current.get(resumed.session_id)?.busy)
         )
 
@@ -2130,10 +2151,10 @@ export function useSessionActions({
           await ensureGatewayProfile(profile)
         }
 
-        const requestBranchGateway = <T>(method: string, params: Record<string, unknown>): Promise<T> =>
+        const requestBranchGateway: GatewayRequest = (method, params) =>
           ownerRoute
-            ? requestGatewayForAgent<T>(ownerRoute.connectionId, ownerRoute.profile, method, params)
-            : requestGateway<T>(method, params)
+            ? requestGatewayForAgent(ownerRoute.connectionId, ownerRoute.profile, method, params)
+            : requestGateway(method, params)
 
         // The owner is part of the identity: the same parent id on two
         // connections is two different sessions, so a route-blind key would
@@ -2154,16 +2175,16 @@ export function useSessionActions({
         if (!createFlight) {
           createFlight = (
             sourceSessionId
-              ? requestBranchGateway<SessionCreateResponse>('session.branch', {
+              ? requestBranchGateway('session.branch', {
                   session_id: sourceSessionId,
                   ...(branchCount !== undefined ? { count: branchCount } : {})
                 })
-              : requestBranchGateway<SessionCreateResponse>('session.create', {
+              : requestBranchGateway('session.create', {
                   cols: 96,
                   source: 'desktop',
                   ...(cwd && { cwd }),
                   ...(profile ? { profile } : {}),
-                  messages: branchMessages.map(({ content, role }) => ({ content, role })),
+                  messages: branchMessages.map(({ content, role }) => seedMessage(role, content)),
                   ...(parentStoredId && { parent_session_id: parentStoredId })
                 })
           ).catch(err => {
@@ -2178,7 +2199,9 @@ export function useSessionActions({
         const branched = await createFlight
 
         const responseBranchMessages =
-          sourceSessionId && branched.messages?.length ? toBranchMessages(toChatMessages(branched.messages)) : []
+          sourceSessionId && branched.messages.length
+            ? toBranchMessages(toChatMessages(toSessionMessages(branched.messages)))
+            : []
 
         const effectiveBranchMessages = responseBranchMessages.length ? responseBranchMessages : branchMessages
         const routedSessionId = branched.stored_session_id ?? branched.session_id

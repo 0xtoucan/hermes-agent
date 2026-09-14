@@ -1,6 +1,7 @@
 import { atom } from 'nanostores'
 
 import { connectorAuthorizationUrl, type ConnectorRow, recordOf } from '@/lib/connector-tools'
+import type { GatewayRequest } from '@/lib/gateway-rpc'
 
 export type ConnectorPhase = 'idle' | 'opening' | 'waiting' | 'connected' | 'timeout' | 'error' | 'skipped'
 export interface ConnectorFlowRow extends ConnectorRow {
@@ -14,7 +15,7 @@ export interface ConnectorFlowState {
   error?: string
 }
 export interface ConnectorFlowDeps {
-  request: <T>(method: string, params: { session_id: string; connectors?: string[]; reconnect?: boolean }) => Promise<T>
+  request: GatewayRequest
   open: (url: string) => Promise<void>
   /** The browser has the sign-in and the card is now waiting on the user.
    *  Also fired when the user asks to keep waiting after a timeout. */
@@ -49,7 +50,7 @@ export function createConnectorFlow(sessionId: string, seeds: ConnectorRow[], de
   }
 
   const list = async () => {
-    const response = await deps.request<{ available: boolean; connectors: ConnectorRow[] }>('connectors.list', {
+    const response = await deps.request('connectors.list', {
       session_id: sessionId
     })
 
@@ -178,7 +179,7 @@ export function createConnectorFlow(sessionId: string, seeds: ConnectorRow[], de
     update(slug, { phase: 'opening', error: undefined })
 
     try {
-      const response = await deps.request<{ results: unknown[] }>('connectors.connect', {
+      const response = await deps.request('connectors.connect', {
         session_id: sessionId,
         connectors: [slug],
         reconnect: ['expired', 'revoked'].includes(row.connectionStatus ?? '')
