@@ -21,7 +21,10 @@
  */
 
 import type { PluginContext } from '@hermes/plugin-sdk'
+import type { ServerRequest, ServerRequestCancel } from '@hermes/plugin-sdk'
 import { vi } from 'vitest'
+
+import type { GroupMember } from './types'
 
 /** One message in a scripted session transcript, in the gateway's own shape. */
 export interface ScriptedMessage {
@@ -84,8 +87,8 @@ export interface GatewayOptions {
   busyResumes?: Record<string, number>
   /** Per profile: carry `pending_approval` on its first `until` resumes. */
   approvalUntil?: Record<string, { payload: Record<string, unknown>; until: number }>
-  /** Per profile: carry `pending_clarify` on its first `until` resumes. */
-  clarifyUntil?: Record<string, { payload: Record<string, unknown>; until: number }>
+  /** Per profile: raise a `clarify.request` after each of its first `until` prompt.submits. */
+  clarifyAfterSubmit?: Record<string, { params: Record<string, unknown>; until: number }>
   /** Land a competing writer's `ui_meta` under `key` during the FIRST
    *  `profiles.configure`, then reject it as a CAS conflict — the race the
    *  sync worker's pull-merge-retry exists for. */
@@ -122,6 +125,8 @@ export interface ScriptedGateway {
   rpc: RpcCall[]
   /** Filter `rpc` by method. */
   rpcFor: (method: string) => RpcCall[]
+  /** Withdraw a member's open question (`request.cancel`). */
+  fireServerRequestCancel: (member: GroupMember, cancel: ServerRequestCancel) => void
   /** Live socket refcount — zero between turns, never zero during one. */
   refcount: () => number
   /** Sessions by stored id, so a test can pre-seed a finished transcript. */
@@ -265,7 +270,6 @@ export function createGroupGateway(options: GatewayOptions = {}): ScriptedGatewa
         options.onResumePoll?.(polls)
       }
 
-      const clarify = options.clarifyUntil?.[session.profile]
       const approval = options.approvalUntil?.[session.profile]
 
       return {
@@ -275,7 +279,6 @@ export function createGroupGateway(options: GatewayOptions = {}): ScriptedGatewa
         running: false,
         session_id: session.runtime,
         session_key: session.stored,
-        ...(clarify && seen <= clarify.until ? { pending_clarify: clarify.payload } : {}),
         ...(approval && seen <= approval.until ? { pending_approval: approval.payload } : {})
       }
     }
@@ -331,6 +334,29 @@ export function createGroupGateway(options: GatewayOptions = {}): ScriptedGatewa
         stored: session.stored,
         title: session.title
       })
+      const clarify = options.clarifyAfterSubmit?.[session.profile]
+
+      if (clarify && submits <= clarify.until) {
+        // The member blocks on its question until the room answers; the turn reply follows the answer.
+        await new Promise<void>(resolve => {
+          const id = `srq-${session.profile}-${submits}`
+
+          const request: ServerRequest = {
+            fail: vi.fn(),
+            id,
+            method: 'clarify.request',
+            notify: vi.fn(),
+            params: { ...clarify.params, session_id: session.runtime },
+            respond: () => resolve(),
+            sessionId: session.runtime
+          }
+
+          for (const listener of requestListeners.get(session.profile) ?? []) {
+            listener(request)
+          }
+        })
+      }
+
       const reply = await turn({ n: calls.length, profile: session.profile, prompt, session })
 
       for (const message of typeof reply === 'string' ? [{ content: reply, role: 'assistant' }] : reply) {
@@ -343,6 +369,9 @@ export function createGroupGateway(options: GatewayOptions = {}): ScriptedGatewa
     return {}
   }
 
+  const requestListeners = new Map<string, Set<(request: ServerRequest) => void>>()
+  const cancelListeners = new Map<string, Set<(cancel: ServerRequestCancel) => void>>()
+
   const record = async (method: string, params: Record<string, unknown>) => {
     try {
       return await handle(method, params)
@@ -353,6 +382,20 @@ export function createGroupGateway(options: GatewayOptions = {}): ScriptedGatewa
 
   const host: Record<string, unknown> = {
     activeConnectionId: () => 'local',
+    onServerRequest: (member: GroupMember, listener: (request: ServerRequest) => void) => {
+      const set = requestListeners.get(member.name) ?? new Set<(request: ServerRequest) => void>()
+      set.add(listener)
+      requestListeners.set(member.name, set)
+
+      return () => set.delete(listener)
+    },
+    onServerRequestCancel: (member: GroupMember, listener: (cancel: ServerRequestCancel) => void) => {
+      const set = cancelListeners.get(member.name) ?? new Set<(cancel: ServerRequestCancel) => void>()
+      set.add(listener)
+      cancelListeners.set(member.name, set)
+
+      return () => set.delete(listener)
+    },
     notify: vi.fn(),
     notifyError: vi.fn(),
     request: async (method: string, params: Record<string, unknown> = {}) => record(method, params),
@@ -407,6 +450,11 @@ export function createGroupGateway(options: GatewayOptions = {}): ScriptedGatewa
     refcount: () => refcount,
     rpc,
     rpcFor: (method: string) => rpc.filter(entry => entry.method === method),
+    fireServerRequestCancel: (member: GroupMember, cancel: ServerRequestCancel) => {
+      for (const listener of cancelListeners.get(member.name) ?? []) {
+        listener(cancel)
+      }
+    },
     sessions,
     storage,
     timeline,
@@ -421,9 +469,12 @@ export function createGroupGateway(options: GatewayOptions = {}): ScriptedGatewa
  *  the `vi.mock` factory rather than hoisted alongside it. */
 export async function pluginSdkMock(host: Record<string, unknown>) {
   const nanostores = await import('nanostores')
+  const clarify = await import('@/store/clarify')
 
   return {
     atom: nanostores.atom,
+    normalizeClarifyChoices: clarify.normalizeChoices,
+    normalizeClarifyQuestions: clarify.normalizeQuestions,
     // Feature-detected SDK members: the modules read them off the namespace
     // and fall back when absent, but vitest rejects a namespace access with
     // no matching export at all — so they have to be present and undefined.

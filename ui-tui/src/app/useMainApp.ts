@@ -8,6 +8,7 @@ import {
   useStdout,
   useTerminalTitle
 } from '@hermes/ink'
+import type { ServerRequest, ServerRequestCancel } from '@hermes/shared/json-rpc-channel'
 import { useStore } from '@nanostores/react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
@@ -22,7 +23,6 @@ import { type GatewayClient } from '../gatewayClient.js'
 import type { SubagentListResponse } from '../gatewayTypes.js'
 import type {
   AnyGatewayEvent,
-  ClarifyRespondResponse,
   ConfigSetResponse,
   SessionActiveListResponse,
   SessionCloseResponse,
@@ -232,6 +232,8 @@ export function useMainApp(gw: GatewayClient) {
   const colsRef = useRef(cols)
   const scrollRef = useRef<null | ScrollBoxHandle>(null)
   const onEventRef = useRef<(ev: AnyGatewayEvent) => void>(() => {})
+  const onServerRequestRef = useRef<(request: ServerRequest) => void>(() => {})
+  const onServerRequestCancelRef = useRef<(cancel: ServerRequestCancel) => void>(() => {})
   const sysRef = useRef<(text: string) => void>(() => {})
   const submitRef = useRef<(value: string) => void>(() => {})
   const submitLiteralRef = useRef<(value: string) => void>(() => {})
@@ -709,43 +711,32 @@ export function useMainApp(gw: GatewayClient) {
 
       turnController.turnTools = turnController.turnTools.filter(line => !sameToolTrailGroup(label, line))
       patchTurnState({ turnTrail: turnController.turnTools })
+      clarify.request.respond({ value: answer })
 
-      rpc<ClarifyRespondResponse>('clarify.respond', { answer, request_id: clarify.requestId }).then(r => {
-        if (!r) {
-          return
-        }
+      if (answer) {
+        turnController.persistedToolLabels.add(label)
+        appendMessage({
+          kind: 'trail',
+          role: 'system',
+          text: '',
+          tools: [buildToolTrailLine('clarify', clarify.question)]
+        })
+        appendMessage({ role: 'user', text: answer })
+        patchUiState({ status: 'running…' })
+      } else {
+        appendMessage({
+          role: 'system',
+          text: clarify.questions?.length
+            ? formatAbandonedClarifyBatch(clarify.questions, clarify.answers ?? {}, 'cancelled')
+            : formatAbandonedClarify(clarify.question, clarify.choices, 'cancelled')
+        })
+      }
 
-        if (answer) {
-          turnController.persistedToolLabels.add(label)
-          appendMessage({
-            kind: 'trail',
-            role: 'system',
-            text: '',
-            tools: [buildToolTrailLine('clarify', clarify.question)]
-          })
-          appendMessage({ role: 'user', text: answer })
-          patchUiState({ status: 'running…' })
-        } else {
-          // Esc / Ctrl+C cancel: persist the question + options as a system
-          // line (not a transient "prompt cancelled" flash) so the prompt
-          // survives on screen as standard output, matching the timeout path.
-          appendMessage({
-            role: 'system',
-            text: clarify.questions?.length
-              ? formatAbandonedClarifyBatch(clarify.questions, clarify.answers ?? {}, 'cancelled')
-              : formatAbandonedClarify(clarify.question, clarify.choices, 'cancelled')
-          })
-        }
-
-        patchOverlayState({ clarify: null })
-      })
+      patchOverlayState({ clarify: null })
     },
-    [appendMessage, overlay.clarify, rpc]
+    [appendMessage, overlay.clarify]
   )
 
-  // Lock one answer of a batch clarify (clarify.respond + question_id). The
-  // overlay stays up until the server reports no remaining questions — the
-  // final lock resolves the tool and the turn continues.
   const answerClarifyQuestion = useCallback(
     (qid: string, answer: string) => {
       const clarify = overlay.clarify
@@ -754,47 +745,37 @@ export function useMainApp(gw: GatewayClient) {
         return
       }
 
-      rpc<ClarifyRespondResponse & { remaining?: string[] }>('clarify.respond', {
-        answer,
-        question_id: qid,
-        request_id: clarify.requestId
-      }).then(r => {
-        if (!r) {
-          return
-        }
+      const answers = { ...(clarify.answers ?? {}), [qid]: answer }
+      const remaining = clarify.questions.filter(question => !(question.qid in answers))
 
-        const answers = { ...(clarify.answers ?? {}), [qid]: answer }
+      clarify.request.notify('clarify.progress', { answer, question_id: qid })
 
-        if ((r.remaining ?? []).length > 0) {
-          patchOverlayState({ clarify: { ...clarify, answers } })
+      if (remaining.length) {
+        patchOverlayState({ clarify: { ...clarify, answers } })
 
-          return
-        }
+        return
+      }
 
-        // Batch complete: persist the whole Q&A set as one user-visible
-        // block (mirrors the single-question trail + answer lines).
-        const label = toolTrailLabel('clarify')
+      clarify.request.respond({ answers })
+      const label = toolTrailLabel('clarify')
 
-        turnController.turnTools = turnController.turnTools.filter(line => !sameToolTrailGroup(label, line))
-        patchTurnState({ turnTrail: turnController.turnTools })
-        turnController.persistedToolLabels.add(label)
-        appendMessage({
-          kind: 'trail',
-          role: 'system',
-          text: '',
-          tools: [buildToolTrailLine('clarify', `${clarify.questions!.length} questions`)]
-        })
-        appendMessage({
-          role: 'user',
-          text: clarify
-            .questions!.map(q => `${q.question} → ${answers[q.qid]?.trim() ? answers[q.qid] : '(skipped)'}`)
-            .join('\n')
-        })
-        patchUiState({ status: 'running…' })
-        patchOverlayState({ clarify: null })
+      turnController.turnTools = turnController.turnTools.filter(line => !sameToolTrailGroup(label, line))
+      patchTurnState({ turnTrail: turnController.turnTools })
+      turnController.persistedToolLabels.add(label)
+      appendMessage({
+        kind: 'trail',
+        role: 'system',
+        text: '',
+        tools: [buildToolTrailLine('clarify', `${clarify.questions.length} questions`)]
       })
+      appendMessage({
+        role: 'user',
+        text: clarify.questions.map(question => `${question.question} → ${answers[question.qid]?.trim() ? answers[question.qid] : '(skipped)'}`).join('\n')
+      })
+      patchUiState({ status: 'running…' })
+      patchOverlayState({ clarify: null })
     },
-    [appendMessage, overlay.clarify, rpc]
+    [appendMessage, overlay.clarify]
   )
 
   sysRef.current = sys
@@ -861,7 +842,7 @@ export function useMainApp(gw: GatewayClient) {
     wheelStep: WHEEL_SCROLL_STEP
   })
 
-  const onEvent = useMemo(
+  const gatewayHandlers = useMemo(
     () =>
       createGatewayEventHandler({
         composer: { setInput: composerActions.setInput },
@@ -906,10 +887,14 @@ export function useMainApp(gw: GatewayClient) {
     ]
   )
 
-  onEventRef.current = onEvent
+  onEventRef.current = gatewayHandlers
+  onServerRequestRef.current = gatewayHandlers.onRequest
+  onServerRequestCancelRef.current = gatewayHandlers.onCancel
 
   useEffect(() => {
     const handler = (ev: AnyGatewayEvent) => onEventRef.current(ev)
+    const requestHandler = (request: ServerRequest) => onServerRequestRef.current(request)
+    const cancelHandler = (cancel: ServerRequestCancel) => onServerRequestCancelRef.current(cancel)
 
     const exitHandler = () => {
       turnController.reset()
@@ -947,12 +932,16 @@ export function useMainApp(gw: GatewayClient) {
 
     gw.on('event', handler)
     gw.on('exit', exitHandler)
+    const unsubscribeRequest = gw.onServerRequest(requestHandler)
+    const unsubscribeCancel = gw.onServerRequestCancel(cancelHandler)
     gw.drain()
 
     // entry.tsx's setupGracefulExit handles process cleanup on real exit.
     return () => {
       gw.off('event', handler)
       gw.off('exit', exitHandler)
+      unsubscribeRequest()
+      unsubscribeCancel()
     }
   }, [gw, sys])
 
@@ -1015,79 +1004,72 @@ export function useMainApp(gw: GatewayClient) {
 
   slashRef.current = slash
 
-  const respondWith = useCallback(
-    (method: string, params: Record<string, unknown>, done: () => void) => rpc(method, params).then(r => r && done()),
-    [rpc]
-  )
-
   const answerApproval = useCallback(
     (choice: string) =>
-      respondWith('approval.respond', { choice, session_id: ui.sid }, () => {
+      rpc('approval.respond', { choice, session_id: ui.sid }).then(response => {
+        if (!response) {
+          return
+        }
+
         patchOverlayState({ approval: null })
         patchTurnState({ outcome: choice === 'deny' ? 'denied' : `approved (${choice})` })
         patchUiState({ status: 'running…' })
       }),
-    [respondWith, ui.sid]
+    [rpc, ui.sid]
   )
 
   const answerSudo = useCallback(
-    (pw: string) => {
-      if (!overlay.sudo) {
+    (value: string) => {
+      const sudo = overlay.sudo
+
+      if (!sudo) {
         return
       }
 
-      const requestId = overlay.sudo.requestId
+      sudo.request.respond({ value })
+      patchOverlayState({ sudo: null })
 
-      if (!pw) {
-        patchOverlayState({ sudo: null })
-      }
-
-      return respondWith('sudo.respond', { password: pw, request_id: requestId }, () => {
-        patchOverlayState({ sudo: null })
+      if (value) {
         patchUiState({ status: 'running…' })
-      })
+      }
     },
-    [overlay.sudo, respondWith]
+    [overlay.sudo]
   )
 
   const answerSecret = useCallback(
     (value: string) => {
-      if (!overlay.secret) {
+      const secret = overlay.secret
+
+      if (!secret) {
         return
       }
 
-      const requestId = overlay.secret.requestId
+      secret.request.respond({ value })
+      patchOverlayState({ secret: null })
 
-      if (!value) {
-        patchOverlayState({ secret: null })
-      }
-
-      return respondWith('secret.respond', { request_id: requestId, value }, () => {
-        patchOverlayState({ secret: null })
+      if (value) {
         patchUiState({ status: 'running…' })
-      })
+      }
     },
-    [overlay.secret, respondWith]
+    [overlay.secret]
   )
 
   const answerVaultUnlock = useCallback(
-    (password: string) => {
-      if (!overlay.vaultUnlock) {
+    (value: string) => {
+      const vaultUnlock = overlay.vaultUnlock
+
+      if (!vaultUnlock) {
         return
       }
 
-      const requestId = overlay.vaultUnlock.requestId
+      vaultUnlock.request.respond({ value })
+      patchOverlayState({ vaultUnlock: null })
 
-      if (!password) {
-        patchOverlayState({ vaultUnlock: null })
-      }
-
-      return respondWith('vault.unlock.respond', { password, request_id: requestId }, () => {
-        patchOverlayState({ vaultUnlock: null })
+      if (value) {
         patchUiState({ status: 'running…' })
-      })
+      }
     },
-    [overlay.vaultUnlock, respondWith]
+    [overlay.vaultUnlock]
   )
 
   const onModelSelect = useCallback((value: string) => {

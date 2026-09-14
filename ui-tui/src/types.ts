@@ -1,4 +1,5 @@
 import type { SubagentStatus, Usage } from '@hermes/shared/gateway-events'
+import type { ServerRequest } from '@hermes/shared/json-rpc-channel'
 
 export interface ActiveTool {
   context?: string
@@ -122,6 +123,7 @@ export interface ClarifyBatchQuestion {
 export interface ClarifyReq {
   choices: string[] | null
   question: string
+  request: ServerRequest
   requestId: string
   /** Batch (multi-question) clarify: present instead of question/choices. */
   questions?: ClarifyBatchQuestion[]
@@ -210,12 +212,14 @@ export interface SessionInfo {
 }
 
 export interface SudoReq {
+  request: ServerRequest
   requestId: string
 }
 
 export interface SecretReq {
   envVar: string
   prompt: string
+  request: ServerRequest
   requestId: string
 }
 
@@ -223,6 +227,7 @@ export interface SecretReq {
 export interface VaultUnlockReq {
   backend: string
   displayName: string
+  request: ServerRequest
   requestId: string
 }
 

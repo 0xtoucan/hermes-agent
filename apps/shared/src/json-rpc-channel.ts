@@ -404,6 +404,10 @@ export class JsonRpcRequestChannel {
     this.transport?.send(JSON.stringify({ id, jsonrpc: '2.0', result }))
   }
 
+  failServerRequest(id: string, error: JsonRpcErrorPayload): void {
+    this.transport?.send(JSON.stringify({ error, id, jsonrpc: '2.0' }))
+  }
+
   notifyServerRequest(id: string, method: string, params: Record<string, unknown>): void {
     this.transport?.send(JSON.stringify({ jsonrpc: '2.0', method, params: { id, ...params } }))
   }

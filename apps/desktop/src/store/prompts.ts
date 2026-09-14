@@ -1,3 +1,4 @@
+import type { ServerRequest } from '@hermes/shared'
 import { atom, computed, type ReadableAtom } from 'nanostores'
 
 import { $clarifyRequest, $clarifyRequests } from './clarify'
@@ -5,18 +6,6 @@ import { isSessionGone, isSessionGoneForBackgroundPolling, markSessionGone } fro
 import { $activeSessionId } from './session'
 import { ambientRequestFor } from './session-gone-latch'
 import { requestForOwnedSession } from './session-states'
-
-// Blocking interactive prompts the gateway raises mid-turn. Each maps to a
-// `*.request` event the Python side emits while it blocks the agent thread
-// waiting for a `*.respond` RPC. Without a renderer for these, the agent
-// silently stalls until its timeout (default 5 min) and the tool is BLOCKED.
-//
-// Like clarify, every prompt is parked under the runtime session id that raised
-// it (not one shared slot), so a *background* session running concurrently can
-// raise an approval/sudo/secret prompt and have it wait — surfaced via the
-// sidebar "needs input" badge — until the user switches to that chat. The
-// exported $*Request view is scoped to the active session, so a background
-// prompt never hijacks the foreground.
 
 const keyFor = (sessionId: string | null | undefined): string => sessionId ?? ''
 
@@ -34,8 +23,8 @@ interface PromptStore<T extends KeyedPrompt> {
 
 // One per-session prompt kind: a map keyed by session, plus an active-session
 // view for the overlays. `clear` drops one session's entry (a request-id
-// mismatch is a no-op so a stale resolve can't wipe a newer prompt); with no
-// session hint it drops every entry, optionally filtered by request id.
+// mismatch is a no-op so a stale cancellation can't wipe a newer prompt); with
+// no session hint it drops every entry, optionally filtered by request id.
 function keyedPromptStore<T extends KeyedPrompt>(): PromptStore<T> {
   const $all = atom<Record<string, T>>({})
   const idOf = (value: T): string | undefined => (value as { requestId?: string }).requestId
@@ -61,7 +50,7 @@ function keyedPromptStore<T extends KeyedPrompt>(): PromptStore<T> {
         return
       }
 
-      const next = Object.fromEntries(Object.entries(all).filter(([, v]) => requestId && idOf(v) !== requestId))
+      const next = Object.fromEntries(Object.entries(all).filter(([, value]) => requestId && idOf(value) !== requestId))
 
       if (Object.keys(next).length !== Object.keys(all).length) {
         $all.set(next as Record<string, T>)
@@ -70,11 +59,9 @@ function keyedPromptStore<T extends KeyedPrompt>(): PromptStore<T> {
   }
 }
 
-// Approval is session-keyed on the backend and correlated by `request_id` when
-// available (legacy ID-free responses remain FIFO-compatible). Resolved via
-// approval.respond {choice, request_id, session_id}.
+// Approval stays on its separate event/RPC bridge until the backend moves it
+// to ServerRequest too.
 export interface ApprovalRequest extends KeyedPrompt {
-  // false when the backend won't honor a permanent allow (tirith warning) → hide "Always allow".
   allowPermanent?: boolean
   choices?: string[]
   command: string
@@ -96,47 +83,38 @@ interface PendingApprovalPayload {
   smart_denied?: boolean
 }
 
-export interface SudoRequest extends KeyedPrompt {
+interface ServerPrompt extends KeyedPrompt {
   requestId: string
+  request?: ServerRequest
 }
 
-export interface SecretRequest extends KeyedPrompt {
+export interface SudoRequest extends ServerPrompt {}
+
+export interface SecretRequest extends ServerPrompt {
   envVar: string
   prompt: string
-  requestId: string
 }
 
-// External password-manager unlock (agent/vault_backends). Resolved via
-// vault.unlock.respond {request_id, password}; "" keeps the manager locked.
-export interface VaultUnlockRequest extends KeyedPrompt {
+export interface VaultUnlockRequest extends ServerPrompt {
   backend: string
   displayName: string
-  requestId: string
+}
+
+export interface VaultSaveLoginRequest extends ServerPrompt {
+  origin: string
+  site: string
+}
+
+export interface VaultCodeRequest extends ServerPrompt {
+  site: string
+  hint: string
 }
 
 const approval = keyedPromptStore<ApprovalRequest>()
 const sudo = keyedPromptStore<SudoRequest>()
 const secret = keyedPromptStore<SecretRequest>()
 const vaultUnlock = keyedPromptStore<VaultUnlockRequest>()
-
-// "Save this login" for the page the agent is on (tools/browser_vault_tool). Resolved via
-// vault.save_login.respond {request_id, login: JSON {identifier, password}}; "" declines.
-export interface VaultSaveLoginRequest extends KeyedPrompt {
-  origin: string
-  site: string
-  requestId: string
-}
-
 const vaultSave = keyedPromptStore<VaultSaveLoginRequest>()
-
-// Second-factor code for the page the agent is on. Resolved via vault.code.respond
-// {request_id, code}; "" skips.
-export interface VaultCodeRequest extends KeyedPrompt {
-  site: string
-  hint: string
-  requestId: string
-}
-
 const vaultCode = keyedPromptStore<VaultCodeRequest>()
 
 // Inline approval anchors, keyed by session: a tile's inline bar mounting must
@@ -222,7 +200,7 @@ export async function replayPendingApproval(gateway: ApprovalGateway | null, ses
 }
 
 /** The prompt request for one specific session — the tile counterpart of the
- *  active-session `$*Request` views (same map, fixed key). */
+ * active-session `$*Request` views (same map, fixed key). */
 export const sessionApprovalRequest = (sessionId: string | null) =>
   computed(approval.$all, all => all[keyFor(sessionId)] ?? null)
 export const sessionSudoRequest = (sessionId: string | null) =>
@@ -245,7 +223,7 @@ export function registerApprovalInlineAnchor(sessionId: string | null): () => vo
 }
 
 /** True when session `sessionId` has an inline approval bar mounted, so its
- *  floating fallback should stand down. Per-session (not global). */
+ * floating fallback should stand down. Per-session (not global). */
 export const sessionApprovalInlineVisible = (sessionId: string | null) =>
   computed($approvalInlineAnchors, anchors => (anchors[keyFor(sessionId)] ?? 0) > 0)
 
@@ -278,11 +256,6 @@ export const $vaultCodeRequests = vaultCode.$all
 export const sessionVaultCodeRequest = (sessionId: string | null) =>
   computed(vaultCode.$all, all => all[keyFor(sessionId)] ?? null)
 
-// True when the active session is blocked on the user (clarify question or an
-// approval / sudo / secret prompt). Mirrors the pet's `awaitingInput` concept
-// (agent/pet/state.py): the turn is paused on you, not working — so callers can
-// suppress "thinking" indicators and the Esc-to-interrupt shortcut while you
-// decide, instead of treating the wait as an in-flight turn.
 export const $activeSessionAwaitingInput = computed(
   [
     $clarifyRequest,
@@ -298,11 +271,11 @@ export const $activeSessionAwaitingInput = computed(
 )
 
 /** True when `sessionId` is parked on a blocking prompt that typing cannot
- *  answer (approval / sudo / secret). Clarify is deliberately excluded: typing
- *  a real message IS an answer to a clarify ("none of these" — the composer
- *  skips it and routes the words), but no message text can approve a command
- *  or supply a password. Imperative read — the composer checks this on Enter,
- *  not on every render. */
+ * answer (approval / sudo / secret). Clarify is deliberately excluded: typing
+ * a real message IS an answer to a clarify ("none of these" — the composer
+ * skips it and routes the words), but no message text can approve a command
+ * or supply a password. Imperative read — the composer checks this on Enter,
+ * not on every render. */
 export const hasBlockingPromptRequest = (sessionId: string | null | undefined): boolean => {
   const key = keyFor(sessionId)
 
@@ -317,8 +290,8 @@ export const hasBlockingPromptRequest = (sessionId: string | null | undefined): 
 }
 
 /** Reactive twin of `hasBlockingPromptRequest`, for the composer's busy-action
- *  affordance (the primary button must advertise queue, not steer, while the
- *  turn is parked on a prompt Enter can't answer). */
+ * affordance (the primary button must advertise queue, not steer, while the
+ * turn is parked on a prompt Enter can't answer). */
 export const sessionBlockingPrompt = (sessionId: string | null) =>
   computed(
     [approval.$all, sudo.$all, secret.$all, vaultUnlock.$all, vaultSave.$all, vaultCode.$all],
@@ -330,8 +303,8 @@ export const sessionBlockingPrompt = (sessionId: string | null) =>
   )
 
 /** Per-session `awaitingInput` — the tile composer's counterpart of
- *  `$activeSessionAwaitingInput` (same sources, fixed session instead of the
- *  active one). */
+ * `$activeSessionAwaitingInput` (same sources, fixed session instead of the
+ * active one). */
 export function sessionAwaitingInput(sessionId: string | null) {
   return computed(
     [$clarifyRequests, approval.$all, sudo.$all, secret.$all, vaultUnlock.$all, vaultSave.$all, vaultCode.$all],

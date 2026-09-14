@@ -1,10 +1,10 @@
+import type { ServerRequest } from '@hermes/shared'
 import { atom, computed } from 'nanostores'
 
-import { $gateway } from './gateway'
 import { $activeSessionId } from './session'
 
 export interface ClarifyQuestion {
-  /** Server-generated wire id (q0..qN) — clarify.respond keys answers by it. */
+  /** Server-generated wire id (q0..qN) — clarify.progress keys locks by it. */
   qid: string
   question: string
   choices: string[] | null
@@ -13,6 +13,7 @@ export interface ClarifyQuestion {
 
 export interface ClarifyRequest {
   requestId: string
+  request?: ServerRequest
   question: string
   choices: string[] | null
   multiSelect: boolean
@@ -186,9 +187,6 @@ export const hasClarifyRequest = (sessionId: string | null | undefined): boolean
  * unanswered would park the follow-up until the server-side clarify timeout
  * (default 5 min) — the message looks sent and nothing happens. Skipping lets
  * the tool return and the turn carry on with the user's actual words.
- *
- * An empty answer is the same thing the card's own Skip button sends, and
- * `clarify.respond` is `allow_expired`, so racing the timeout is harmless.
  */
 export async function skipClarifyRequest(sessionId: string | null | undefined): Promise<boolean> {
   const request = $clarifyRequests.get()[keyFor(sessionId)]
@@ -197,16 +195,8 @@ export async function skipClarifyRequest(sessionId: string | null | undefined): 
     return false
   }
 
-  // Clear first: the answer is already decided, and an in-flight RPC must not
-  // leave a live card the user can answer a second time.
   clearClarifyRequest(request.requestId, request.sessionId)
-
-  try {
-    await $gateway.get()?.request('clarify.respond', { request_id: request.requestId, answer: '' })
-  } catch {
-    // The tool times out on its own; a failed skip must never swallow the
-    // message the user is actually sending.
-  }
+  request.request?.respond({ value: '' })
 
   return true
 }

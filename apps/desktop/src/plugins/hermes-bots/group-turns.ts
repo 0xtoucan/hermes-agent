@@ -6,14 +6,14 @@
  * Room-level sequencing lives in group-rounds.ts, which drives these.
  */
 
-import { host } from '@hermes/plugin-sdk'
+import { host, normalizeClarifyChoices, normalizeClarifyQuestions, type ServerRequest, type ServerRequestCancel } from '@hermes/plugin-sdk'
 
 import { recordGroupActivity } from './group-activity'
 import { $groupChats, $groupClarify, appendGroupChatEntry, updateGroupChat } from './group-chat'
 import type { GroupChatRoom } from './group-chat'
 import { followGroupChat, groupMemberKey, groupSessionOwner } from './group-membership'
 import { botConnectionRoute, requestForBot } from './routing'
-import type { Attachment, GroupMember, GroupPrompt, GroupPromptQuestion, ProfileRoute } from './types'
+import type { Attachment, GroupMember, GroupPrompt, ProfileRoute } from './types'
 
 /** "(pass)" (loosely: pass / (pass) / pass.) or empty = the member stayed silent. */
 export function isGroupPassText(text: unknown) {
@@ -76,16 +76,6 @@ function pickGroupTurnReply(messages: GroupTurnTranscriptMessage[], before: numb
   return passText
 }
 
-/** A clarify question blocking inside a member's session, as `session.resume`
- *  reports it. Older backends omit the field entirely. */
-interface GroupPendingClarify {
-  choices?: string[]
-  multi_select?: unknown
-  question?: unknown
-  questions?: GroupPromptQuestion[]
-  request_id?: string
-}
-
 /** A command approval blocking inside a member's session, same wire as the
  *  1:1 approval card. */
 interface GroupPendingApproval {
@@ -102,7 +92,6 @@ interface GroupSessionSnapshot {
   message_count?: number
   messages?: GroupTurnTranscriptMessage[]
   pending_approval?: GroupPendingApproval
-  pending_clarify?: GroupPendingClarify
   running?: boolean
   session_id?: string
   session_key?: string
@@ -191,7 +180,7 @@ export async function ensureGroupChatSession(group: string, member: GroupMember)
 
           return {
             runtime: res.session_id,
-            stored
+            stored: stored || null
           }
         }
       } catch (error: any) {
@@ -432,92 +421,123 @@ async function submitGroupTurnPrompt(
 // reached the room (db's Aug 2026 report).
 const GROUP_TURN_HARD_CAP_MS = 20 * 60000
 
-/** Mirror a member's pending prompt — clarify question OR command approval —
- *  from its resume snapshot into the room store, keyed
- *  `${group}::${memberKey}` (#90694). Returns true while a prompt is
- *  blocking, so the turn poll can extend its deadline — a waiting prompt
- *  must not be eaten by the group-turn timeout. Feature-detected: older
- *  backends without `pending_clarify`/`pending_approval` in the resume
- *  payload always sync to "no prompt". Clarify wins when both are somehow
- *  present (approvals resolve inside tool batches; clarify is the outer
- *  blocker). */
+/** Keep approval snapshots mirrored while clarify requests arrive through the
+ * gateway request channel. */
 export function syncGroupClarify(group: string, member: GroupMember, state: GroupSessionSnapshot | null): boolean {
   const key = `${group}::${groupMemberKey(member)}`
-  const clarify = state && typeof state.pending_clarify === 'object' ? state.pending_clarify : null
 
-  // The `!requestId` bail below is what makes the approval branch reachable,
-  // so an approval read there is never the null arm of this ternary — a fact
-  // control-flow analysis can't carry across the two separate locals.
   const approval = (
     state && typeof state.pending_approval === 'object' ? state.pending_approval : null
   ) as GroupPendingApproval
 
-  const pending = clarify || approval
-  const requestId = pending?.request_id || null
+  const requestId = approval?.request_id || null
   const all = $groupClarify.get()
   const current = all[key]
 
   if (!requestId) {
-    if (current) {
-      const next = {
-        ...all
-      }
-
+    if (current?.kind === 'approval') {
+      const next = { ...all }
       delete next[key]
       $groupClarify.set(next)
     }
 
-    return false
+    return current?.kind === 'clarify'
   }
 
-  // Same request already mirrored — keep the object identity so the card
-  // doesn't lose its draft to a re-render.
   if (current?.requestId === requestId) {
     return true
   }
 
-  const base = {
-    requestId,
-    group,
-    member: member.name,
-    memberKey: groupMemberKey(member),
-    // approval.respond keys on the session, not just the request — carry the
-    // runtime id the snapshot came from.
-    sessionId: state?.session_id || null,
-    at: Date.now()
-  }
-
   $groupClarify.set({
     ...all,
-    [key]: clarify
-      ? {
-          ...base,
-          kind: 'clarify',
-          question: typeof clarify.question === 'string' ? clarify.question : '',
-          choices: Array.isArray(clarify.choices) ? clarify.choices.filter(c => typeof c === 'string' && c) : [],
-          multiSelect: Boolean(clarify.multi_select),
-          // Batch clarifies carry `questions`; the room card answers them
-          // one wire call per question, mirroring the 1:1 batch contract.
-          questions: Array.isArray(clarify.questions) ? clarify.questions : null
-        }
-      : {
-          ...base,
-          kind: 'approval',
-          question: typeof approval.description === 'string' ? approval.description : '',
-          command: typeof approval.command === 'string' ? approval.command : '',
-          // The server precomputes the choice set from allow_permanent
-          // (once/session/always/deny); fall back to the minimal pair.
-          choices:
-            Array.isArray(approval.choices) && approval.choices.length
-              ? approval.choices.filter(c => typeof c === 'string' && c)
-              : ['once', 'deny'],
-          multiSelect: false,
-          questions: null
-        }
+    [key]: {
+      at: Date.now(),
+      choices:
+        Array.isArray(approval.choices) && approval.choices.length
+          ? approval.choices.filter((choice): choice is string => typeof choice === 'string' && Boolean(choice))
+          : ['once', 'deny'],
+      command: typeof approval.command === 'string' ? approval.command : '',
+      group,
+      kind: 'approval',
+      member: member.name,
+      memberKey: groupMemberKey(member),
+      multiSelect: false,
+      question: typeof approval.description === 'string' ? approval.description : '',
+      questions: null,
+      requestId,
+      sessionId: state?.session_id || null
+    }
   })
 
   return true
 }
+
+export function receiveGroupClarifyServerRequest(group: string, member: GroupMember, request: ServerRequest): void {
+  if (request.method !== 'clarify.request') {
+    return
+  }
+
+  const questions = normalizeClarifyQuestions(request.params.questions)
+  const question = typeof request.params.question === 'string' ? request.params.question : ''
+
+  if (!question && questions.length === 0) {
+    return
+  }
+
+  const key = `${group}::${groupMemberKey(member)}`
+  const current = $groupClarify.get()[key]
+
+  if (current?.requestId === request.id) {
+    return
+  }
+
+  $groupClarify.set({
+    ...$groupClarify.get(),
+    [key]: {
+      at: Date.now(),
+      choices: questions.length ? [] : normalizeClarifyChoices(request.params.choices),
+      group,
+      kind: 'clarify',
+      member: member.name,
+      memberKey: groupMemberKey(member),
+      multiSelect: request.params.multi_select === true,
+      question,
+      questions: questions.length ? questions : null,
+      request,
+      requestId: request.id,
+      sessionId: request.sessionId
+    }
+  })
+}
+
+export function cancelGroupClarifyServerRequest(group: string, member: GroupMember, cancel: ServerRequestCancel): void {
+  const key = `${group}::${groupMemberKey(member)}`
+  const current = $groupClarify.get()[key]
+
+  if (current?.kind !== 'clarify' || current.requestId !== cancel.id) {
+    return
+  }
+
+  const next = { ...$groupClarify.get() }
+  delete next[key]
+  $groupClarify.set(next)
+}
+
+function subscribeGroupClarifyServerRequests(group: string, member: GroupMember): () => void {
+  // Member-scoped: a remote-connection bot's questions arrive on ITS gateway, not the window's active one.
+  if (typeof host.onServerRequest !== 'function' || typeof host.onServerRequestCancel !== 'function') {
+    return () => undefined
+  }
+
+  const stopRequest = host.onServerRequest(member, request => receiveGroupClarifyServerRequest(group, member, request))
+  const stopCancel = host.onServerRequestCancel(member, cancel => cancelGroupClarifyServerRequest(group, member, cancel))
+
+  return () => {
+    stopRequest()
+    stopCancel()
+  }
+}
+
 
 /** Whether `group` has any member currently blocked on a clarify or
  *  approval, given a $groupClarify snapshot. Pure by design: the caller
@@ -613,22 +633,23 @@ export async function answerGroupClarify(
         request_id: entry.requestId,
         choice: typeof answers === 'string' && answers ? answers : 'deny'
       })
-    } else if (entry.questions && entry.questions.length) {
-      for (const question of entry.questions) {
-        // Question ids are opaque on the wire (`GroupPrompt.questions` types
-        // them `unknown`); the batch card keys its answer bag by exactly them.
-        const qid = (question?.qid ?? question?.id) as string
-        await requestForBot(member, 'clarify.respond', {
-          request_id: entry.requestId,
-          question_id: qid,
-          answer: (answers as Record<string, string>)?.[qid] ?? ''
-        })
+    } else if (entry.request) {
+      if (entry.questions?.length) {
+        for (const question of entry.questions) {
+          const qid = typeof question.qid === 'string' ? question.qid : question.id
+
+          if (typeof qid === 'string' && qid) {
+            entry.request.notify('clarify.progress', {
+              answer: (answers as Record<string, string>)?.[qid] ?? '',
+              question_id: qid
+            })
+          }
+        }
+
+        entry.request.respond({ answers: answers as Record<string, string> })
+      } else {
+        entry.request.respond({ value: typeof answers === 'string' ? answers : '' })
       }
-    } else {
-      await requestForBot(member, 'clarify.respond', {
-        request_id: entry.requestId,
-        answer: typeof answers === 'string' ? answers : ''
-      })
     }
 
     if (!binding.isLive()) {
@@ -675,11 +696,17 @@ export async function runGroupChatMemberTurn(
 
   let releaseTurnLease: (() => void) | undefined
 
+  let stopServerRequests: (() => void) | undefined
+
   try {
+    // Subscribe before any await: a question the member raises while the route lease is being taken
+    // must not be missed.
+    stopServerRequests = subscribeGroupClarifyServerRequests(group, member)
     releaseTurnLease = await retainGroupTurnRoute(member)
 
     return binding.isLive() ? await runGroupChatMemberTurnLeased(group, member, prompt, thread, images) : null
   } finally {
+    stopServerRequests?.()
     releaseTurnLease?.()
     binding.dispose()
   }

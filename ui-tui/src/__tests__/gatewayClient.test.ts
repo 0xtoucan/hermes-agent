@@ -160,6 +160,65 @@ describe('GatewayClient websocket attach mode', () => {
     gw.kill()
   })
 
+  it('buffers server requests until drain subscribers are attached', async () => {
+    process.env.HERMES_TUI_GATEWAY_URL = 'ws://gateway.test/api/ws?token=abc'
+    const gw = new GatewayClient()
+    const received: string[] = []
+
+    gw.start()
+    const gatewaySocket = FakeWebSocket.instances[0]!
+    gatewaySocket.open()
+    gatewaySocket.message(JSON.stringify({ id: 'srq-clarify', jsonrpc: '2.0', method: 'clarify.request', params: { question: '?' } }))
+
+    gw.onServerRequest(request => received.push(request.id))
+    gw.drain()
+
+    expect(received).toEqual([])
+    await vi.waitFor(() => expect(received).toEqual(['srq-clarify']))
+    gw.kill()
+  })
+
+  it('replays a cancellation after its buffered request', async () => {
+    process.env.HERMES_TUI_GATEWAY_URL = 'ws://gateway.test/api/ws?token=abc'
+    const gw = new GatewayClient()
+    const received: string[] = []
+
+    gw.start()
+    const gatewaySocket = FakeWebSocket.instances[0]!
+    gatewaySocket.open()
+    gatewaySocket.message(JSON.stringify({ id: 'srq-clarify', jsonrpc: '2.0', method: 'clarify.request', params: { question: '?' } }))
+    gatewaySocket.message(JSON.stringify({ jsonrpc: '2.0', method: 'request.cancel', params: { id: 'srq-clarify', reason: 'timeout' } }))
+
+    gw.onServerRequest(request => received.push(`request:${request.id}`))
+    gw.onServerRequestCancel(cancel => received.push(`cancel:${cancel.id}:${cancel.reason}`))
+    gw.drain()
+
+    await vi.waitFor(() => expect(received).toEqual(['request:srq-clarify', 'cancel:srq-clarify:timeout']))
+    gw.kill()
+  })
+
+  it('responds on a received server request using the original request id', async () => {
+    process.env.HERMES_TUI_GATEWAY_URL = 'ws://gateway.test/api/ws?token=abc'
+    const gw = new GatewayClient()
+    let respond: ((result: { value: string }) => void) | undefined
+
+    gw.onServerRequest(request => {
+      respond = result => request.respond(result)
+    })
+    gw.start()
+    const gatewaySocket = FakeWebSocket.instances[0]!
+    gatewaySocket.open()
+    gw.drain()
+    await Promise.resolve()
+    gatewaySocket.message(JSON.stringify({ id: 'srq-secret', jsonrpc: '2.0', method: 'secret.request', params: { prompt: 'Token' } }))
+
+    await vi.waitFor(() => expect(respond).toBeDefined())
+    respond?.({ value: 'abc' })
+
+    expect(JSON.parse(gatewaySocket.sent.at(-1) ?? '{}')).toEqual({ id: 'srq-secret', jsonrpc: '2.0', result: { value: 'abc' } })
+    gw.kill()
+  })
+
   it('drains buffered events on a later microtask, not synchronously inside drain()', async () => {
     // Regression for #36658: in attach mode the already-running gateway
     // replays `gateway.ready` the instant the socket connects, so it lands in

@@ -38,10 +38,7 @@ export const $groupNeedsYou = atom<Record<string, boolean>>({})
 // Pending prompts (clarify questions AND command approvals) raised inside
 // hidden group-member sessions, keyed `${group}::${memberKey}` (#90694).
 // Members run in invisible plumbing sessions, so a member's blocking prompt
-// used to park server-side with no surface to answer it — the user saw
-// "is thinking…" until the prompt timeout. The turn poll mirrors each
-// member's `pending_clarify` / `pending_approval` resume fields in here;
-// the room renders answer cards from it.
+// needs a room card to expose an answerable surface.
 export const $groupClarify = atom<Record<string, GroupPrompt>>({})
 
 const GROUP_CHAT_SYNC_META_KEY = 'hermes-bots-groups'

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { JsonRpcGatewayError, JsonRpcRequestChannel, type JsonRpcTransport } from './json-rpc-channel.js'
+import { JsonRpcGatewayError, JsonRpcRequestChannel, type JsonRpcTransport, type ServerRequest } from './json-rpc-channel.js'
 
 const spyTransport = () => {
   const sent: string[] = []
@@ -169,5 +169,84 @@ describe('JsonRpcRequestChannel', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('delivers a server request and sends progress and one response', () => {
+    const requests: ServerRequest[] = []
+    const channel = new JsonRpcRequestChannel({ onServerRequest: request => void requests.push(request) })
+    const { sent, transport } = spyTransport()
+
+    channel.attach(transport)
+    channel.handleFrame(JSON.stringify({
+      id: 'srq-1',
+      jsonrpc: '2.0',
+      method: 'sudo.request',
+      params: { session_id: 's1' }
+    }))
+
+    expect(requests).toHaveLength(1)
+    expect(requests[0]).toMatchObject({ id: 'srq-1', method: 'sudo.request', params: { session_id: 's1' }, sessionId: 's1' })
+
+    requests[0].notify('clarify.progress', { answer: 'a', question_id: 'q0' })
+    requests[0].respond({ value: 'x' })
+    requests[0].respond({ value: 'ignored' })
+
+    expect(sent.map(frame => JSON.parse(frame))).toEqual([
+      { jsonrpc: '2.0', method: 'clarify.progress', params: { id: 'srq-1', question_id: 'q0', answer: 'a' } },
+      { jsonrpc: '2.0', id: 'srq-1', result: { value: 'x' } }
+    ])
+  })
+
+  it('sends a JSON-RPC error when a server request fails', () => {
+    const requests: ServerRequest[] = []
+    const channel = new JsonRpcRequestChannel({ onServerRequest: request => void requests.push(request) })
+    const { sent, transport } = spyTransport()
+
+    channel.attach(transport)
+    channel.handleFrame(JSON.stringify({ id: 'srq-2', jsonrpc: '2.0', method: 'sudo.request', params: { session_id: 's1' } }))
+    requests[0].fail({ code: 4009, message: 'm' })
+
+    expect(sent.map(frame => JSON.parse(frame))).toEqual([{ jsonrpc: '2.0', id: 'srq-2', error: { code: 4009, message: 'm' } }])
+  })
+
+  it('routes request.cancel without dispatching it as an event', () => {
+    const events: string[] = []
+    const cancellations: Array<{ id: string; reason: string; sessionId: string | null }> = []
+
+    const channel = new JsonRpcRequestChannel({
+      onEvent: event => void events.push(event.type),
+      onServerRequestCancel: cancel => void cancellations.push(cancel)
+    })
+
+    channel.attach(spyTransport().transport)
+    channel.handleFrame(JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'request.cancel',
+      params: { id: 'srq-1', reason: 'timeout', session_id: 's1' }
+    }))
+
+    expect(cancellations).toEqual([{ id: 'srq-1', reason: 'timeout', sessionId: 's1' }])
+    expect(events).toEqual([])
+  })
+
+  it('settles numeric and r-prefixed pending calls while ignoring srq response echoes as requests', async () => {
+    const requests: string[] = []
+
+    const channel = new JsonRpcRequestChannel({
+      createRequestId: nextId => (nextId === 1 ? 7 : 'r7'),
+      onServerRequest: request => void requests.push(request.id)
+    })
+
+    channel.attach(spyTransport().transport)
+    const numeric = channel.request<string>('numeric')
+    const string = channel.request<string>('string')
+
+    channel.handleFrame(JSON.stringify({ id: 'srq-echo', jsonrpc: '2.0', result: 'stray' }))
+    channel.handleFrame(JSON.stringify({ id: 7, jsonrpc: '2.0', result: 'numeric result' }))
+    channel.handleFrame(JSON.stringify({ id: 'r7', jsonrpc: '2.0', result: 'string result' }))
+
+    await expect(numeric).resolves.toBe('numeric result')
+    await expect(string).resolves.toBe('string result')
+    expect(requests).toEqual([])
   })
 })

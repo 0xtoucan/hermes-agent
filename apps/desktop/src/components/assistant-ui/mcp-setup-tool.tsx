@@ -197,48 +197,29 @@ function McpSetupPending({ args }: ToolCallMessagePartProps) {
       // Another path (cancel racing completion) may have already resolved this
       // request; the store is the single source of truth, so bail if this
       // session's entry is gone — same guard as the approval bar.
-      if (!request || sessionMcpSetupRequest(request.sessionId).get()?.requestId !== request.requestId) {
+      if (!request || !request.request || sessionMcpSetupRequest(request.sessionId).get()?.requestId !== request.requestId) {
         return
       }
 
-      if (!gateway) {
-        notifyError(new Error(copy.gatewayDisconnected), copy.sendFailed)
-
-        return
-      }
-
-      // Clear first: the answer is decided, and an in-flight RPC must not
+      // Clear first: the answer is decided, and an in-flight request must not
       // leave a live card that can be answered a second time.
       clearMcpSetupRequest(request.requestId, request.sessionId)
 
       // A successful outcome changed mcp_servers — reload the live session
-      // BEFORE unblocking the tool, or the agent resumes being told the
-      // server is ready while its tool snapshot still lacks it (the same
-      // write-through mcp-tab's silentReload does; consent was the card
-      // click, so no confirm prompt). Reload failure isn't outcome failure:
-      // the config landed, tools arrive next session — report it and move on.
+      // before unblocking the tool so its tool snapshot includes the server.
       if (outcome.status === 'installed' || outcome.status === 'enabled' || outcome.status === 'authorized') {
         try {
-          await gateway.request('reload.mcp', { confirm: true, session_id: request.sessionId ?? undefined })
+          await gateway?.request('reload.mcp', { confirm: true, session_id: request.sessionId ?? undefined })
         } catch (error) {
           notifyError(error, copy.reloadFailed)
         }
 
-        // The just-set-up server must stop being suggested immediately.
         invalidateMcpSuggestionIndex()
       }
 
-      try {
-        await gateway.request<{ status?: string }>('mcp.setup.respond', {
-          request_id: request.requestId,
-          result: JSON.stringify(outcome)
-        })
-        // tool.complete lands next → McpSetupSettled.
-      } catch (error) {
-        notifyError(error, copy.sendFailed)
-      }
+      request.request.respond({ value: JSON.stringify(outcome) })
     },
-    [copy.gatewayDisconnected, copy.reloadFailed, copy.sendFailed, gateway, request]
+    [copy.reloadFailed, gateway, request]
   )
 
   const decline = useCallback(() => {

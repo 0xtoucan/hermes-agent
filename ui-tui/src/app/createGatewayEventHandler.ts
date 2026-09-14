@@ -4,6 +4,7 @@ import { forceRedraw, onTerminalBackground, onTerminalForeground } from '@hermes
 import { stripAnsi } from '@hermes/shared/ansi'
 import { relativeLuminance } from '@hermes/shared/color'
 import type { SubagentStatus, Usage } from '@hermes/shared/gateway-events'
+import type { ServerRequest, ServerRequestCancel } from '@hermes/shared/json-rpc-channel'
 
 import { STARTUP_IMAGE, STARTUP_QUERY } from '../config/env.js'
 import { STREAM_BATCH_MS } from '../config/timing.js'
@@ -420,7 +421,12 @@ const normalizeSubagentStatus = (status: unknown, fallback: SubagentStatus): Sub
   return KNOWN_SUBAGENT_STATUSES.has(normalized) ? normalized : fallback
 }
 
-export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev: AnyGatewayEvent) => void {
+export interface GatewayRequestHandlers {
+  onCancel: (cancel: ServerRequestCancel) => void
+  onRequest: (request: ServerRequest) => void
+}
+
+export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): ((ev: AnyGatewayEvent) => void) & GatewayRequestHandlers {
   syncThemeToTerminalBackground()
 
   const { rpc } = ctx.gateway
@@ -767,7 +773,7 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
       })
   }
 
-  return (ev: AnyGatewayEvent) => {
+  const onEvent = (ev: AnyGatewayEvent) => {
     const sid = getUiState().sid
 
     if (ev.session_id && sid && ev.session_id !== sid && !ev.type.startsWith('gateway.')) {
@@ -1257,41 +1263,6 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
         return
       }
 
-      case 'clarify.request': {
-        if (!ev.payload) {
-          return
-        }
-
-        const batch = (ev.payload.questions ?? [])
-          .filter(q => typeof q?.qid === 'string' && q.qid && typeof q?.question === 'string' && q.question.trim())
-          .map(q => ({
-            choices: q.choices && q.choices.length > 0 ? q.choices : null,
-            multiSelect: q.multi_select === true,
-            qid: q.qid,
-            question: q.question.trim()
-          }))
-
-        patchOverlayState({
-          clarify: batch.length
-            ? {
-                answers: ev.payload.answers ?? {},
-                choices: null,
-                question: '',
-                questions: batch,
-                requestId: ev.payload.request_id
-              }
-            : {
-                choices: ev.payload.choices ?? null,
-                question: ev.payload.question ?? '',
-                requestId: ev.payload.request_id
-              }
-        })
-        setStatus('waiting for input…')
-        ringPromptBell()
-
-        return
-      }
-
       case 'approval.request': {
         if (!ev.payload) {
           return
@@ -1312,69 +1283,6 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
         })
         setStatus('approval needed')
         ringPromptBell()
-
-        return
-      }
-
-      case 'sudo.request':
-        if (!ev.payload) {
-          return
-        }
-
-        patchOverlayState({ sudo: { requestId: ev.payload.request_id } })
-        setStatus('sudo password needed')
-        ringPromptBell()
-
-        return
-
-      case 'secret.request':
-        if (!ev.payload) {
-          return
-        }
-
-        patchOverlayState({
-          secret: { envVar: ev.payload.env_var, prompt: ev.payload.prompt, requestId: ev.payload.request_id }
-        })
-        setStatus('secret input needed')
-        ringPromptBell()
-
-        return
-      case 'sudo.expire': {
-        const expired = ev.payload?.request_id
-
-        patchOverlayState(prev => (prev.sudo?.requestId === expired ? { ...prev, sudo: null } : prev))
-
-        return
-      }
-
-      case 'secret.expire': {
-        const expired = ev.payload?.request_id
-
-        patchOverlayState(prev => (prev.secret?.requestId === expired ? { ...prev, secret: null } : prev))
-
-        return
-      }
-
-      case 'vault.unlock.request':
-        if (!ev.payload) {
-          return
-        }
-
-        patchOverlayState({
-          vaultUnlock: {
-            backend: ev.payload.backend,
-            displayName: ev.payload.display_name,
-            requestId: ev.payload.request_id
-          }
-        })
-        setStatus(`unlock ${ev.payload.display_name}`)
-        ringPromptBell()
-
-        return
-      case 'vault.unlock.expire': {
-        const expired = ev.payload?.request_id
-
-        patchOverlayState(prev => (prev.vaultUnlock?.requestId === expired ? { ...prev, vaultUnlock: null } : prev))
 
         return
       }
@@ -1630,4 +1538,99 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
         }
     }
   }
+
+  const requestHandlers = new Map<string, (request: ServerRequest) => void>([
+    [
+      'clarify.request',
+      request => {
+        // SAFETY: the server request method selects this wire shape; individual fields are validated below.
+        const params = request.params as {
+          answers?: Record<string, string>
+          choices?: null | string[]
+          question?: string
+          questions?: { choices?: null | string[]; multi_select?: boolean; qid?: string; question?: string }[]
+        }
+
+        const batch = (params.questions ?? []).flatMap(question => {
+          if (typeof question.qid !== 'string' || !question.qid || typeof question.question !== 'string' || !question.question.trim()) {
+            return []
+          }
+
+          return [
+            {
+              choices: question.choices?.length ? question.choices : null,
+              multiSelect: question.multi_select === true,
+              qid: question.qid,
+              question: question.question.trim()
+            }
+          ]
+        })
+
+        patchOverlayState({
+          clarify: batch.length
+            ? { answers: params.answers ?? {}, choices: null, question: '', questions: batch, request, requestId: request.id }
+            : { choices: params.choices ?? null, question: params.question ?? '', request, requestId: request.id }
+        })
+        setStatus('waiting for input…')
+        ringPromptBell()
+      }
+    ],
+    [
+      'secret.request',
+      request => {
+        // SAFETY: the server request method selects this wire shape; fields are optional at the boundary.
+        const params = request.params as { env_var?: string; prompt?: string }
+
+        patchOverlayState({
+          secret: { envVar: params.env_var ?? '', prompt: params.prompt ?? '', request, requestId: request.id }
+        })
+        setStatus('secret input needed')
+        ringPromptBell()
+      }
+    ],
+    [
+      'sudo.request',
+      request => {
+        patchOverlayState({ sudo: { request, requestId: request.id } })
+        setStatus('sudo password needed')
+        ringPromptBell()
+      }
+    ],
+    [
+      'vault.unlock.request',
+      request => {
+        // SAFETY: the server request method selects this wire shape; fields are optional at the boundary.
+        const params = request.params as { backend?: string; display_name?: string }
+        const displayName = params.display_name ?? ''
+
+        patchOverlayState({
+          vaultUnlock: { backend: params.backend ?? '', displayName, request, requestId: request.id }
+        })
+        setStatus(`unlock ${displayName}`)
+        ringPromptBell()
+      }
+    ]
+  ])
+
+  const onRequest = (request: ServerRequest) => {
+    const sid = getUiState().sid
+
+    if (request.sessionId && sid && request.sessionId !== sid) {
+      return
+    }
+
+    requestHandlers.get(request.method)?.(request)
+  }
+
+  const onCancel = (cancel: ServerRequestCancel) => {
+    patchOverlayState(state => ({
+      ...state,
+      clarify: state.clarify?.requestId === cancel.id ? null : state.clarify,
+      secret: state.secret?.requestId === cancel.id ? null : state.secret,
+      sudo: state.sudo?.requestId === cancel.id ? null : state.sudo,
+      vaultUnlock: state.vaultUnlock?.requestId === cancel.id ? null : state.vaultUnlock
+    }))
+  }
+
+  return Object.assign(onEvent, { onCancel, onRequest })
 }

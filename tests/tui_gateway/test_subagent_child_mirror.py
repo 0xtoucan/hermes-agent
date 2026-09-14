@@ -36,8 +36,8 @@ def server():
 
     yield mod
     mod._sessions.clear()
-    mod._pending.clear()
-    mod._answers.clear()
+    from tui_gateway import server_requests
+    server_requests._reset_for_tests()
     mod._child_mirrors.clear()
     mod._active_child_runs.clear()
 

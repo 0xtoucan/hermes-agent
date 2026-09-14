@@ -1,6 +1,8 @@
 import {
   type ConnectionState,
   type GatewayEvent,
+  type ServerRequest,
+  type ServerRequestCancel,
   reconnectBackoffDelayMs,
   registryBackendScopeKey,
   resolveGatewayWsUrl
@@ -56,6 +58,8 @@ interface RegistryConfig {
    * the connection store. */
   activeConnectionId?: () => null | string
   onEvent: (event: GatewayEvent) => void
+  onServerRequest?: (request: ServerRequest) => void
+  onServerRequestCancel?: (cancel: ServerRequestCancel) => void
   onActiveConnectionInvalidated?: (fallbackProfile: string, activationEpoch: number) => void
   onActiveConnectionChanged?: (connection: HermesConnection) => void
   /**
@@ -821,6 +825,12 @@ function createSecondary(profile: string, connectionId: null | string = null): S
 
     g.config?.onEvent(scopedEvent)
     releaseTerminalTurnLease(entry.scope, event)
+  })
+  gateway.onServerRequest(request => {
+    g.config?.onServerRequest?.(request)
+  })
+  gateway.onServerRequestCancel(cancel => {
+    g.config?.onServerRequestCancel?.(cancel)
   })
   entry.offState = gateway.onState(state => {
     reportGatewayState(scope, state)

@@ -16,11 +16,8 @@ import {
 import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { useI18n } from '@/i18n'
-import { isMissingPendingPromptRequest } from '@/lib/gateway-rpc'
 import { triggerHaptic } from '@/lib/haptics'
 import { KeyRound, Loader2, Lock, ShieldLock } from '@/lib/icons'
-import { $gateway } from '@/store/gateway'
-import { notifyError } from '@/store/notifications'
 import {
   clearSecretRequest,
   clearSudoRequest,
@@ -54,7 +51,6 @@ function SudoDialog({ sessionId }: { sessionId: string | null }) {
   const copy = t.prompts
   const $request = useMemo(() => sessionSudoRequest(sessionId), [sessionId])
   const request = useStore($request)
-  const gateway = useStore($gateway)
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -69,33 +65,16 @@ function SudoDialog({ sessionId }: { sessionId: string | null }) {
         return
       }
 
-      if (!gateway) {
-        notifyError(new Error(copy.gatewayDisconnected), copy.sudoSendFailed)
-
+      if (!request.request) {
         return
       }
 
       setSubmitting(true)
-
-      try {
-        await gateway.request<{ status?: string }>('sudo.respond', {
-          password: value,
-          request_id: request.requestId
-        })
-        triggerHaptic('submit')
-        clearSudoRequest(request.sessionId, request.requestId)
-      } catch (error) {
-        if (isMissingPendingPromptRequest(error, 'password')) {
-          clearSudoRequest(request.sessionId, request.requestId)
-
-          return
-        }
-
-        notifyError(error, copy.sudoSendFailed)
-        setSubmitting(false)
-      }
+      request.request.respond({ value })
+      triggerHaptic('submit')
+      clearSudoRequest(request.sessionId, request.requestId)
     },
-    [copy.gatewayDisconnected, copy.sudoSendFailed, gateway, request]
+    [request]
   )
 
   // Cancel → empty password. The backend treats an empty sudo response as a
@@ -157,7 +136,6 @@ function SecretDialog({ sessionId }: { sessionId: string | null }) {
   const copy = t.prompts
   const $request = useMemo(() => sessionSecretRequest(sessionId), [sessionId])
   const request = useStore($request)
-  const gateway = useStore($gateway)
   const [value, setValue] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -172,33 +150,16 @@ function SecretDialog({ sessionId }: { sessionId: string | null }) {
         return
       }
 
-      if (!gateway) {
-        notifyError(new Error(copy.gatewayDisconnected), copy.secretSendFailed)
-
+      if (!request.request) {
         return
       }
 
       setSubmitting(true)
-
-      try {
-        await gateway.request<{ status?: string }>('secret.respond', {
-          request_id: request.requestId,
-          value: secret
-        })
-        triggerHaptic('submit')
-        clearSecretRequest(request.sessionId, request.requestId)
-      } catch (error) {
-        if (isMissingPendingPromptRequest(error, 'value')) {
-          clearSecretRequest(request.sessionId, request.requestId)
-
-          return
-        }
-
-        notifyError(error, copy.secretSendFailed)
-        setSubmitting(false)
-      }
+      request.request.respond({ value: secret })
+      triggerHaptic('submit')
+      clearSecretRequest(request.sessionId, request.requestId)
     },
-    [copy.gatewayDisconnected, copy.secretSendFailed, gateway, request]
+    [request]
   )
 
   const onOpenChange = useCallback(
@@ -261,7 +222,6 @@ function VaultUnlockDialog({ sessionId }: { sessionId: string | null }) {
   const copy = t.prompts
   const $request = useMemo(() => sessionVaultUnlockRequest(sessionId), [sessionId])
   const request = useStore($request)
-  const gateway = useStore($gateway)
   const [value, setValue] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -276,39 +236,17 @@ function VaultUnlockDialog({ sessionId }: { sessionId: string | null }) {
         return
       }
 
-      if (!gateway) {
-        notifyError(new Error(copy.gatewayDisconnected), copy.vaultUnlockSendFailed)
-
+      if (!request.request) {
         return
       }
 
       setSubmitting(true)
-
-      try {
-        // A master password must reach the backend that raised the prompt, not whatever
-        // gateway is foreground right now (background profile tiles have their own socket).
-        await requestForOwnedSession<{ status?: string }>(
-          request.sessionId,
-          ambientRequestFor(gateway),
-          'vault.unlock.respond',
-          { request_id: request.requestId, password }
-        )
-        triggerHaptic('submit')
-        clearVaultUnlockRequest(request.sessionId, request.requestId)
-      } catch (error) {
-        if (isMissingPendingPromptRequest(error, 'password')) {
-          clearVaultUnlockRequest(request.sessionId, request.requestId)
-
-          return
-        }
-
-        notifyError(error, copy.vaultUnlockSendFailed)
-        setSubmitting(false)
-      } finally {
-        setValue('')
-      }
+      request.request.respond({ value: password })
+      triggerHaptic('submit')
+      clearVaultUnlockRequest(request.sessionId, request.requestId)
+      setValue('')
     },
-    [copy.gatewayDisconnected, copy.vaultUnlockSendFailed, gateway, request]
+    [request]
   )
 
   if (!request) {
@@ -361,7 +299,6 @@ function VaultSaveLoginDialog({ sessionId }: { sessionId: string | null }) {
   const copy = t.prompts
   const $request = useMemo(() => sessionVaultSaveLoginRequest(sessionId), [sessionId])
   const request = useStore($request)
-  const gateway = useStore($gateway)
   const [identifier, setIdentifier] = useState('')
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -378,38 +315,18 @@ function VaultSaveLoginDialog({ sessionId }: { sessionId: string | null }) {
         return
       }
 
-      if (!gateway) {
-        notifyError(new Error(copy.gatewayDisconnected), copy.vaultSaveSendFailed)
-
+      if (!request.request) {
         return
       }
 
       setSubmitting(true)
-
-      try {
-        await requestForOwnedSession<{ status?: string }>(
-          request.sessionId,
-          ambientRequestFor(gateway),
-          'vault.save_login.respond',
-          { login, request_id: request.requestId }
-        )
-        triggerHaptic('submit')
-        clearVaultSaveLoginRequest(request.sessionId, request.requestId)
-      } catch (error) {
-        if (isMissingPendingPromptRequest(error, 'login')) {
-          clearVaultSaveLoginRequest(request.sessionId, request.requestId)
-
-          return
-        }
-
-        notifyError(error, copy.vaultSaveSendFailed)
-        setSubmitting(false)
-      } finally {
-        setIdentifier('')
-        setPassword('')
-      }
+      request.request.respond({ value: login })
+      triggerHaptic('submit')
+      clearVaultSaveLoginRequest(request.sessionId, request.requestId)
+      setIdentifier('')
+      setPassword('')
     },
-    [copy.gatewayDisconnected, copy.vaultSaveSendFailed, gateway, request]
+    [request]
   )
 
   if (!request) {
@@ -480,7 +397,6 @@ function VaultCodeDialog({ sessionId }: { sessionId: string | null }) {
   const copy = t.prompts
   const $request = useMemo(() => sessionVaultCodeRequest(sessionId), [sessionId])
   const request = useStore($request)
-  const gateway = useStore($gateway)
   const [code, setCode] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -495,37 +411,17 @@ function VaultCodeDialog({ sessionId }: { sessionId: string | null }) {
         return
       }
 
-      if (!gateway) {
-        notifyError(new Error(copy.gatewayDisconnected), copy.vaultCodeSendFailed)
-
+      if (!request.request) {
         return
       }
 
       setSubmitting(true)
-
-      try {
-        await requestForOwnedSession<{ status?: string }>(
-          request.sessionId,
-          ambientRequestFor(gateway),
-          'vault.code.respond',
-          { code: value, request_id: request.requestId }
-        )
-        triggerHaptic('submit')
-        clearVaultCodeRequest(request.sessionId, request.requestId)
-      } catch (error) {
-        if (isMissingPendingPromptRequest(error, 'code')) {
-          clearVaultCodeRequest(request.sessionId, request.requestId)
-
-          return
-        }
-
-        notifyError(error, copy.vaultCodeSendFailed)
-        setSubmitting(false)
-      } finally {
-        setCode('')
-      }
+      request.request.respond({ value })
+      triggerHaptic('submit')
+      clearVaultCodeRequest(request.sessionId, request.requestId)
+      setCode('')
     },
-    [copy.gatewayDisconnected, copy.vaultCodeSendFailed, gateway, request]
+    [request]
   )
 
   if (!request) {

@@ -1,95 +1,130 @@
+import type { ServerRequest } from '@hermes/shared'
+import { QueryClient } from '@tanstack/react-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { $gateway } from '@/store/gateway'
 import { $toursEnabled } from '@/store/tours'
 
-import { handleDesktopBridgeEvent } from './desktop-bridge'
-import type { GatewayEventContext } from './types'
+import { cancelDesktopBridgeServerRequest, handleDesktopBridgeServerRequest } from './desktop-bridge'
+import type { GatewayEventDeps } from './types'
 
-function previewActContext({
-  explicitSid,
-  isActiveEvent
-}: {
-  explicitSid: string
-  isActiveEvent: boolean
-}): GatewayEventContext {
+function gatewayDeps(activeSessionId: string | null): GatewayEventDeps {
   return {
-    event: { session_id: explicitSid || undefined, type: 'preview.act.request' },
-    explicitSid,
-    isActiveEvent,
-    payload: { action: 'elements', request_id: 'request-1' }
-  } as GatewayEventContext
+    activeGatewayProfile: 'default',
+    activeSessionIdRef: { current: activeSessionId },
+    appendAssistantDelta: () => undefined,
+    appendReasoningDelta: () => undefined,
+    compactedTurnRef: { current: new Set() },
+    completeAssistantMessage: () => undefined,
+    failAssistantMessage: () => undefined,
+    finalizeInterimAssistantMessage: () => undefined,
+    flushQueuedDeltas: () => undefined,
+    hydrateFromStoredSession: async () => undefined,
+    lastCwdInfoSessionRef: { current: null },
+    nativeSubagentSessionsRef: { current: new Set() },
+    queryClient: new QueryClient(),
+    refreshHermesConfig: async () => undefined,
+    scheduleSessionsRefresh: () => undefined,
+    sessionInterrupted: () => false,
+    sessionStateByRuntimeIdRef: { current: new Map() },
+    updateSessionState: () => {
+      throw new Error('unused')
+    },
+    upsertToolCall: () => undefined
+  }
 }
 
-describe('preview action bridge routing', () => {
+let requestSequence = 0
+
+function serverRequest(method: string, sessionId: string | null, params: ServerRequest['params'] = {}) {
+  const respond = vi.fn()
+
+  return {
+    fail: vi.fn(),
+    id: `srq-${++requestSequence}`,
+    method,
+    notify: vi.fn(),
+    params,
+    respond,
+    sessionId
+  } satisfies ServerRequest
+}
+
+describe('desktop bridge server requests', () => {
   afterEach(() => {
-    $gateway.set(null)
+    $toursEnabled.set(true)
   })
 
-  it('leaves a scoped action request unanswered in a window showing another session', () => {
-    const request = vi.fn()
-    $gateway.set({ request } as never)
+  it('responds to terminal, preview, and window reads with their serialized text', async () => {
+    const deps = gatewayDeps('session-a')
+    const terminal = serverRequest('terminal.read.request', 'session-a', { count: 20, start: 0 })
+    const preview = serverRequest('preview.read.request', 'session-a', { count: 20, start: 0 })
+    const windowRead = serverRequest('window.read.request', 'session-a')
 
-    expect(handleDesktopBridgeEvent(previewActContext({ explicitSid: 'session-a', isActiveEvent: false }))).toBe(true)
-    expect(request).not.toHaveBeenCalled()
+    expect(handleDesktopBridgeServerRequest(terminal, deps)).toBe(true)
+    expect(handleDesktopBridgeServerRequest(preview, deps)).toBe(true)
+    expect(handleDesktopBridgeServerRequest(windowRead, deps)).toBe(true)
+
+    await new Promise(resolve => window.setTimeout(resolve, 0))
+    expect(terminal.respond).toHaveBeenCalledWith({ value: '' })
+    expect(preview.respond).toHaveBeenCalledWith({ value: '' })
+    expect(windowRead.respond).toHaveBeenCalledWith({ value: '' })
   })
 
-  it('keeps the legacy fail-fast response for an unscoped inactive request', () => {
-    const request = vi.fn()
-    $gateway.set({ request } as never)
+  it('returns serialized refusals for inactive preview actions and disabled tours', () => {
+    const inactiveDeps = gatewayDeps(null)
+    const previewAction = serverRequest('preview.act.request', null, { action: 'elements' })
+    const tour = serverRequest('tour.request', null, { action: 'discover' })
+    $toursEnabled.set(false)
 
-    expect(handleDesktopBridgeEvent(previewActContext({ explicitSid: '', isActiveEvent: false }))).toBe(true)
-    expect(request).toHaveBeenCalledWith('preview.act.respond', {
-      request_id: 'request-1',
-      text: JSON.stringify({
+    expect(handleDesktopBridgeServerRequest(previewAction, inactiveDeps)).toBe(true)
+    expect(handleDesktopBridgeServerRequest(tour, inactiveDeps)).toBe(true)
+    expect(previewAction.respond).toHaveBeenCalledWith({
+      value: JSON.stringify({
         error: 'The in-app browser only takes actions in the session the user is looking at.',
         success: false
       })
     })
-  })
-})
-
-function tourContext({
-  explicitSid,
-  isActiveEvent
-}: {
-  explicitSid: string
-  isActiveEvent: boolean
-}): GatewayEventContext {
-  return {
-    event: { session_id: explicitSid || undefined, type: 'tour.request' },
-    explicitSid,
-    isActiveEvent,
-    payload: { action: 'discover', request_id: 'tour-request-1' }
-  } as GatewayEventContext
-}
-
-describe('tour bridge routing', () => {
-  afterEach(() => {
-    $gateway.set(null)
-    $toursEnabled.set(true)
+    expect(tour.respond).toHaveBeenCalledWith({
+      value: JSON.stringify({ error: 'The user has turned guided tours off.', success: false })
+    })
   })
 
-  it('leaves a scoped request unanswered in another session even when tours are disabled', () => {
-    const request = vi.fn()
-    $gateway.set({ request } as never)
+  it('leaves scoped preview actions and tours unanswered in another session', () => {
+    const deps = gatewayDeps('session-b')
+    const previewAction = serverRequest('preview.act.request', 'session-a', { action: 'elements' })
+    const tour = serverRequest('tour.request', 'session-a', { action: 'discover' })
     $toursEnabled.set(false)
 
-    expect(handleDesktopBridgeEvent(tourContext({ explicitSid: 'session-a', isActiveEvent: false }))).toBe(true)
-    expect(request).not.toHaveBeenCalled()
+    expect(handleDesktopBridgeServerRequest(previewAction, deps)).toBe(true)
+    expect(handleDesktopBridgeServerRequest(tour, deps)).toBe(true)
+    expect(previewAction.respond).not.toHaveBeenCalled()
+    expect(tour.respond).not.toHaveBeenCalled()
   })
 
-  it('keeps the legacy fail-fast response for an unscoped inactive request', () => {
-    const request = vi.fn()
-    $gateway.set({ request } as never)
+  it('does not reply when cancellation wins an in-flight preview read', async () => {
+    const request = serverRequest('preview.read.request', 'session-a')
 
-    expect(handleDesktopBridgeEvent(tourContext({ explicitSid: '', isActiveEvent: false }))).toBe(true)
-    expect(request).toHaveBeenCalledWith('tour.respond', {
-      request_id: 'tour-request-1',
-      text: JSON.stringify({
-        error: 'Tours only run in the session the user is looking at.',
-        success: false
-      })
-    })
+    expect(handleDesktopBridgeServerRequest(request, gatewayDeps('session-a'))).toBe(true)
+    cancelDesktopBridgeServerRequest(request.id)
+
+    await new Promise(resolve => window.setTimeout(resolve, 0))
+    expect(request.respond).not.toHaveBeenCalled()
+  })
+
+  it('answers a re-delivered in-flight request through its latest transport', async () => {
+    const initialRequest = serverRequest('preview.read.request', 'session-a')
+    const redeliveredRequest = serverRequest('preview.read.request', 'session-a')
+    redeliveredRequest.id = initialRequest.id
+
+    expect(handleDesktopBridgeServerRequest(initialRequest, gatewayDeps('session-a'))).toBe(true)
+    expect(handleDesktopBridgeServerRequest(redeliveredRequest, gatewayDeps('session-a'))).toBe(true)
+
+    await new Promise(resolve => window.setTimeout(resolve, 0))
+    expect(initialRequest.respond).not.toHaveBeenCalled()
+    expect(redeliveredRequest.respond).toHaveBeenCalledWith({ value: '' })
+  })
+
+  it('does not claim unrelated server requests', () => {
+    expect(handleDesktopBridgeServerRequest(serverRequest('clarify.request', 'session-a'), gatewayDeps('session-a'))).toBe(false)
   })
 })

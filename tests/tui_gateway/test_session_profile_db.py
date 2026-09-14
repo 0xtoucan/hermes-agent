@@ -64,8 +64,8 @@ def server(hermes_home):
     mod._methods.clear()
     mod._methods.update(methods)
     mod._sessions.clear()
-    mod._pending.clear()
-    mod._answers.clear()
+    from tui_gateway import server_requests
+    server_requests._reset_for_tests()
     mod._db = None
 
 

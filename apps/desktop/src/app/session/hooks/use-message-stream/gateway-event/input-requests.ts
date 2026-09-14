@@ -1,3 +1,5 @@
+import type { ServerRequest, ServerRequestCancel } from '@hermes/shared'
+
 import { pendingClarifyToolPayload } from '@/app/session/hooks/use-session-actions/restore-pending-clarify'
 import { translateNow } from '@/i18n'
 import { restorePendingClarifyToolCall, settlePendingClarifyToolCall } from '@/lib/chat-messages'
@@ -10,12 +12,11 @@ import {
   warnDroppedChoices
 } from '@/store/clarify'
 import { $gateway } from '@/store/gateway'
-import { setMcpSetupRequest } from '@/store/mcp-setup'
+import { clearMcpSetupRequest, setMcpSetupRequest } from '@/store/mcp-setup'
 import { dispatchNativeNotification } from '@/store/native-notifications'
 import {
-  $vaultCodeRequests,
-  $vaultSaveLoginRequests,
-  $vaultUnlockRequests,
+  clearSecretRequest,
+  clearSudoRequest,
   clearVaultCodeRequest,
   clearVaultSaveLoginRequest,
   clearVaultUnlockRequest,
@@ -28,421 +29,306 @@ import {
 } from '@/store/prompts'
 import { requestScrollToBottom } from '@/store/thread-scroll'
 
-import type { GatewayEventContext } from './types'
+import type { GatewayEventContext, GatewayEventDeps } from './types'
 
-/** The blocking-input family: clarify / MCP setup consent / approval / sudo /
- *  secret requests. The Python side is blocked on the matching *.respond, so
- *  each of these must be parked per-session and surfaced. */
-export function handleInputRequestEvent(ctx: GatewayEventContext): boolean {
-  const { deps, event, payload, sessionId, occurredAt } = ctx
-  const { activeSessionIdRef, sessionInterrupted, updateSessionState, upsertToolCall } = deps
+interface ServerRequestContext {
+  deps: GatewayEventDeps
+  request: ServerRequest
+}
 
-  if (event.type === 'clarify.request') {
-    // Surface the clarify tool's overlay. The Python side is blocked on
-    // `clarify.respond`, so without this handler the agent would hang
-    // forever (see tools/clarify_tool.py + tui_gateway/server.py:_block).
-    //
-    // Store the request for whichever session raised it — even a background
-    // one. clarify.request is a one-shot event; if we dropped it for an
-    // unfocused session, that session would block on `clarify.respond`
-    // indefinitely and re-focusing it could never recover (the event is
-    // gone). Parking it per-session lets the user answer once they switch
-    // over; the inline ClarifyTool reads the active session's entry.
-    if (sessionId && sessionInterrupted(sessionId)) {
-      return true
+type ServerRequestHandler = (ctx: ServerRequestContext) => boolean
+
+function lockedAnswers(params: ServerRequest['params']): Record<string, string> | undefined {
+  if (typeof params.answers !== 'object' || params.answers === null) {
+    return undefined
+  }
+
+  return Object.fromEntries(
+    Object.entries(params.answers).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+  )
+}
+
+function setNeedsInput(deps: GatewayEventDeps, sessionId: string | null): void {
+  if (sessionId) {
+    deps.updateSessionState(sessionId, state => ({ ...state, needsInput: true }))
+  }
+}
+
+function inputNotification(sessionId: string | null, body: string): void {
+  dispatchNativeNotification({
+    body,
+    kind: 'input',
+    sessionId,
+    title: translateNow('notifications.native.inputTitle')
+  })
+}
+
+function handleClarifyServerRequest({ deps, request }: ServerRequestContext): boolean {
+  const { activeSessionIdRef, sessionInterrupted, updateSessionState } = deps
+  const { params, sessionId } = request
+
+  if (sessionId && sessionInterrupted(sessionId)) {
+    request.respond({ value: '' })
+
+    return true
+  }
+
+  const question = typeof params.question === 'string' ? params.question : ''
+  const rawChoices = params.choices
+  const choices = normalizeChoices(rawChoices)
+  const questions = normalizeQuestions(params.questions)
+
+  if (questions.length > 0) {
+    const clarify = {
+      choices: null,
+      lockedAnswers: lockedAnswers(params),
+      multiSelect: false,
+      question: '',
+      questions,
+      receivedAt: Date.now() / 1000,
+      request,
+      requestId: request.id,
+      sessionId
     }
 
-    const requestId = typeof payload?.request_id === 'string' ? payload.request_id : ''
-    const question = typeof payload?.question === 'string' ? payload.question : ''
-    const rawChoices = payload?.choices
-    const choices = normalizeChoices(rawChoices)
-    const multiSelect = payload?.multi_select === true
-    // Batch (multi-question) clarify: `questions` replaces question/choices
-    // on the wire. `answers` rides along only on reconnect replay, carrying
-    // the per-question locks the server already accepted.
-    const questions = normalizeQuestions(payload?.questions)
+    setClarifyRequest(clarify)
 
-    const lockedAnswers =
-      typeof payload?.answers === 'object' && payload?.answers !== null
-        ? Object.fromEntries(
-            Object.entries(payload.answers as Record<string, unknown>).filter(
-              (entry): entry is [string, string] => typeof entry[1] === 'string'
-            )
-          )
-        : undefined
+    if (sessionId) {
+      updateSessionState(sessionId, state => {
+        const projection = restorePendingClarifyToolCall(
+          state.messages,
+          pendingClarifyToolPayload(clarify),
+          Date.now() / 1000
+        )
 
-    if (requestId && questions.length > 0) {
-      const request = {
-        choices: null,
-        lockedAnswers,
-        multiSelect: false,
-        question: '',
-        questions,
-        receivedAt: Date.now() / 1000,
-        requestId,
-        sessionId: sessionId ?? null
-      }
-
-      setClarifyRequest(request)
-
-      if (sessionId) {
-        // A resumed/hydrated transcript may already contain this provider's
-        // clarify call while carrying no live streamId. Re-arm that exact row
-        // instead of letting the generic stream mutator append a second card.
-        updateSessionState(sessionId, state => {
-          const projection = restorePendingClarifyToolCall(
-            state.messages,
-            pendingClarifyToolPayload(request),
-            occurredAt
-          )
-
-          return {
-            ...state,
-            messages: projection.messages,
-            streamId: projection.streamId,
-            sawAssistantPayload: true,
-            awaitingResponse: false,
-            needsInput: true
-          }
-        })
-
-        if (sessionId === activeSessionIdRef.current) {
-          requestScrollToBottom(sessionId)
+        return {
+          ...state,
+          messages: projection.messages,
+          streamId: projection.streamId,
+          sawAssistantPayload: true,
+          awaitingResponse: false,
+          needsInput: true
         }
-      }
-
-      dispatchNativeNotification({
-        body: questions.map(q => q.question).join(' · '),
-        kind: 'input',
-        sessionId,
-        title: translateNow('notifications.native.inputTitle')
       })
-    } else if (requestId && question) {
-      if (rawChoices != null && choices.length === 0) {
-        warnDroppedChoices('gateway', question, rawChoices)
+
+      if (sessionId === activeSessionIdRef.current) {
+        requestScrollToBottom(sessionId)
       }
-
-      const request = {
-        requestId,
-        question,
-        choices: choices.length > 0 ? choices : null,
-        multiSelect,
-        receivedAt: Date.now() / 1000,
-        sessionId: sessionId ?? null
-      }
-
-      setClarifyRequest(request)
-
-      if (sessionId) {
-        // Same provider-shape-aware repair as the batch path above. This keeps
-        // the original hydrated row and provider tool id, while still seeding
-        // a row when tool.start was genuinely missed.
-        updateSessionState(sessionId, state => {
-          const projection = restorePendingClarifyToolCall(
-            state.messages,
-            pendingClarifyToolPayload(request),
-            occurredAt
-          )
-
-          return {
-            ...state,
-            messages: projection.messages,
-            streamId: projection.streamId,
-            sawAssistantPayload: true,
-            awaitingResponse: false,
-            needsInput: true
-          }
-        })
-
-        if (sessionId === activeSessionIdRef.current) {
-          requestScrollToBottom(sessionId)
-        }
-      }
-
-      dispatchNativeNotification({
-        body: question,
-        kind: 'input',
-        sessionId,
-        title: translateNow('notifications.native.inputTitle')
-      })
     }
+
+    inputNotification(sessionId, questions.map(question => question.question).join(' · '))
 
     return true
   }
 
-  if (event.type === 'vault.code.expire') {
-    const requestId = typeof payload?.request_id === 'string' ? payload.request_id : ''
-    const request = sessionId ? $vaultCodeRequests.get()[sessionId] : undefined
-
-    if (requestId && request && request.requestId === requestId) {
-      clearVaultCodeRequest(sessionId, requestId)
-    }
-
+  if (!question) {
     return true
   }
 
-  if (event.type === 'vault.save_login.expire') {
-    const requestId = typeof payload?.request_id === 'string' ? payload.request_id : ''
-    const request = sessionId ? $vaultSaveLoginRequests.get()[sessionId] : undefined
-
-    if (requestId && request && request.requestId === requestId) {
-      clearVaultSaveLoginRequest(sessionId, requestId)
-    }
-
-    return true
+  if (rawChoices != null && choices.length === 0) {
+    warnDroppedChoices('gateway', question, rawChoices)
   }
 
-  if (event.type === 'vault.unlock.expire') {
-    const requestId = typeof payload?.request_id === 'string' ? payload.request_id : ''
-    const request = sessionId ? $vaultUnlockRequests.get()[sessionId] : undefined
-
-    if (requestId && request && request.requestId === requestId) {
-      clearVaultUnlockRequest(sessionId, requestId)
-    }
-
-    return true
+  const clarify = {
+    choices: choices.length > 0 ? choices : null,
+    multiSelect: params.multi_select === true,
+    question,
+    receivedAt: Date.now() / 1000,
+    request,
+    requestId: request.id,
+    sessionId
   }
 
-  if (event.type === 'clarify.expire') {
-    if (!sessionId) {
-      return true
-    }
+  setClarifyRequest(clarify)
 
-    const requestId = typeof payload?.request_id === 'string' ? payload.request_id : ''
-    const request = $clarifyRequests.get()[sessionId]
-
-    // Expiry is request-correlated: a delayed event from an older prompt must
-    // not erase a newer clarify raised by the same session.
-    if (!requestId || !request || request.requestId !== requestId) {
-      return true
-    }
-
-    clearClarifyRequest(requestId, sessionId)
+  if (sessionId) {
     updateSessionState(sessionId, state => {
-      const projection = settlePendingClarifyToolCall(
+      const projection = restorePendingClarifyToolCall(
         state.messages,
-        pendingClarifyToolPayload(request),
-        state.busy,
-        occurredAt
+        pendingClarifyToolPayload(clarify),
+        Date.now() / 1000
       )
 
       return {
         ...state,
         messages: projection.messages,
-        needsInput: false,
-        streamId: state.busy ? (projection.streamId ?? state.streamId) : null
+        streamId: projection.streamId,
+        sawAssistantPayload: true,
+        awaitingResponse: false,
+        needsInput: true
       }
     })
 
+    if (sessionId === activeSessionIdRef.current) {
+      requestScrollToBottom(sessionId)
+    }
+  }
+
+  inputNotification(sessionId, question)
+
+  return true
+}
+
+function handleMcpSetupServerRequest({ deps, request }: ServerRequestContext): boolean {
+  const { params, sessionId } = request
+  const server = typeof params.server === 'string' ? params.server : ''
+  const rawAction = typeof params.action === 'string' ? params.action : 'install'
+  const action = rawAction === 'enable' || rawAction === 'authorize' ? rawAction : 'install'
+  const reason = typeof params.reason === 'string' ? params.reason : ''
+
+  if (!server) {
     return true
   }
 
-  if (event.type === 'mcp.setup.request') {
-    // setup_mcp tool (desktop GUI): the agent proposed an MCP server and
-    // the Python side is blocked on mcp.setup.respond. Park the request
-    // per-session (like clarify) and upsert a stable pending tool row so
-    // the inline consent card has somewhere to render even when the
-    // tool.start event was missed (stream reconnect / hydration race).
-    const requestId = typeof payload?.request_id === 'string' ? payload.request_id : ''
-    const server = typeof payload?.server === 'string' ? payload.server : ''
-    const rawAction = typeof payload?.action === 'string' ? payload.action : 'install'
-    const action = rawAction === 'enable' || rawAction === 'authorize' ? rawAction : 'install'
-    const reason = typeof payload?.reason === 'string' ? payload.reason : ''
+  setMcpSetupRequest({ action, reason, request, requestId: request.id, server, sessionId })
 
-    if (requestId && server) {
-      setMcpSetupRequest({ action, reason, requestId, server, sessionId: sessionId ?? null })
-
-      if (sessionId) {
-        upsertToolCall(
-          sessionId,
-          { args: { action, reason, server }, name: 'setup_mcp', tool_id: requestId },
-          'running'
-        )
-        updateSessionState(sessionId, state => ({ ...state, needsInput: true }))
-      }
-
-      dispatchNativeNotification({
-        body: reason || server,
-        kind: 'input',
-        sessionId,
-        title: translateNow('notifications.native.inputTitle')
-      })
-    }
-
-    return true
-  }
-
-  if (event.type === 'approval.request') {
-    // Dangerous-command / execute_code approval. The Python side is blocked
-    // in _await_gateway_decision() until approval.respond lands; without
-    // this the agent stalls until its 5-min timeout and the tool is BLOCKED.
-    // Park it per-session (like clarify) so a *background* profile's turn can
-    // raise it and wait — the sidebar flags "needs input" and the inline bar
-    // surfaces once the user focuses that chat.
-    const command = typeof payload?.command === 'string' ? payload.command : ''
-    const description = typeof payload?.description === 'string' ? payload.description : 'dangerous command'
-
-    void receiveApprovalRequest($gateway.get(), {
-      // false only when a tirith warning forbids it; backend omits the field otherwise.
-      allowPermanent: payload?.allow_permanent !== false,
-      choices: Array.isArray(payload?.choices)
-        ? payload.choices.filter(choice => typeof choice === 'string')
-        : undefined,
-      command,
-      description,
-      requestId: typeof payload?.request_id === 'string' ? payload.request_id : undefined,
-      sessionId: sessionId ?? null,
-      smartDenied: payload?.smart_denied === true
-    }).catch(() => undefined)
-
-    if (sessionId) {
-      updateSessionState(sessionId, state => ({ ...state, needsInput: true }))
-    }
-
-    dispatchNativeNotification({
-      actions: [
-        { id: 'approve', text: translateNow('notifications.native.approveAction') },
-        { id: 'reject', text: translateNow('notifications.native.rejectAction') }
-      ],
-      body: command || description,
-      kind: 'approval',
+  if (sessionId) {
+    deps.upsertToolCall(
       sessionId,
-      title: translateNow('notifications.native.approvalTitle')
-    })
-
-    return true
+      { args: { action, reason, server }, name: 'setup_mcp', tool_id: request.id },
+      'running'
+    )
   }
 
-  if (event.type === 'sudo.request') {
-    // Sudo password capture (tools/terminal_tool.py). Blocked on
-    // sudo.respond {request_id, password}.
-    const requestId = typeof payload?.request_id === 'string' ? payload.request_id : ''
+  setNeedsInput(deps, sessionId)
+  inputNotification(sessionId, reason || server)
 
-    if (requestId) {
-      setSudoRequest({ requestId, sessionId: sessionId ?? null })
+  return true
+}
 
-      if (sessionId) {
-        updateSessionState(sessionId, state => ({ ...state, needsInput: true }))
-      }
+function handleSudoServerRequest({ deps, request }: ServerRequestContext): boolean {
+  setSudoRequest({ request, requestId: request.id, sessionId: request.sessionId })
+  setNeedsInput(deps, request.sessionId)
+  inputNotification(request.sessionId, translateNow('notifications.native.inputBody'))
 
-      dispatchNativeNotification({
-        body: translateNow('notifications.native.inputBody'),
-        kind: 'input',
-        sessionId,
-        title: translateNow('notifications.native.inputTitle')
+  return true
+}
+
+function handleSecretServerRequest({ deps, request }: ServerRequestContext): boolean {
+  const envVar = typeof request.params.env_var === 'string' ? request.params.env_var : ''
+  const prompt = typeof request.params.prompt === 'string' ? request.params.prompt : ''
+
+  setSecretRequest({ envVar, prompt, request, requestId: request.id, sessionId: request.sessionId })
+  setNeedsInput(deps, request.sessionId)
+  inputNotification(request.sessionId, prompt || envVar || translateNow('notifications.native.inputBody'))
+
+  return true
+}
+
+function handleVaultCodeServerRequest({ deps, request }: ServerRequestContext): boolean {
+  const site = typeof request.params.site === 'string' ? request.params.site : ''
+  const hint = typeof request.params.hint === 'string' ? request.params.hint : ''
+
+  setVaultCodeRequest({ hint, request, requestId: request.id, sessionId: request.sessionId, site })
+  setNeedsInput(deps, request.sessionId)
+  inputNotification(request.sessionId, translateNow('prompts.vaultCodeTitle', site))
+
+  return true
+}
+
+function handleVaultSaveLoginServerRequest({ deps, request }: ServerRequestContext): boolean {
+  const origin = typeof request.params.origin === 'string' ? request.params.origin : ''
+  const site = typeof request.params.site === 'string' ? request.params.site : origin
+
+  setVaultSaveLoginRequest({ origin, request, requestId: request.id, sessionId: request.sessionId, site })
+  setNeedsInput(deps, request.sessionId)
+  inputNotification(request.sessionId, translateNow('prompts.vaultSaveTitle', site))
+
+  return true
+}
+
+function handleVaultUnlockServerRequest({ deps, request }: ServerRequestContext): boolean {
+  const backend = typeof request.params.backend === 'string' ? request.params.backend : ''
+  const displayName = typeof request.params.display_name === 'string' ? request.params.display_name : backend
+
+  setVaultUnlockRequest({ backend, displayName, request, requestId: request.id, sessionId: request.sessionId })
+  setNeedsInput(deps, request.sessionId)
+  inputNotification(request.sessionId, translateNow('prompts.vaultUnlockTitle', displayName))
+
+  return true
+}
+
+const SERVER_REQUEST_HANDLERS: Record<string, ServerRequestHandler> = {
+  'clarify.request': handleClarifyServerRequest,
+  'mcp.setup.request': handleMcpSetupServerRequest,
+  'secret.request': handleSecretServerRequest,
+  'sudo.request': handleSudoServerRequest,
+  'vault.code.request': handleVaultCodeServerRequest,
+  'vault.save_login.request': handleVaultSaveLoginServerRequest,
+  'vault.unlock.request': handleVaultUnlockServerRequest
+}
+
+/** Route blocking backend requests to the per-session card that owns their response. */
+export function handleInputServerRequest(request: ServerRequest, deps: GatewayEventDeps): boolean {
+  return SERVER_REQUEST_HANDLERS[request.method]?.({ deps, request }) ?? false
+}
+
+/** Remove a withdrawn request only when it still matches the card on that session. */
+export function handleInputServerRequestCancel(cancel: ServerRequestCancel, deps: GatewayEventDeps): void {
+  const clarify = $clarifyRequests.get()[cancel.sessionId ?? '']
+
+  if (clarify?.requestId === cancel.id) {
+    clearClarifyRequest(cancel.id, cancel.sessionId)
+
+    if (cancel.sessionId) {
+      deps.updateSessionState(cancel.sessionId, state => {
+        const projection = settlePendingClarifyToolCall(
+          state.messages,
+          pendingClarifyToolPayload(clarify),
+          state.busy,
+          Date.now() / 1000
+        )
+
+        return {
+          ...state,
+          messages: projection.messages,
+          needsInput: false,
+          streamId: state.busy ? (projection.streamId ?? state.streamId) : null
+        }
       })
     }
-
-    return true
   }
 
-  if (event.type === 'secret.request') {
-    // Skill credential capture (tools/skills_tool.py). Blocked on
-    // secret.respond {request_id, value}.
-    const requestId = typeof payload?.request_id === 'string' ? payload.request_id : ''
+  clearMcpSetupRequest(cancel.id, cancel.sessionId)
+  clearSudoRequest(cancel.sessionId, cancel.id)
+  clearSecretRequest(cancel.sessionId, cancel.id)
+  clearVaultCodeRequest(cancel.sessionId, cancel.id)
+  clearVaultSaveLoginRequest(cancel.sessionId, cancel.id)
+  clearVaultUnlockRequest(cancel.sessionId, cancel.id)
+}
 
-    if (requestId) {
-      const envVar = typeof payload?.env_var === 'string' ? payload.env_var : ''
-      const promptText = typeof payload?.prompt === 'string' ? payload.prompt : ''
+/** Keep approval on its event/RPC bridge; it is not part of ServerRequest yet. */
+export function handleInputRequestEvent(ctx: GatewayEventContext): boolean {
+  const { deps, event, payload, sessionId } = ctx
 
-      setSecretRequest({
-        requestId,
-        envVar,
-        prompt: promptText,
-        sessionId: sessionId ?? null
-      })
-
-      if (sessionId) {
-        updateSessionState(sessionId, state => ({ ...state, needsInput: true }))
-      }
-
-      dispatchNativeNotification({
-        body: promptText || envVar || translateNow('notifications.native.inputBody'),
-        kind: 'input',
-        sessionId,
-        title: translateNow('notifications.native.inputTitle')
-      })
-    }
-
-    return true
+  if (event.type !== 'approval.request') {
+    return false
   }
 
-  if (event.type === 'vault.code.request') {
-    // Second factor: the site asked for a one-time code and no authenticator key is saved for the login.
-    const requestId = typeof payload?.request_id === 'string' ? payload.request_id : ''
+  const command = typeof payload?.command === 'string' ? payload.command : ''
+  const description = typeof payload?.description === 'string' ? payload.description : 'dangerous command'
 
-    if (requestId) {
-      const site = typeof payload?.site === 'string' ? payload.site : ''
-      const hint = typeof payload?.hint === 'string' ? payload.hint : ''
+  void receiveApprovalRequest($gateway.get(), {
+    allowPermanent: payload?.allow_permanent !== false,
+    choices: Array.isArray(payload?.choices) ? payload.choices.filter(choice => typeof choice === 'string') : undefined,
+    command,
+    description,
+    requestId: typeof payload?.request_id === 'string' ? payload.request_id : undefined,
+    sessionId: sessionId ?? null,
+    smartDenied: payload?.smart_denied === true
+  }).catch(() => undefined)
 
-      setVaultCodeRequest({ hint, requestId, sessionId: sessionId ?? null, site })
+  setNeedsInput(deps, sessionId)
+  dispatchNativeNotification({
+    actions: [
+      { id: 'approve', text: translateNow('notifications.native.approveAction') },
+      { id: 'reject', text: translateNow('notifications.native.rejectAction') }
+    ],
+    body: command || description,
+    kind: 'approval',
+    sessionId,
+    title: translateNow('notifications.native.approvalTitle')
+  })
 
-      if (sessionId) {
-        updateSessionState(sessionId, state => ({ ...state, needsInput: true }))
-      }
-
-      dispatchNativeNotification({
-        body: translateNow('prompts.vaultCodeTitle', site),
-        kind: 'input',
-        sessionId,
-        title: translateNow('notifications.native.inputTitle')
-      })
-    }
-
-    return true
-  }
-
-  if (event.type === 'vault.save_login.request') {
-    // The agent is on a sign-in page with no saved login: identifier + masked password card; the
-    // answer is stored in the encrypted vault by the backend and filled at once (never shown to the model).
-    const requestId = typeof payload?.request_id === 'string' ? payload.request_id : ''
-
-    if (requestId) {
-      const origin = typeof payload?.origin === 'string' ? payload.origin : ''
-      const site = typeof payload?.site === 'string' ? payload.site : origin
-
-      setVaultSaveLoginRequest({ origin, requestId, sessionId: sessionId ?? null, site })
-
-      if (sessionId) {
-        updateSessionState(sessionId, state => ({ ...state, needsInput: true }))
-      }
-
-      dispatchNativeNotification({
-        body: translateNow('prompts.vaultSaveTitle', site),
-        kind: 'input',
-        sessionId,
-        title: translateNow('notifications.native.inputTitle')
-      })
-    }
-
-    return true
-  }
-
-  if (event.type === 'vault.unlock.request') {
-    // External password-manager unlock (agent/vault_backends). Blocked on
-    // vault.unlock.respond {request_id, password}; "" keeps it locked.
-    const requestId = typeof payload?.request_id === 'string' ? payload.request_id : ''
-
-    if (requestId) {
-      const backend = typeof payload?.backend === 'string' ? payload.backend : ''
-      const displayName = typeof payload?.display_name === 'string' ? payload.display_name : backend
-
-      setVaultUnlockRequest({ backend, displayName, requestId, sessionId: sessionId ?? null })
-
-      if (sessionId) {
-        updateSessionState(sessionId, state => ({ ...state, needsInput: true }))
-      }
-
-      dispatchNativeNotification({
-        body: translateNow('prompts.vaultUnlockTitle', displayName),
-        kind: 'input',
-        sessionId,
-        title: translateNow('notifications.native.inputTitle')
-      })
-    }
-
-    return true
-  }
-
-  return false
+  return true
 }

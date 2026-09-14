@@ -1,3 +1,4 @@
+import type { ServerRequest } from '@hermes/shared/json-rpc-channel'
 import { describe, expect, it, vi } from 'vitest'
 
 import { getOverlayState, patchOverlayState, resetOverlayState } from '../app/overlayStore.js'
@@ -10,6 +11,15 @@ import {
   shouldDetachEditedHistoryInput,
   shouldFallThroughForScroll
 } from '../app/useInputHandlers.js'
+
+const serverRequest = (id: string): ServerRequest & { respond: ReturnType<typeof vi.fn> } => ({
+  id,
+  method: 'sudo.request',
+  notify: vi.fn(),
+  params: {},
+  respond: vi.fn(),
+  sessionId: null
+})
 
 const baseKey = {
   downArrow: false,
@@ -156,31 +166,42 @@ describe('applyVoiceRecordResponse', () => {
 })
 
 describe('dismissSensitivePrompt', () => {
-  it('clears a sudo overlay before a stale cancel RPC resolves', async () => {
+  it('clears a vault unlock and responds with an empty value', () => {
     resetOverlayState()
-    patchOverlayState({ sudo: { requestId: 'sudo-1' } })
-    const rpc = vi.fn().mockResolvedValue(null)
+    const request = serverRequest('srq-vault-unlock')
+    patchOverlayState({ vaultUnlock: { backend: 'bitwarden', displayName: 'Bitwarden', request, requestId: request.id } })
     const sys = vi.fn()
 
-    const pending = dismissSensitivePrompt(getOverlayState(), rpc, sys)
+    dismissSensitivePrompt(getOverlayState(), sys)
+
+    expect(getOverlayState().vaultUnlock).toBeNull()
+    expect(sys).toHaveBeenCalledWith('Bitwarden stays locked')
+    expect(request.respond).toHaveBeenCalledWith({ value: '' })
+  })
+
+  it('clears sudo and responds with an empty value', () => {
+    resetOverlayState()
+    const request = serverRequest('srq-sudo')
+    patchOverlayState({ sudo: { request, requestId: request.id } })
+    const sys = vi.fn()
+
+    dismissSensitivePrompt(getOverlayState(), sys)
 
     expect(getOverlayState().sudo).toBeNull()
     expect(sys).toHaveBeenCalledWith('sudo cancelled')
-    expect(rpc).toHaveBeenCalledWith('sudo.respond', { password: '', request_id: 'sudo-1' })
-    await pending
+    expect(request.respond).toHaveBeenCalledWith({ value: '' })
   })
 
-  it('clears a secret overlay before a stale cancel RPC resolves', async () => {
+  it('clears secret entry and responds with an empty value', () => {
     resetOverlayState()
-    patchOverlayState({ secret: { envVar: 'API_KEY', prompt: 'Enter API key', requestId: 'secret-1' } })
-    const rpc = vi.fn().mockResolvedValue(null)
+    const request = serverRequest('srq-secret')
+    patchOverlayState({ secret: { envVar: 'API_KEY', prompt: 'Enter API key', request, requestId: request.id } })
     const sys = vi.fn()
 
-    const pending = dismissSensitivePrompt(getOverlayState(), rpc, sys)
+    dismissSensitivePrompt(getOverlayState(), sys)
 
     expect(getOverlayState().secret).toBeNull()
     expect(sys).toHaveBeenCalledWith('secret entry cancelled')
-    expect(rpc).toHaveBeenCalledWith('secret.respond', { request_id: 'secret-1', value: '' })
-    await pending
+    expect(request.respond).toHaveBeenCalledWith({ value: '' })
   })
 })

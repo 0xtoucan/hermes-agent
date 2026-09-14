@@ -44,8 +44,8 @@ def server(hermes_home):
         mod = importlib.import_module("tui_gateway.server")
         yield mod
         mod._sessions.clear()
-        mod._pending.clear()
-        mod._answers.clear()
+        from tui_gateway import server_requests
+        server_requests._reset_for_tests()
 
 
 @pytest.fixture()

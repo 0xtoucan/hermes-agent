@@ -316,19 +316,7 @@ export interface BackgroundStartResponse {
   task_id?: string
 }
 
-export interface ClarifyRespondResponse {
-  ok?: boolean
-}
-
 export interface ApprovalRespondResponse {
-  ok?: boolean
-}
-
-export interface SudoRespondResponse {
-  ok?: boolean
-}
-
-export interface SecretRespondResponse {
   ok?: boolean
 }
 

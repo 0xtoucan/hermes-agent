@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import type { ServerRequest } from './json-rpc-channel'
 import { JsonRpcGatewayClient } from './json-rpc-gateway'
 
 /**
@@ -147,6 +148,57 @@ describe('JsonRpcGatewayClient event-seq tracking + replay resume', () => {
     })
 
     expect(client.getSeqWatermarks().s1).toBe(5)
+    client.close()
+  })
+
+  it('re-delivers open server requests from replay with their partial batch answers', async () => {
+    const client = makeClient()
+    const requests: ServerRequest[] = []
+    client.onServerRequest(request => void requests.push(request))
+
+    const first = client.connect('ws://x')
+    let sock = sockets[sockets.length - 1]
+    sock.open()
+    await first
+    sock.serverFrame({ jsonrpc: '2.0', method: 'event', params: { type: 'message.delta', session_id: 's1', seq: 1 } })
+
+    client.invalidate('drop')
+    const second = client.connect('ws://x')
+    sock = sockets[sockets.length - 1]
+    sock.open()
+    await second
+
+    await vi.waitFor(() => {
+      expect(sock.lastRequest().method).toBe('session.events.since')
+    })
+    const replay = sock.lastRequest()
+    sock.serverFrame({
+      jsonrpc: '2.0',
+      id: replay.id,
+      result: {
+        events: [],
+        open_requests: [
+          {
+            id: 'srq-9',
+            method: 'clarify.request',
+            params: { questions: [{ id: 'q0' }, { id: 'q1' }], session_id: 's1' },
+            partial: { q0: 'a' }
+          }
+        ]
+      }
+    })
+
+    await vi.waitFor(() => {
+      expect(requests).toHaveLength(1)
+    })
+    expect(requests[0]).toMatchObject({ id: 'srq-9', params: { answers: { q0: 'a' } } })
+
+    requests[0].respond({ answers: { q1: 'b' } })
+    expect(JSON.parse(sock.sent.at(-1) ?? '{}')).toEqual({
+      id: 'srq-9',
+      jsonrpc: '2.0',
+      result: { answers: { q1: 'b' } }
+    })
     client.close()
   })
 

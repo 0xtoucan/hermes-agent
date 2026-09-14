@@ -5,13 +5,7 @@ import { useEffect, useRef } from 'react'
 import { DASHBOARD_TUI_MODE } from '../config/env.js'
 import { DOUBLE_ESC_MS, TYPING_IDLE_MS } from '../config/timing.js'
 import { applyCompletion } from '../domain/slash.js'
-import type {
-  ApprovalRespondResponse,
-  ConfigSetResponse,
-  SecretRespondResponse,
-  SudoRespondResponse,
-  VoiceRecordResponse
-} from '../gatewayTypes.js'
+import type { ApprovalRespondResponse, ConfigSetResponse, VoiceRecordResponse } from '../gatewayTypes.js'
 import { isAction, isCopyShortcut, isMac, isVoiceToggleKey } from '../lib/platform.js'
 import { computePrecisionWheelStep, initPrecisionWheel } from '../lib/precisionWheel.js'
 import { computeWheelStep, initWheelAccelForHost } from '../lib/wheelAccel.js'
@@ -20,7 +14,6 @@ import { closeWidget, dispatchWidgetInput } from '../sdk/host.js'
 import { $agentDockCollapsed } from './agentRoster.js'
 import { getInputSelection } from './inputSelectionStore.js'
 import {
-  type GatewayRpc,
   type InputHandlerActions,
   type InputHandlerContext,
   type InputHandlerResult,
@@ -144,34 +137,28 @@ export function applyVoiceRecordResponse(
 
 export function dismissSensitivePrompt(
   overlay: Pick<OverlayState, 'secret' | 'sudo' | 'vaultUnlock'>,
-  rpc: GatewayRpc,
   sys: (text: string) => void
 ) {
   if (overlay.sudo) {
-    const requestId = overlay.sudo.requestId
-
+    overlay.sudo.request.respond({ value: '' })
     patchOverlayState({ sudo: null })
     sys('sudo cancelled')
 
-    return rpc<SudoRespondResponse>('sudo.respond', { password: '', request_id: requestId })
+    return
   }
 
   if (overlay.secret) {
-    const requestId = overlay.secret.requestId
-
+    overlay.secret.request.respond({ value: '' })
     patchOverlayState({ secret: null })
     sys('secret entry cancelled')
 
-    return rpc<SecretRespondResponse>('secret.respond', { request_id: requestId, value: '' })
+    return
   }
 
   if (overlay.vaultUnlock) {
-    const requestId = overlay.vaultUnlock.requestId
-
+    overlay.vaultUnlock.request.respond({ value: '' })
     patchOverlayState({ vaultUnlock: null })
     sys(`${overlay.vaultUnlock.displayName} stays locked`)
-
-    return rpc<SecretRespondResponse>('vault.unlock.respond', { password: '', request_id: requestId })
   }
 }
 
@@ -234,7 +221,7 @@ export function useInputHandlers(ctx: InputHandlerContext): InputHandlerResult {
     }
 
     if (overlay.sudo || overlay.secret || overlay.vaultUnlock) {
-      return dismissSensitivePrompt(overlay, gateway.rpc, actions.sys)
+      return dismissSensitivePrompt(overlay, actions.sys)
     }
 
     if (overlay.modelPicker) {

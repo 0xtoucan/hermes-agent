@@ -1,4 +1,9 @@
-import { type GatewayEvent, registryBackendScopeKey } from '@hermes/shared'
+import {
+  type GatewayEvent,
+  registryBackendScopeKey,
+  type ServerRequest,
+  type ServerRequestCancel
+} from '@hermes/shared'
 import { useCallback, useEffect, useRef } from 'react'
 
 import type { GatewayEventPayload } from '@/lib/chat-messages'
@@ -15,8 +20,8 @@ import { setSessionProviderWait } from '@/store/provider-wait'
 import { isSessionGone } from '@/store/session-gone-latch'
 import { setSessionDraftingTool } from '@/store/tool-drafting'
 
-import { handleDesktopBridgeEvent } from './desktop-bridge'
-import { handleInputRequestEvent } from './input-requests'
+import { cancelDesktopBridgeServerRequest, handleDesktopBridgeServerRequest } from './desktop-bridge'
+import { handleInputRequestEvent, handleInputServerRequest, handleInputServerRequestCancel } from './input-requests'
 import { handleLifecycleEvent } from './lifecycle'
 import { handleMessageStreamEvent } from './message-stream'
 import { handleControlEvent } from './session-control'
@@ -85,9 +90,15 @@ const HANDLERS: GatewayEventHandler[] = [
   handleMessageStreamEvent,
   handleToolEvent,
   handleInputRequestEvent,
-  handleDesktopBridgeEvent,
   handleStatusEvent
 ]
+
+const SERVER_REQUEST_HANDLERS: Array<(request: ServerRequest, deps: GatewayEventDeps) => boolean> = [
+  handleInputServerRequest,
+  handleDesktopBridgeServerRequest
+]
+
+
 
 /** The gateway-event dispatcher, extracted from useMessageStream. */
 export function useGatewayEventHandler(deps: GatewayEventDeps) {
@@ -129,6 +140,48 @@ export function useGatewayEventHandler(deps: GatewayEventDeps) {
     },
     []
   )
+
+  const handleServerRequest = useCallback(
+    (request: ServerRequest) => {
+      for (const handler of SERVER_REQUEST_HANDLERS) {
+        if (handler(request, deps)) {
+          return
+        }
+      }
+    },
+    [deps]
+  )
+
+  const handleServerRequestCancel = useCallback(
+    (cancel: ServerRequestCancel) => {
+      cancelDesktopBridgeServerRequest(cancel.id)
+      handleInputServerRequestCancel(cancel, deps)
+    },
+    [deps]
+  )
+
+  useEffect(() => {
+    let disposeRequest: () => void = () => undefined
+    let disposeCancel: () => void = () => undefined
+
+    const subscribe = () => {
+      disposeRequest()
+      disposeCancel()
+      const gateway = $gateway.get()
+
+      disposeRequest = gateway?.onServerRequest(handleServerRequest) ?? (() => undefined)
+      disposeCancel = gateway?.onServerRequestCancel(handleServerRequestCancel) ?? (() => undefined)
+    }
+
+    subscribe()
+    const unlistenGateway = $gateway.listen(subscribe)
+
+    return () => {
+      unlistenGateway()
+      disposeRequest()
+      disposeCancel()
+    }
+  }, [handleServerRequest, handleServerRequestCancel])
 
   return useCallback(
     (event: GatewayEvent) => {

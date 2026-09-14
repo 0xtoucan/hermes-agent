@@ -673,17 +673,6 @@ export interface SessionResumeResponse {
     request_id?: string
     smart_denied?: boolean
   }
-  // The clarify question still blocking this session, if any. Same replay
-  // class as pending_approval: emitted-while-detached prompts are restored
-  // from the resume snapshot instead of being lost until server-side timeout.
-  pending_clarify?: {
-    answers?: Record<string, unknown>
-    choices?: null | string[]
-    multi_select?: boolean
-    question?: string
-    questions?: unknown
-    request_id?: string
-  }
   info?: SessionRuntimeInfo
   message_count: number
   messages: SessionMessage[]

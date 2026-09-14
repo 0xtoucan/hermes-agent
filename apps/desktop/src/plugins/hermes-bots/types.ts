@@ -1,3 +1,5 @@
+import type { ServerRequest } from '@hermes/shared'
+
 /**
  * Bot Mode domain model.
  *
@@ -214,6 +216,7 @@ export interface GroupPrompt {
   multiSelect: boolean
   question: string
   questions?: GroupPromptQuestion[] | null
+  request?: ServerRequest
   requestId: string
   sessionId?: null | string
 }
@@ -286,7 +289,21 @@ export interface GatewaySource {
 export type AvatarShape = 'circle' | 'cloud' | 'drop' | 'hexagon' | 'pill' | 'squircle' | 'triangle'
 
 export type BlobKind =
-  'boxy' | 'capsule' | 'cloud' | 'droplet' | 'hexagon' | 'nub' | 'organic' | 'round' | 'sun' | 'triangle'
+  | 'boxy'
+  | 'capsule'
+  | 'cloud'
+  | 'droplet'
+  | 'hexagon'
+  | 'nub'
+  | 'organic'
+  | 'round'
+  | 'sun'
+  | 'triangle'
+
+export type AttentionClass = 'agent_blocked' | 'missing_config' | 'provider_auth_or_access' | 'provider_quota_limit'
+
+export type RosterKindFilter = 'all' | 'bots' | 'groups'
+export type RosterActivityFilter = 'active' | 'all' | 'older' | 'recent'
 
 export type FaceMood = 'idle' | 'think' | 'work'
 
@@ -299,8 +316,3 @@ export interface AvatarAppearance {
   /** Free-form: a bare shape, `sigil-<n>`, a platonic solid, or `blobatar:<seed>:<kind>`. */
   shape: string
 }
-
-export type AttentionClass = 'agent_blocked' | 'missing_config' | 'provider_auth_or_access' | 'provider_quota_limit'
-
-export type RosterKindFilter = 'all' | 'bots' | 'groups'
-export type RosterActivityFilter = 'active' | 'all' | 'older' | 'recent'

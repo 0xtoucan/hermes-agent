@@ -209,10 +209,10 @@ export class JsonRpcGatewayClient {
           this.channel.replyToServerRequest(open.id, result)
         }
       },
-      fail: () => {
+      fail: error => {
         if (!settled) {
           settled = true
-          this.channel.replyToServerRequest(open.id, {})
+          this.channel.failServerRequest(open.id, error)
         }
       },
       notify: (method, notifyParams) => {

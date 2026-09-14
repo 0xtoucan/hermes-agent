@@ -18,6 +18,7 @@
  *  - `ui.*` — the design language, so plugin UI looks native by default.
  */
 
+import type { ServerRequest, ServerRequestCancel } from '@hermes/shared'
 import { atom, computed, type ReadableAtom } from 'nanostores'
 import type { ReactNode } from 'react'
 
@@ -45,6 +46,7 @@ import { registry } from '@/contrib/registry'
 import type { WorkspaceMode } from '@/contrib/types'
 import { deleteProfile, getLogs, getStatus, hermesApi, type HermesGateway } from '@/hermes'
 import { completeMcpDesktopOAuth } from '@/lib/mcp-dashboard-oauth'
+import { activeGateway } from '@/store/gateway'
 import {
   $gateway,
   activeGatewayConnectionId,
@@ -1434,11 +1436,23 @@ export const host = {
   },
 
   /** The LIVE gateway instance for the active profile (null before the first
-   *  socket opens). Most plugins want `host.request`; this exists for SDK
-   *  components that take a `HermesGateway` prop directly (e.g. `McpTab`),
-   *  which need the instance, not just a JSON-RPC door. Re-read per use — the
-   *  active instance changes on a profile swap. */
-  getGateway: (): HermesGateway | null => $gateway.get()
+  *  socket opens). Most plugins want `host.request`; this exists for SDK
+  *  components that take a `HermesGateway` prop directly (e.g. `McpTab`),
+  *  which need the instance, not just a JSON-RPC door. Re-read per use — the
+  *  active instance changes on a profile swap. */
+  getGateway: (): HermesGateway | null => $gateway.get(),
+
+  /** Subscribe to requests from a member's live gateway connection. */
+  onServerRequest: (
+    _member: unknown,
+    listener: (request: ServerRequest) => void
+  ): (() => void) => activeGateway()?.onServerRequest(listener) ?? (() => undefined),
+
+  /** Subscribe to cancellation frames from a member's live gateway connection. */
+  onServerRequestCancel: (
+    _member: unknown,
+    listener: (cancel: ServerRequestCancel) => void
+  ): (() => void) => activeGateway()?.onServerRequestCancel(listener) ?? (() => undefined)
 }
 
 // -- react bridge -------------------------------------------------------------
@@ -1633,13 +1647,13 @@ export type {
  *  `ctx.register` stays the door for permanent contributions. Namespace the
  *  id with your plugin slug (`kanban:board-switcher`). */
 export { Contribute, type ContributeProps } from '@/contrib/react/contribute'
-
-// -- contracts ----------------------------------------------------------------
-
 export type { Contribution } from '@/contrib/types'
 /** The live gateway instance type — for typing the `gateway` prop `McpTab`
  *  takes; obtain the instance from `host.getGateway()`. */
 export type { HermesGateway } from '@/hermes'
+
+// -- contracts ----------------------------------------------------------------
+
 /** Grab-to-pan for overflow containers (boards, timelines, wide tables) —
  *  the shared scrub primitive; don't hand-roll drag-to-scroll. */
 export { type GrabScroll, useGrabScroll } from '@/hooks/use-grab-scroll'
@@ -1703,11 +1717,6 @@ export { queryClient } from '@/lib/query-client'
 /** Compact labels for the reasoning levels exported from @hermes/shared, so a
  *  plugin surfacing a thinking depth uses the same spelling as the app. */
 export { reasoningEffortLabel } from '@/lib/reasoning-effort'
-
-export const PANES_AREA = 'panes'
-export const STATUSBAR_AREAS = { left: 'statusBar.left', right: 'statusBar.right' } as const
-export const TITLEBAR_AREAS = { center: 'titleBar.center', left: 'titleBar.left', right: 'titleBar.right' } as const
-
 /** The app's own gateway-readiness evaluation (setup.status +
  *  setup.runtime_check, reconciled) — pass `host.request`. Don't hand-roll
  *  readiness from raw RPC shapes. */
@@ -1719,6 +1728,11 @@ export { evaluateRuntimeReadiness, type RuntimeReadinessResult } from '@/lib/run
  *  suffix. `relativeTime` is the bidirectional Intl form ("in 14 hr") — use it
  *  for a scheduled next-run, not for an age. */
 export { type AgoLabels, coarseElapsed, fmtDateTime, fmtDayTime, formatAgo, relativeTime } from '@/lib/time'
+
+export const PANES_AREA = 'panes'
+export const STATUSBAR_AREAS = { left: 'statusBar.left', right: 'statusBar.right' } as const
+export const TITLEBAR_AREAS = { center: 'titleBar.center', left: 'titleBar.left', right: 'titleBar.right' } as const
+
 /** The transcript as a contribution area: register a named `::directive{...}`
  *  and the model can render your component inline in assistant messages. */
 export {
@@ -1727,6 +1741,10 @@ export {
   type TranscriptDirectiveProps
 } from '@/lib/transcript-directives'
 export { cn } from '@/lib/utils'
+export {
+  normalizeChoices as normalizeClarifyChoices,
+  normalizeQuestions as normalizeClarifyQuestions
+} from '@/store/clarify'
 /** THE unread store behind `SessionStatusDot`'s emerald dot. A plugin that
  *  learns out-of-band that a session produced something the user hasn't seen
  *  (a roster poll's activity watermark, say) writes HERE rather than keeping
@@ -1772,6 +1790,7 @@ export { retintTheme, themeHue } from '@/themes/retint'
 export type { DesktopTheme, DesktopThemeColors } from '@/themes/types'
 export { THEMES_AREA } from '@/themes/user-themes'
 export type { StatusResponse } from '@/types/hermes'
+export type { ServerRequest, ServerRequestCancel } from '@hermes/shared'
 /** Public SDK name for the shared gateway wire event; kept stable for plugins. */
 export type { GatewayEvent as RpcEvent } from '@hermes/shared'
 /** THE compact-number formatter — every user-facing count/token figure goes

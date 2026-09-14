@@ -9,6 +9,8 @@ import {
   DEFAULT_HEARTBEAT_DEADLINE_MS,
   DEFAULT_HEARTBEAT_INTERVAL_MS,
   JsonRpcRequestChannel,
+  type ServerRequest,
+  type ServerRequestCancel,
   wireFrameText
 } from '@hermes/shared/json-rpc-channel'
 import { reconnectBackoffDelayMs } from '@hermes/shared/reconnect-backoff'
@@ -22,6 +24,13 @@ const MAX_GATEWAY_LOG_LINES = 200
 const MAX_LOG_LINE_BYTES = 4096
 const MAX_BUFFERED_EVENTS = 2000
 const MAX_LOG_PREVIEW = 240
+interface OpenServerRequest {
+  id: string
+  method: string
+  params?: ServerRequest['params'] & { session_id?: string }
+  partial?: Record<string, string>
+}
+
 const STARTUP_TIMEOUT_MS = Math.max(5000, parseInt(process.env.HERMES_TUI_STARTUP_TIMEOUT_MS ?? '15000', 10) || 15000)
 const REQUEST_TIMEOUT_MS = Math.max(30000, parseInt(process.env.HERMES_TUI_RPC_TIMEOUT_MS ?? '120000', 10) || 120000)
 const WS_CONNECTING = 0
@@ -134,10 +143,15 @@ export class GatewayClient extends EventEmitter {
   private readonly channel = new JsonRpcRequestChannel({
     onEvent: ev => this.publish(ev as AnyGatewayEvent),
     onHeartbeatFailure: () => this.onHeartbeatFailure(),
+    onServerRequest: request => this.publishServerRequest(request),
+    onServerRequestCancel: cancel => this.publishServerRequestCancel(cancel),
     requestTimeoutMs: REQUEST_TIMEOUT_MS,
     unrefTimers: true
   })
   private bufferedEvents = new CircularBuffer<AnyGatewayEvent>(MAX_BUFFERED_EVENTS)
+  private bufferedServerFrames = new CircularBuffer<ServerRequest | ServerRequestCancel>(MAX_BUFFERED_EVENTS)
+  private readonly serverRequestHandlers = new Set<(request: ServerRequest) => void>()
+  private readonly serverRequestCancelHandlers = new Set<(cancel: ServerRequestCancel) => void>()
   private pendingExit: number | null | undefined
   private ready = false
   private readyTimer: ReturnType<typeof setTimeout> | null = null
@@ -155,6 +169,87 @@ export class GatewayClient extends EventEmitter {
     // useInput / createGatewayEventHandler can legitimately attach many
     // listeners. Default 10-cap triggers spurious warnings.
     this.setMaxListeners(0)
+  }
+
+  onServerRequest(handler: (request: ServerRequest) => void): () => void {
+    this.serverRequestHandlers.add(handler)
+
+    return () => this.serverRequestHandlers.delete(handler)
+  }
+
+  onServerRequestCancel(handler: (cancel: ServerRequestCancel) => void): () => void {
+    this.serverRequestCancelHandlers.add(handler)
+
+    return () => this.serverRequestCancelHandlers.delete(handler)
+  }
+
+  private publishServerRequest(request: ServerRequest) {
+    if (this.subscribed) {
+      this.dispatchServerRequest(request)
+
+      return
+    }
+
+    this.bufferedServerFrames.push(request)
+  }
+
+  private publishServerRequestCancel(cancel: ServerRequestCancel) {
+    if (this.subscribed) {
+      this.dispatchServerRequestCancel(cancel)
+
+      return
+    }
+
+    this.bufferedServerFrames.push(cancel)
+  }
+
+  private dispatchServerRequest(request: ServerRequest) {
+    for (const handler of this.serverRequestHandlers) {
+      handler(request)
+    }
+  }
+
+  private dispatchServerRequestCancel(cancel: ServerRequestCancel) {
+    for (const handler of this.serverRequestCancelHandlers) {
+      handler(cancel)
+    }
+  }
+
+  private dispatchBufferedServerFrame(frame: ServerRequest | ServerRequestCancel) {
+    if ('method' in frame) {
+      this.dispatchServerRequest(frame)
+    } else {
+      this.dispatchServerRequestCancel(frame)
+    }
+  }
+
+  private redeliverOpenRequest(open: OpenServerRequest) {
+    let settled = false
+    const params = { ...(open.params ?? {}), ...(open.partial ? { answers: open.partial } : {}) }
+
+    this.publishServerRequest({
+      fail: error => {
+        if (!settled) {
+          settled = true
+          this.channel.failServerRequest(open.id, error)
+        }
+      },
+      id: open.id,
+      method: open.method,
+      notify: (method, notifyParams) => {
+        if (!settled) {
+          this.channel.notifyServerRequest(open.id, method, notifyParams)
+        }
+      },
+      params,
+      respond: result => {
+        if (!settled) {
+          settled = true
+          this.channel.replyToServerRequest(open.id, result)
+        }
+      },
+      sessionId: typeof params.session_id === 'string' ? params.session_id : null
+    })
   }
 
   private publish(ev: AnyGatewayEvent) {
@@ -280,6 +375,7 @@ export class GatewayClient extends EventEmitter {
     // its queued microtask becomes a no-op (it captured the old generation).
     this.drainGeneration += 1
     this.bufferedEvents.clear()
+    this.bufferedServerFrames.clear()
     this.pendingExit = undefined
     this.stdoutRl?.close()
     this.stderrRl?.close()
@@ -673,6 +769,10 @@ export class GatewayClient extends EventEmitter {
         this.emit('event', ev)
       }
 
+      for (const frame of this.bufferedServerFrames.drain()) {
+        this.dispatchBufferedServerFrame(frame)
+      }
+
       if (this.pendingExit !== undefined) {
         const code = this.pendingExit
 
@@ -685,6 +785,26 @@ export class GatewayClient extends EventEmitter {
   getLogTail(limit = 20): string {
     return this.logs.tail(Math.max(1, limit)).join('\n')
   }
+
+  private async replayOpenRequests(): Promise<void> {
+    const sid = this.lastSessionId
+
+    if (!sid) {
+      return
+    }
+
+    try {
+      const result = await this.request<{ open_requests?: OpenServerRequest[] }>('session.events.since', { last_seen: 0, session_id: sid })
+
+      for (const open of result.open_requests ?? []) {
+        this.redeliverOpenRequest(open)
+      }
+    } catch {
+      // A replay failure leaves the next reconnect or prompt action to retry.
+    }
+  }
+
+  private lastSessionId: string | null = null
 
   private async ensureAttachedWebSocket(method: string): Promise<WebSocket> {
     if (!this.attachUrl) {

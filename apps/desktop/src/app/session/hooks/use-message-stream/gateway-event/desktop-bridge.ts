@@ -1,17 +1,42 @@
+import type { ServerRequest } from '@hermes/shared'
+
 import { readActivePreview } from '@/app/chat/right-rail/preview-reader'
 import { writeAgentTerminalChunk } from '@/app/right-sidebar/terminal/agent-terminal-stream'
 import { readActiveTerminal } from '@/app/right-sidebar/terminal/buffer'
 import { closeAgentTerminalByProc } from '@/app/right-sidebar/terminal/terminals'
 import type { PreviewActAction } from '@/lib/preview-act/act-in-page'
 import type { TourAction, TourStep } from '@/lib/tour'
-import { $gateway } from '@/store/gateway'
 import { applyDesktopLayoutPreset, revealDesktopPane } from '@/store/pane-focus'
 import { recordAgentReaction } from '@/store/reactions-local'
 import { setMessages } from '@/store/session'
 import { $tipsEnabled, type ActiveTip, showTip } from '@/store/tips'
 import { $toursEnabled } from '@/store/tours'
 
-import type { GatewayEventContext } from './types'
+import type { GatewayEventContext, GatewayEventDeps } from './types'
+
+interface DesktopBridgeRequestParams {
+  action?: string
+  amount?: number
+  count?: number
+  key?: string
+  max?: number
+  ref?: string
+  selector?: string
+  side?: TourStep['side']
+  start?: number
+  step_index?: number
+  steps?: TourStep[]
+  submit?: boolean
+  surface?: 'app' | 'preview'
+  text?: string
+  title?: string
+  to?: PreviewActAction['to']
+}
+
+function desktopBridgeRequestParams(request: ServerRequest): DesktopBridgeRequestParams {
+  // SAFETY: backend request methods own this parameter shape.
+  return request.params as DesktopBridgeRequestParams
+}
 
 /** The preview engine, loaded on demand so ~25KB of page-injectable source stays
  *  off the boot path.
@@ -41,125 +66,149 @@ const loadPreviewEngine = () => {
     .then(mod => mod.actOnActivePreview as Awaited<ReturnType<typeof stable>>['actOnActivePreview'])
 }
 
-/** Desktop-surface bridge events: read-back requests the agent blocks on
- *  (terminal/preview/window), agent terminal streaming, pane reveal, and
- *  message reactions. */
-export function handleDesktopBridgeEvent(ctx: GatewayEventContext): boolean {
-  const { event, payload, explicitSid, isActiveEvent } = ctx
+const pendingDesktopBridgeRequests = new Map<string, ServerRequest>()
 
-  if (event.type === 'terminal.read.request') {
-    // read_terminal tool: serialize the renderer's xterm buffer and answer
-    // immediately (Python blocks on the respond). Empty text = no live pane.
-    const requestId = typeof payload?.request_id === 'string' ? payload.request_id : ''
+function reattachPendingDesktopBridgeRequest(request: ServerRequest): boolean {
+  if (!pendingDesktopBridgeRequests.has(request.id)) {
+    return false
+  }
 
-    if (requestId) {
-      const start = typeof payload?.start === 'number' ? payload.start : undefined
-      const count = typeof payload?.count === 'number' ? payload.count : undefined
-      const result = readActiveTerminal({ start, count })
+  pendingDesktopBridgeRequests.set(request.id, request)
 
-      void $gateway.get()?.request('terminal.read.respond', {
-        request_id: requestId,
-        text: result ? JSON.stringify(result) : ''
-      })
+  return true
+}
+
+function requestResponder(request: ServerRequest): (result: unknown) => void {
+  pendingDesktopBridgeRequests.set(request.id, request)
+
+  return result => {
+    const pendingRequest = pendingDesktopBridgeRequests.get(request.id)
+
+    if (!pendingRequest) {
+      return
     }
 
+    pendingDesktopBridgeRequests.delete(request.id)
+    pendingRequest.respond({ value: result ? JSON.stringify(result) : '' })
+  }
+}
+
+/** Prevent an in-flight request from replying after the backend withdrew it. */
+export function cancelDesktopBridgeServerRequest(id: string): void {
+  pendingDesktopBridgeRequests.delete(id)
+}
+
+/** Answer desktop-specific backend requests that do not need persistent UI state. */
+export function handleDesktopBridgeServerRequest(request: ServerRequest, deps: GatewayEventDeps): boolean {
+  if (reattachPendingDesktopBridgeRequest(request)) {
     return true
   }
 
-  if (event.type === 'preview.read.request') {
-    // read_preview tool: serialize the active preview tab (a Browser
-    // webview's page text is async) and answer. Empty text = nothing open.
-    const requestId = typeof payload?.request_id === 'string' ? payload.request_id : ''
+  const params = desktopBridgeRequestParams(request)
+  const isActiveRequest = request.sessionId !== null && request.sessionId === deps.activeSessionIdRef.current
 
-    if (requestId) {
-      const start = typeof payload?.start === 'number' ? payload.start : undefined
-      const count = typeof payload?.count === 'number' ? payload.count : undefined
-
-      void readActivePreview({ count, start }).then(result => {
-        void $gateway.get()?.request('preview.read.respond', {
-          request_id: requestId,
-          text: result ? JSON.stringify(result) : ''
-        })
-      })
-    }
-
-    return true
-  }
-
-  if (event.type === 'preview.act.request') {
-    // drive_preview tool: click/type/scroll/press inside the guest page, or
-    // drive the pane's history. Dynamic import keeps the injected engine off
-    // the boot path. Active session only: a background turn must never reach
-    // into the page the user is working in (desktop AGENTS.md: offer, don't
-    // hijack).
-    const requestId = typeof payload?.request_id === 'string' ? payload.request_id : ''
-
-    if (requestId) {
-      // Every mounted desktop window can observe the same gateway event. A
-      // scoped mismatch belongs to another window, so answering here would race
-      // the owning window and could make this refusal win before its real result.
-      if (explicitSid && !isActiveEvent) {
-        return true
+  const handlers = new Map<string, () => void>([
+    ['preview.act.request', () => {
+      // A scoped request belongs to another window when its session is not active here.
+      if (request.sessionId && !isActiveRequest) {
+        return
       }
 
-      const answer = (result: unknown) =>
-        $gateway.get()?.request('preview.act.respond', {
-          request_id: requestId,
-          text: result ? JSON.stringify(result) : ''
-        })
+      const answer = requestResponder(request)
 
-      if (isActiveEvent) {
+      if (isActiveRequest) {
         void loadPreviewEngine()
           .then(run =>
             run({
-              amount: payload?.amount,
-              key: payload?.key,
-              kind: payload?.action ?? '',
-              max: payload?.max,
-              ref: payload?.ref,
-              selector: payload?.selector,
-              submit: payload?.submit,
-              text: payload?.text,
-              to: payload?.to as PreviewActAction['to']
+              amount: params.amount,
+              key: params.key,
+              kind: params.action ?? '',
+              max: params.max,
+              ref: params.ref,
+              selector: params.selector,
+              submit: params.submit,
+              text: params.text,
+              to: params.to
             })
           )
           .then(answer, error =>
             answer({ error: error instanceof Error ? error.message : String(error), success: false })
           )
       } else {
-        void answer({
+        answer({
           error: 'The in-app browser only takes actions in the session the user is looking at.',
           success: false
         })
       }
-    }
+    }],
+    ['preview.read.request', () => {
+      const answer = requestResponder(request)
 
-    return true
-  }
+      void readActivePreview({ count: params.count, start: params.start }).then(answer, () => answer(null))
+    }],
+    ['terminal.read.request', () => {
+      const result = readActiveTerminal({ count: params.count, start: params.start })
 
-  if (event.type === 'window.read.request') {
-    // read_window_below tool: main owns native window enumeration, so ask
-    // it over IPC and answer. Empty text = unavailable (no bridge, or
-    // enumeration unsupported on this system e.g. Wayland).
-    const requestId = typeof payload?.request_id === 'string' ? payload.request_id : ''
+      request.respond({ value: result ? JSON.stringify(result) : '' })
+    }],
+    ['tour.request', () => {
+      // A scoped request belongs to another window when its session is not active here.
+      if (request.sessionId && !isActiveRequest) {
+        return
+      }
 
-    if (requestId) {
-      const read = window.hermesDesktop?.readWindowBelow
+      const answer = requestResponder(request)
 
-      const answer = (result: unknown) =>
-        $gateway.get()?.request('window.read.respond', {
-          request_id: requestId,
-          text: result ? JSON.stringify(result) : ''
+      if (!$toursEnabled.get()) {
+        answer({ error: 'The user has turned guided tours off.', success: false })
+      } else if (isActiveRequest) {
+        void import('@/lib/tour')
+          .then(({ runTour }) =>
+            runTour(
+              {
+                kind: (params.action ?? 'stop') as TourAction['kind'],
+                selector: params.selector,
+                side: params.side,
+                startAt: params.step_index,
+                steps: params.steps,
+                text: params.text,
+                title: params.title
+              },
+              params.surface === 'preview' ? 'preview' : 'app'
+            )
+          )
+          .then(answer, error =>
+            answer({ error: error instanceof Error ? error.message : String(error), success: false })
+          )
+      } else {
+        answer({
+          error: 'Tours only run in the session the user is looking at.',
+          success: false
         })
+      }
+    }],
+    ['window.read.request', () => {
+      const read = window.hermesDesktop?.readWindowBelow
+      const answer = requestResponder(request)
 
-      // .catch: ipcRenderer.invoke rejects on an older shell without the
-      // handler or a main-side throw — without an empty answer the tool
-      // would stall its full 30s timeout.
       void Promise.resolve(read ? read() : null).then(answer, () => answer(null))
-    }
+    }]
+  ])
 
-    return true
+  const handler = handlers.get(request.method)
+
+  if (!handler) {
+    return false
   }
+
+  handler()
+
+  return true
+}
+
+/** Desktop-surface bridge events: agent terminal streaming, pane reveal, and message reactions. */
+export function handleDesktopBridgeEvent(ctx: GatewayEventContext): boolean {
+  const { event, payload, isActiveEvent } = ctx
 
   if (event.type === 'agent.terminal.output') {
     // Live chunk from a background process → its read-only agent terminal tab.
@@ -172,64 +221,6 @@ export function handleDesktopBridgeEvent(ctx: GatewayEventContext): boolean {
     // Agent closed its own read-only tab via the desktop-gated close_terminal tool.
     // The process is untouched — this only drops the view.
     closeAgentTerminalByProc(payload?.process_id ?? '')
-
-    return true
-  }
-
-  if (event.type === 'tour.request') {
-    // tour tool: run one guided-tour action (highlight/step/discover) via
-    // driver.js — on the app's own DOM or inside the preview pane's guest
-    // page — and answer with the outcome. Dynamic import keeps driver.js
-    // and the preview injection payload off the boot path. Active session
-    // only: a background turn must never paint overlays on the user's
-    // screen (desktop AGENTS.md: offer, don't hijack).
-    const requestId = typeof payload?.request_id === 'string' ? payload.request_id : ''
-
-    if (requestId) {
-      // As with preview actions, only the renderer that owns an explicitly
-      // scoped request may answer. Inactive windows must stay silent even when
-      // tours are disabled locally, or their refusal can beat the owner.
-      if (explicitSid && !isActiveEvent) {
-        return true
-      }
-
-      const answer = (result: unknown) =>
-        $gateway.get()?.request('tour.respond', {
-          request_id: requestId,
-          text: result ? JSON.stringify(result) : ''
-        })
-
-      if (!$toursEnabled.get()) {
-        // Refused in words, not silently dropped: the agent asked for a
-        // walkthrough it isn't getting, and a no-op would leave it narrating
-        // a spotlight the user can't see.
-        void answer({ error: 'The user has turned guided tours off.', success: false })
-      } else if (isActiveEvent) {
-        void import('@/lib/tour')
-          .then(({ runTour }) =>
-            runTour(
-              {
-                kind: (payload?.action ?? 'stop') as TourAction['kind'],
-                selector: payload?.selector,
-                side: payload?.side as TourStep['side'],
-                startAt: payload?.step_index,
-                steps: payload?.steps as TourStep[] | undefined,
-                text: payload?.text,
-                title: payload?.title
-              },
-              payload?.surface === 'preview' ? 'preview' : 'app'
-            )
-          )
-          .then(answer, error =>
-            answer({ error: error instanceof Error ? error.message : String(error), success: false })
-          )
-      } else {
-        void answer({
-          error: 'Tours only run in the session the user is looking at.',
-          success: false
-        })
-      }
-    }
 
     return true
   }

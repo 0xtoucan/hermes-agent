@@ -36,9 +36,7 @@ import {
   sessionClarifyRequest,
   warnDroppedChoices
 } from '@/store/clarify'
-import { $gateway } from '@/store/gateway'
 import { notifyError } from '@/store/notifications'
-import { requestForOwnedSession } from '@/store/session-states'
 
 import { handleClarifySubmitShortcut } from './clarify-submit-shortcut'
 import { selectMessageRunning } from './tool/fallback-model'
@@ -410,7 +408,6 @@ function ClarifyToolSinglePending({
 }) {
   const { t } = useI18n()
   const copy = t.assistant.clarify
-  const gateway = useStore($gateway)
 
   const matchingRequest = useMemo(() => {
     if (!request || request.questions?.length) {
@@ -466,41 +463,19 @@ function ClarifyToolSinglePending({
         return
       }
 
-      if (!gateway) {
-        notifyError(new Error(copy.gatewayDisconnected), copy.sendFailed)
+      if (!matchingRequest.request) {
+        notifyError(new Error(copy.notReady), copy.sendFailed)
 
         return
       }
 
       setSubmitting(true)
-
-      try {
-        // Route through the session's OWNER (tile route → hint → tagged row);
-        // legacy ambient is allowed only when it is provably the sole backend.
-        // The ambient socket follows foreground focus, so after a profile / Bot
-        // Chat switch it can point at a backend that never held this clarify —
-        // and the owner stays blocked (#91684 client half, like approval.respond).
-        await requestForOwnedSession<{ ok?: boolean }>(
-          matchingRequest.sessionId,
-          // Bound (not wrapped) so the ambient fallback keeps the exact 2-arg
-          // call shape gateway.request callers assert on.
-          gateway.request.bind(gateway) as typeof gateway.request,
-          'clarify.respond',
-          {
-            request_id: matchingRequest.requestId,
-            answer
-          }
-        )
-        triggerHaptic('submit')
-        onAnswered()
-        clearClarifyRequest(matchingRequest.requestId, matchingRequest.sessionId)
-        // tool.complete lands next → ClarifyToolSettled.
-      } catch (error) {
-        notifyError(error, copy.sendFailed)
-        setSubmitting(false)
-      }
+      matchingRequest.request.respond({ value: answer })
+      triggerHaptic('submit')
+      onAnswered()
+      clearClarifyRequest(matchingRequest.requestId, matchingRequest.sessionId)
     },
-    [copy.gatewayDisconnected, copy.notReady, copy.sendFailed, gateway, matchingRequest, onAnswered, ready]
+    [copy.notReady, matchingRequest, onAnswered, ready]
   )
 
   const trimmedDraft = draft.trim()
@@ -954,7 +929,6 @@ const emptyStage = { choices: [] as string[], draft: '' }
 function ClarifyToolBatchPending({ onAnswered, request }: { onAnswered: () => void; request: ClarifyRequest | null }) {
   const { t } = useI18n()
   const copy = t.assistant.clarify
-  const gateway = useStore($gateway)
 
   // qids only exist on the gateway request — args are a hydration-race
   // fallback for display, never answerable (no ids to respond with).
@@ -1029,48 +1003,21 @@ function ClarifyToolBatchPending({ onAnswered, request }: { onAnswered: () => vo
   const answeredCount = questions.filter(q => stagedAnswer(q) !== null).length
   const allStaged = answeredCount === questions.length
 
-  const confirmAll = useCallback(async () => {
-    if (!request || !gateway) {
-      notifyError(new Error(request ? copy.gatewayDisconnected : copy.notReady), copy.sendFailed)
+  const confirmAll = useCallback(() => {
+    if (!request?.request) {
+      notifyError(new Error(copy.notReady), copy.sendFailed)
 
       return
     }
 
     setSubmitting(true)
+    const answers = Object.fromEntries(questions.map(question => [question.qid, stagedAnswer(question) ?? '']))
 
-    try {
-      // Sequential, not Promise.all: the LAST lock resolves the blocked tool
-      // server-side, so every earlier lock must already be accepted when it
-      // lands — a reordered burst could complete the batch with a missing
-      // answer.
-      //
-      // Each lock rides the session's OWNER socket, not the ambient one: a
-      // profile / Bot Chat switch re-points ambient at a backend that never
-      // held this batch, which would leave the owner blocked.
-      for (const question of questions) {
-        const answer = stagedAnswer(question)
-
-        await requestForOwnedSession<{ ok?: boolean }>(
-          request.sessionId,
-          gateway.request.bind(gateway) as typeof gateway.request,
-          'clarify.respond',
-          {
-            answer: answer ?? '',
-            question_id: question.qid,
-            request_id: request.requestId
-          }
-        )
-      }
-
-      triggerHaptic('submit')
-      onAnswered()
-      // tool.complete lands next → ClarifyToolBatchSettled.
-      clearClarifyRequest(request.requestId, request.sessionId)
-    } catch (error) {
-      notifyError(error, copy.sendFailed)
-      setSubmitting(false)
-    }
-  }, [copy, gateway, onAnswered, questions, request, stagedAnswer])
+    request.request.respond({ answers })
+    triggerHaptic('submit')
+    onAnswered()
+    clearClarifyRequest(request.requestId, request.sessionId)
+  }, [copy.notReady, copy.sendFailed, onAnswered, questions, request, stagedAnswer])
 
   const toggleChoice = useCallback((question: ClarifyQuestion, choice: string) => {
     setStaged(current => {
@@ -1090,29 +1037,15 @@ function ClarifyToolBatchPending({ onAnswered, request }: { onAnswered: () => vo
     setStaged(current => ({ ...current, [question.qid]: { choices: [], draft: value } }))
   }, [])
 
-  const cancelAll = useCallback(async () => {
-    if (!request) {
+  const cancelAll = useCallback(() => {
+    if (!request?.request) {
       return
     }
 
+    request.request.respond({ value: '' })
     onAnswered()
     clearClarifyRequest(request.requestId, request.sessionId)
-
-    try {
-      if (gateway) {
-        // Owner-routed like the locks above — a skip sent to the wrong backend
-        // is a silent no-op that leaves the agent waiting out its timeout.
-        await requestForOwnedSession(
-          request.sessionId,
-          gateway.request.bind(gateway) as typeof gateway.request,
-          'clarify.respond',
-          { answer: '', request_id: request.requestId }
-        )
-      }
-    } catch {
-      // The tool times out on its own; a failed skip must never block the UI.
-    }
-  }, [gateway, onAnswered, request])
+  }, [onAnswered, request])
 
   const handleSubmit = useCallback(
     (event: FormEvent<HTMLFormElement>) => {

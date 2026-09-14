@@ -1,3 +1,4 @@
+import type { ServerRequest } from '@hermes/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
@@ -11,11 +12,11 @@ import {
   setClarifyRequest,
   skipClarifyRequest
 } from './clarify'
-import { $gateway } from './gateway'
 import { $activeSessionId } from './session'
 
-function clarify(sessionId: string | null, requestId: string): ClarifyRequest {
+function clarify(sessionId: string | null, requestId: string, request?: ServerRequest): ClarifyRequest {
   return {
+    request,
     requestId,
     question: `question-${requestId}`,
     choices: null,
@@ -87,26 +88,34 @@ describe('clarify store', () => {
 })
 
 describe('skipClarifyRequest', () => {
-  const request = vi.fn(async () => ({ ok: true }))
+  const respond = vi.fn()
+
+  const request: ServerRequest = {
+    fail: vi.fn(),
+    id: 'req-a',
+    method: 'clarify.request',
+    notify: vi.fn(),
+    params: {},
+    respond,
+    sessionId: 'session-a'
+  }
 
   beforeEach(() => {
     $clarifyRequests.set({})
-    request.mockClear()
-    $gateway.set({ request } as unknown as ReturnType<typeof $gateway.get>)
+    respond.mockClear()
   })
 
   afterEach(() => {
     $clarifyRequests.set({})
-    $gateway.set(null)
   })
 
-  it('answers the session\u2019s clarify with an empty answer and drops it', async () => {
-    setClarifyRequest(clarify('session-a', 'req-a'))
+  it('answers the session’s clarify with an empty answer and drops it', async () => {
+    setClarifyRequest(clarify('session-a', 'req-a', request))
     setClarifyRequest(clarify('session-b', 'req-b'))
 
     await expect(skipClarifyRequest('session-a')).resolves.toBe(true)
 
-    expect(request).toHaveBeenCalledWith('clarify.respond', { request_id: 'req-a', answer: '' })
+    expect(respond).toHaveBeenCalledWith({ value: '' })
     expect(hasClarifyRequest('session-a')).toBe(false)
     // A background session's question is untouched — only the one being typed
     // over is skipped.
@@ -115,12 +124,11 @@ describe('skipClarifyRequest', () => {
 
   it('is a no-op when the session has no clarify parked', async () => {
     await expect(skipClarifyRequest('session-a')).resolves.toBe(false)
-    expect(request).not.toHaveBeenCalled()
+    expect(respond).not.toHaveBeenCalled()
   })
 
-  it('still reports the skip when the respond RPC fails', async () => {
+  it('still reports the skip when no ServerRequest is stored', async () => {
     setClarifyRequest(clarify('session-a', 'req-a'))
-    request.mockRejectedValueOnce(new Error('socket closed'))
 
     await expect(skipClarifyRequest('session-a')).resolves.toBe(true)
     expect(hasClarifyRequest('session-a')).toBe(false)
