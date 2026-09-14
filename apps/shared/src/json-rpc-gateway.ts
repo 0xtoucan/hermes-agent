@@ -9,6 +9,7 @@ import {
   type ServerRequestCancel,
   wireFrameText
 } from './json-rpc-channel.js'
+import { decodeOpenServerRequests, eventsSinceResultSchema, makeServerRequest } from './server-request-wire.js'
 
 export type { GatewayEvent, GatewayEventName } from './gateway-events.js'
 export type ConnectionState = 'idle' | 'connecting' | 'open' | 'closed' | 'error'
@@ -39,6 +40,13 @@ const isGatewayReady = (event: GatewayEvent): event is GatewayEvent<'gateway.rea
 // Replay fetch after reconnect: bounded so a wedged backend can't hold the
 // guard open; generous enough for a 512-frame ring to drain.
 const REPLAY_REQUEST_TIMEOUT_MS = 10_000
+
+/** `session.events.since` result as the replay path reads it; `open_requests` is decoded by schema. */
+interface EventsSinceResult {
+  events?: GatewayEvent[]
+  epoch?: string
+  open_requests?: unknown
+}
 // A reconnect after sleep/wake must not hang forever in 'connecting' (which
 // keeps the composer disabled and stuck on "Starting Hermes..."). If the open
 // handshake doesn't land in this window, fail to 'error' so callers can retry.
@@ -163,14 +171,12 @@ export class JsonRpcGatewayClient {
   private readonly serverRequestHandlers = new Set<(request: ServerRequest) => void>()
   private readonly serverRequestCancelHandlers = new Set<(cancel: ServerRequestCancel) => void>()
 
-  /** Subscribe to backend→renderer requests (`clarify.request`, `sudo.request`, …). */
   onServerRequest(handler: (request: ServerRequest) => void): () => void {
     this.serverRequestHandlers.add(handler)
 
     return () => this.serverRequestHandlers.delete(handler)
   }
 
-  /** Subscribe to `request.cancel` (the backend withdrew a question: timeout, interrupt, shutdown). */
   onServerRequestCancel(handler: (cancel: ServerRequestCancel) => void): () => void {
     this.serverRequestCancelHandlers.add(handler)
 
@@ -187,40 +193,6 @@ export class JsonRpcGatewayClient {
     for (const handler of this.serverRequestCancelHandlers) {
       handler(cancel)
     }
-  }
-
-  /**
-   * Re-deliver a question the backend is still waiting on after a reconnect, as a `ServerRequest` whose
-   * reply goes out by id (`session.events.since.open_requests`).
-   */
-  private redeliverOpenRequest(open: { id: string; method: string; params?: unknown; partial?: unknown }): void {
-    const params = (open.params && typeof open.params === 'object' ? open.params : {}) as Record<string, unknown>
-    const partial = open.partial && typeof open.partial === 'object' ? (open.partial as Record<string, unknown>) : {}
-    let settled = false
-
-    this.dispatchServerRequest({
-      id: open.id,
-      method: open.method,
-      params: { ...params, ...(Object.keys(partial).length ? { answers: partial } : {}) },
-      sessionId: typeof params.session_id === 'string' ? params.session_id : null,
-      respond: result => {
-        if (!settled) {
-          settled = true
-          this.channel.replyToServerRequest(open.id, result)
-        }
-      },
-      fail: error => {
-        if (!settled) {
-          settled = true
-          this.channel.failServerRequest(open.id, error)
-        }
-      },
-      notify: (method, notifyParams) => {
-        if (!settled) {
-          this.channel.notifyServerRequest(open.id, method, notifyParams)
-        }
-      }
-    })
   }
 
   get connectionState(): ConnectionState {
@@ -512,10 +484,7 @@ export class JsonRpcGatewayClient {
       // One RPC per known session keeps params flat; sessions are few (<20).
       const results = await Promise.allSettled(
         entries.map(([sid, lastSeen]) =>
-          this.request<{
-            events?: Array<{ type: string; session_id?: string; seq?: number; payload?: unknown }>
-            open_requests?: Array<{ id: string; method: string; params?: unknown; partial?: unknown }>
-          }>(
+          this.request<EventsSinceResult>(
             'session.events.since',
             { session_id: sid, last_seen: lastSeen },
             REPLAY_REQUEST_TIMEOUT_MS
@@ -524,37 +493,8 @@ export class JsonRpcGatewayClient {
       )
 
       for (const result of results) {
-        if (result.status !== 'fulfilled' || !Array.isArray(result.value?.events)) {
-          continue
-        }
-
-        const epoch = (result.value as { epoch?: unknown }).epoch
-
-        if (typeof epoch === 'string' && epoch && this.replayEpoch && epoch !== this.replayEpoch) {
-          // Backend restarted: its seq numbering reset, so our watermarks —
-          // and this replay window — are meaningless. Drop them and start
-          // fresh under the new epoch.
-          this.adoptReplayEpoch(epoch)
-
-          continue
-        }
-
-        if (typeof epoch === 'string' && epoch && !this.replayEpoch) {
-          this.replayEpoch = epoch
-        }
-
-        for (const event of result.value.events) {
-          if (!event?.type) {
-            continue
-          }
-
-          this.dispatchIfNewer(event as GatewayEvent)
-        }
-
-        for (const open of result.value.open_requests ?? []) {
-          if (typeof open?.id === 'string' && typeof open.method === 'string') {
-            this.redeliverOpenRequest(open)
-          }
+        if (result.status === 'fulfilled') {
+          this.applyReplay(result.value)
         }
       }
     } catch {
@@ -562,6 +502,37 @@ export class JsonRpcGatewayClient {
     } finally {
       this.flushReplayHold()
       this.replayInFlight = false
+    }
+  }
+
+  private applyReplay(result: EventsSinceResult): void {
+    if (!Array.isArray(result.events)) {
+      return
+    }
+
+    const wire = eventsSinceResultSchema.parse(result)
+    const epoch = wire.epoch || null
+
+    if (epoch && this.replayEpoch && epoch !== this.replayEpoch) {
+      // Backend restarted: seq numbering reset, so the watermarks and this replay window are
+      // stale. Open requests from the old process are gone with it.
+      this.adoptReplayEpoch(epoch)
+
+      return
+    }
+
+    if (epoch && !this.replayEpoch) {
+      this.replayEpoch = epoch
+    }
+
+    for (const event of result.events) {
+      if (event?.type) {
+        this.dispatchIfNewer(event)
+      }
+    }
+
+    for (const open of decodeOpenServerRequests(wire.open_requests)) {
+      this.dispatchServerRequest(makeServerRequest(() => this.channel.boundTransport(), open))
     }
   }
 

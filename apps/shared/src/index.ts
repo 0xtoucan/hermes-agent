@@ -124,10 +124,6 @@ export {
   JsonRpcRequestChannel,
   type JsonRpcRequestChannelOptions,
   type JsonRpcTransport,
-  SERVER_REQUEST_CANCEL_METHOD,
-  SERVER_REQUEST_ID_PREFIX,
-  type ServerRequest,
-  type ServerRequestCancel,
   wireFrameText
 } from './json-rpc-channel'
 export {
@@ -148,6 +144,20 @@ export {
   type ReasoningEffortValue
 } from './reasoning-effort'
 export { reconnectBackoffDelayMs, type ReconnectBackoffOptions } from './reconnect-backoff'
+export {
+  decodeOpenServerRequests,
+  type EventsSinceResult,
+  eventsSinceResultSchema,
+  makeServerRequest,
+  type OpenServerRequest,
+  SERVER_REQUEST_CANCEL_METHOD,
+  SERVER_REQUEST_ID_PREFIX,
+  type ServerRequest,
+  type ServerRequestCancel,
+  type ServerRequestParams,
+  type ServerRequestProgress,
+  type ServerRequestResult
+} from './server-request-wire'
 export { skillInvocationText } from './skill-scaffold'
 export {
   type HermesSkin,

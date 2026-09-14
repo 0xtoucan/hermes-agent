@@ -248,7 +248,7 @@ function handleVaultUnlockServerRequest({ deps, request }: ServerRequestContext)
   return true
 }
 
-const SERVER_REQUEST_HANDLERS: Record<string, ServerRequestHandler> = {
+const SERVER_REQUEST_HANDLERS = {
   'clarify.request': handleClarifyServerRequest,
   'mcp.setup.request': handleMcpSetupServerRequest,
   'secret.request': handleSecretServerRequest,
@@ -256,14 +256,15 @@ const SERVER_REQUEST_HANDLERS: Record<string, ServerRequestHandler> = {
   'vault.code.request': handleVaultCodeServerRequest,
   'vault.save_login.request': handleVaultSaveLoginServerRequest,
   'vault.unlock.request': handleVaultUnlockServerRequest
-}
+} satisfies Record<string, ServerRequestHandler>
 
-/** Route blocking backend requests to the per-session card that owns their response. */
+const isInputRequestMethod = (method: string): method is keyof typeof SERVER_REQUEST_HANDLERS =>
+  Object.hasOwn(SERVER_REQUEST_HANDLERS, method)
+
 export function handleInputServerRequest(request: ServerRequest, deps: GatewayEventDeps): boolean {
-  return SERVER_REQUEST_HANDLERS[request.method]?.({ deps, request }) ?? false
+  return isInputRequestMethod(request.method) ? SERVER_REQUEST_HANDLERS[request.method]({ deps, request }) : false
 }
 
-/** Remove a withdrawn request only when it still matches the card on that session. */
 export function handleInputServerRequestCancel(cancel: ServerRequestCancel, deps: GatewayEventDeps): void {
   const clarify = $clarifyRequests.get()[cancel.sessionId ?? '']
 
@@ -297,7 +298,6 @@ export function handleInputServerRequestCancel(cancel: ServerRequestCancel, deps
   clearVaultUnlockRequest(cancel.sessionId, cancel.id)
 }
 
-/** Keep approval on its event/RPC bridge; it is not part of ServerRequest yet. */
 export function handleInputRequestEvent(ctx: GatewayEventContext): boolean {
   const { deps, event, payload, sessionId } = ctx
 

@@ -18,6 +18,7 @@
     "./model-search-text": "./src/model-search-text.ts",
     "./reasoning-effort": "./src/reasoning-effort.ts",
     "./reconnect-backoff": "./src/reconnect-backoff.ts",
+    "./server-request-wire": "./src/server-request-wire.ts",
     "./skin": "./src/skin.ts",
     "./slash": "./src/slash.ts",
     "./theme-presets": "./src/theme-presets.ts"
@@ -29,6 +30,9 @@
     "fix": "npm run lint:fix",
     "typecheck": "tsc -p . --noEmit",
     "check": "npm run typecheck && npm run lint"
+  },
+  "dependencies": {
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "typescript": "6.0.3"

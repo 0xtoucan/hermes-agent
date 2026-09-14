@@ -14,6 +14,12 @@ import {
   wireFrameText
 } from '@hermes/shared/json-rpc-channel'
 import { reconnectBackoffDelayMs } from '@hermes/shared/reconnect-backoff'
+import {
+  decodeOpenServerRequests,
+  eventsSinceResultSchema,
+  makeServerRequest,
+  type OpenServerRequest
+} from '@hermes/shared/server-request-wire'
 import { WebSocket as UndiciWebSocket } from 'undici'
 
 import type { AnyGatewayEvent } from './gatewayTypes.js'
@@ -24,12 +30,6 @@ const MAX_GATEWAY_LOG_LINES = 200
 const MAX_LOG_LINE_BYTES = 4096
 const MAX_BUFFERED_EVENTS = 2000
 const MAX_LOG_PREVIEW = 240
-interface OpenServerRequest {
-  id: string
-  method: string
-  params?: ServerRequest['params'] & { session_id?: string }
-  partial?: Record<string, string>
-}
 
 const STARTUP_TIMEOUT_MS = Math.max(5000, parseInt(process.env.HERMES_TUI_STARTUP_TIMEOUT_MS ?? '15000', 10) || 15000)
 const REQUEST_TIMEOUT_MS = Math.max(30000, parseInt(process.env.HERMES_TUI_RPC_TIMEOUT_MS ?? '120000', 10) || 120000)
@@ -224,32 +224,7 @@ export class GatewayClient extends EventEmitter {
   }
 
   private redeliverOpenRequest(open: OpenServerRequest) {
-    let settled = false
-    const params = { ...(open.params ?? {}), ...(open.partial ? { answers: open.partial } : {}) }
-
-    this.publishServerRequest({
-      fail: error => {
-        if (!settled) {
-          settled = true
-          this.channel.failServerRequest(open.id, error)
-        }
-      },
-      id: open.id,
-      method: open.method,
-      notify: (method, notifyParams) => {
-        if (!settled) {
-          this.channel.notifyServerRequest(open.id, method, notifyParams)
-        }
-      },
-      params,
-      respond: result => {
-        if (!settled) {
-          settled = true
-          this.channel.replyToServerRequest(open.id, result)
-        }
-      },
-      sessionId: typeof params.session_id === 'string' ? params.session_id : null
-    })
+    this.publishServerRequest(makeServerRequest(() => this.channel.boundTransport(), open))
   }
 
   private publish(ev: AnyGatewayEvent) {
@@ -794,13 +769,13 @@ export class GatewayClient extends EventEmitter {
     }
 
     try {
-      const result = await this.request<{ open_requests?: OpenServerRequest[] }>('session.events.since', { last_seen: 0, session_id: sid })
+      const result = await this.request('session.events.since', { last_seen: 0, session_id: sid })
 
-      for (const open of result.open_requests ?? []) {
+      for (const open of decodeOpenServerRequests(eventsSinceResultSchema.parse(result).open_requests)) {
         this.redeliverOpenRequest(open)
       }
     } catch {
-      // A replay failure leaves the next reconnect or prompt action to retry.
+      // Replay is best effort; a reconnect repeats it.
     }
   }
 
