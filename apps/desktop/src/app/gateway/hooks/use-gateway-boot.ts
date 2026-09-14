@@ -28,6 +28,7 @@ import {
   $gateway,
   activeGateway,
   activeGatewayConnectionId,
+  bindGatewayServerRequests,
   closeLegacySecondaryGateways,
   closeSecondaryGateways,
   configureGatewayRegistry,
@@ -897,6 +898,8 @@ export function useGatewayBoot({
 
     const sourceProfile = normalizeProfileKey($activeGatewayProfile.get())
 
+    const offServerRequests = bindGatewayServerRequests(gateway)
+
     const offEvent = gateway.onEvent(event => {
       const connectionId = activeGatewayConnectionId()
 
@@ -1274,6 +1277,7 @@ export function useGatewayBoot({
       offActiveStateReauth()
       offState()
       offEvent()
+      offServerRequests()
       offExit()
       offWindowState?.()
       offBootProgress()

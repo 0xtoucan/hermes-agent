@@ -1,4 +1,4 @@
-import type { ServerRequest } from '@hermes/shared'
+import type { ServerRequest } from '@hermes/plugin-sdk'
 
 /**
  * Bot Mode domain model.

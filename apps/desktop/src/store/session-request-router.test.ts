@@ -51,6 +51,8 @@ vi.mock('@/hermes', () => ({
         }
       }
     )
+    onServerRequest = vi.fn(() => () => {})
+    onServerRequestCancel = vi.fn(() => () => {})
     onState = vi.fn((handler: (state: string) => void) => {
       this.stateHandler = handler
 

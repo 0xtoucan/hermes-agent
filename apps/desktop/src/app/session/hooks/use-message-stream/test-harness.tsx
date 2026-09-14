@@ -1,53 +1,14 @@
 import type { GatewayEvent, ServerRequest, ServerRequestCancel } from '@hermes/shared'
 import { QueryClient } from '@tanstack/react-query'
+import { render } from '@testing-library/react'
 import { useEffect, useRef } from 'react'
-import { flushSync } from 'react-dom'
-import { createRoot } from 'react-dom/client'
-import { afterEach, vi } from 'vitest'
+import { vi } from 'vitest'
 
-const mountedHarnesses = new Set<() => void>()
-
-afterEach(() => {
-  for (const unmount of mountedHarnesses) {
-    unmount()
-  }
-})
-
-import { HermesGateway } from '@/api/client'
 import type { ClientSessionState } from '@/app/types'
 import { createClientSessionState } from '@/lib/chat-runtime'
-import { $gateway } from '@/store/gateway'
+import { bindGatewayServerRequests } from '@/store/gateway'
 
 import { useMessageStream } from './index'
-
-class ServerRequestGateway extends HermesGateway {
-  private readonly requestHandlers = new Set<(request: ServerRequest) => void>()
-  private readonly cancelHandlers = new Set<(cancel: ServerRequestCancel) => void>()
-
-  override onServerRequest(handler: (request: ServerRequest) => void): () => void {
-    this.requestHandlers.add(handler)
-
-    return () => this.requestHandlers.delete(handler)
-  }
-
-  override onServerRequestCancel(handler: (cancel: ServerRequestCancel) => void): () => void {
-    this.cancelHandlers.add(handler)
-
-    return () => this.cancelHandlers.delete(handler)
-  }
-
-  fire(request: ServerRequest): void {
-    for (const handler of this.requestHandlers) {
-      handler(request)
-    }
-  }
-
-  fireCancel(cancel: ServerRequestCancel): void {
-    for (const handler of this.cancelHandlers) {
-      handler(cancel)
-    }
-  }
-}
 
 export interface MessageStreamHarnessOptions extends Partial<Parameters<typeof useMessageStream>[0]> {
   /** Session-state map to mount with, for tests that seed state up front. */
@@ -57,9 +18,7 @@ export interface MessageStreamHarnessOptions extends Partial<Parameters<typeof u
 export interface MessageStreamHarness {
   /** Feed a gateway event into the mounted hook. */
   handleEvent: (event: GatewayEvent) => void
-  /** Feed a backend request into the hook's subscribed request channel. */
   handleServerRequest: (request: ServerRequest) => void
-  /** Withdraw a backend request through the subscribed request channel. */
   handleServerRequestCancel: (cancel: ServerRequestCancel) => void
   /** Push streaming assistant text, bypassing the event envelope. For the specs
    *  about flush scheduling rather than about a particular event. */
@@ -95,10 +54,22 @@ export function renderMessageStream(
   let appendDelta: ((sessionId: string, delta: string) => void) | null = null
   let latest: ClientSessionState | null = null
 
-  const originalGateway = $gateway.get()
-  const requestHarness = new ServerRequestGateway()
+  // A socket-shaped source for the registry fan-out the hook subscribes to.
+  const requestHandlers = new Set<(request: ServerRequest) => void>()
+  const cancelHandlers = new Set<(cancel: ServerRequestCancel) => void>()
 
-  $gateway.set(requestHarness)
+  const unbindServerRequests = bindGatewayServerRequests({
+    onServerRequest: (handler: (request: ServerRequest) => void) => {
+      requestHandlers.add(handler)
+
+      return () => requestHandlers.delete(handler)
+    },
+    onServerRequestCancel: (handler: (cancel: ServerRequestCancel) => void) => {
+      cancelHandlers.add(handler)
+
+      return () => cancelHandlers.delete(handler)
+    }
+  })
 
   function Harness() {
     const activeSessionIdRef = useRef<string | null>(sessionId)
@@ -127,31 +98,12 @@ export function renderMessageStream(
       appendDelta = stream.appendAssistantDelta
     }, [stream.appendAssistantDelta, stream.handleGatewayEvent])
 
-    useEffect(
-      () => () => {
-        $gateway.set(originalGateway)
-      },
-      []
-    )
+    useEffect(() => unbindServerRequests, [])
 
     return null
   }
 
-  const container = document.createElement('div')
-  const root = createRoot(container)
-  let unmounted = false
-
-  flushSync(() => root.render(<Harness />))
-
-  const unmount = () => {
-    if (!unmounted) {
-      flushSync(() => root.unmount())
-      unmounted = true
-      mountedHarnesses.delete(unmount)
-    }
-  }
-
-  mountedHarnesses.add(unmount)
+  render(<Harness />)
 
   const state = (id = sessionId ?? '') => states.get(id) ?? createClientSessionState()
 
@@ -163,8 +115,16 @@ export function renderMessageStream(
 
       dispatch(event)
     },
-    handleServerRequest: request => requestHarness.fire(request),
-    handleServerRequestCancel: cancel => requestHarness.fireCancel(cancel),
+    handleServerRequest: request => {
+      for (const handler of requestHandlers) {
+        handler(request)
+      }
+    },
+    handleServerRequestCancel: cancel => {
+      for (const handler of cancelHandlers) {
+        handler(cancel)
+      }
+    },
     appendDelta: (id, delta) => {
       if (!appendDelta) {
         throw new Error('renderMessageStream: the hook never mounted')

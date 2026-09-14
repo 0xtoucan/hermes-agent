@@ -34,6 +34,8 @@ vi.mock('@/hermes', () => ({
     })
     close = vi.fn()
     onEvent = vi.fn(() => () => {})
+    onServerRequest = vi.fn(() => () => {})
+    onServerRequestCancel = vi.fn(() => () => {})
     onState = vi.fn(() => () => {})
 
     constructor() {

@@ -46,7 +46,7 @@ import { registry } from '@/contrib/registry'
 import type { WorkspaceMode } from '@/contrib/types'
 import { deleteProfile, getLogs, getStatus, hermesApi, type HermesGateway } from '@/hermes'
 import { completeMcpDesktopOAuth } from '@/lib/mcp-dashboard-oauth'
-import { activeGateway } from '@/store/gateway'
+import { onGatewayServerRequest, onGatewayServerRequestCancel } from '@/store/gateway'
 import {
   $gateway,
   activeGatewayConnectionId,
@@ -1435,24 +1435,15 @@ export const host = {
     return gateway.request<T>(method, params)
   },
 
-  /** The LIVE gateway instance for the active profile (null before the first
-  *  socket opens). Most plugins want `host.request`; this exists for SDK
-  *  components that take a `HermesGateway` prop directly (e.g. `McpTab`),
-  *  which need the instance, not just a JSON-RPC door. Re-read per use — the
-  *  active instance changes on a profile swap. */
+  // Read per use because a profile swap replaces the active gateway instance.
   getGateway: (): HermesGateway | null => $gateway.get(),
 
-  /** Subscribe to requests from a member's live gateway connection. */
-  onServerRequest: (
-    _member: unknown,
-    listener: (request: ServerRequest) => void
-  ): (() => void) => activeGateway()?.onServerRequest(listener) ?? (() => undefined),
+  /** Backend→renderer questions from every open socket (primary and pooled bot
+   *  sockets); filter by `request.sessionId`. */
+  onServerRequest: (listener: (request: ServerRequest) => void): (() => void) => onGatewayServerRequest(listener),
 
-  /** Subscribe to cancellation frames from a member's live gateway connection. */
-  onServerRequestCancel: (
-    _member: unknown,
-    listener: (cancel: ServerRequestCancel) => void
-  ): (() => void) => activeGateway()?.onServerRequestCancel(listener) ?? (() => undefined)
+  onServerRequestCancel: (listener: (cancel: ServerRequestCancel) => void): (() => void) =>
+    onGatewayServerRequestCancel(listener)
 }
 
 // -- react bridge -------------------------------------------------------------
@@ -1651,8 +1642,6 @@ export type { Contribution } from '@/contrib/types'
 /** The live gateway instance type — for typing the `gateway` prop `McpTab`
  *  takes; obtain the instance from `host.getGateway()`. */
 export type { HermesGateway } from '@/hermes'
-
-// -- contracts ----------------------------------------------------------------
 
 /** Grab-to-pan for overflow containers (boards, timelines, wide tables) —
  *  the shared scrub primitive; don't hand-roll drag-to-scroll. */

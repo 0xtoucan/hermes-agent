@@ -421,8 +421,6 @@ async function submitGroupTurnPrompt(
 // reached the room (db's Aug 2026 report).
 const GROUP_TURN_HARD_CAP_MS = 20 * 60000
 
-/** Keep approval snapshots mirrored while clarify requests arrive through the
- * gateway request channel. */
 export function syncGroupClarify(group: string, member: GroupMember, state: GroupSessionSnapshot | null): boolean {
   const key = `${group}::${groupMemberKey(member)}`
 
@@ -523,14 +521,16 @@ export function cancelGroupClarifyServerRequest(group: string, member: GroupMemb
   $groupClarify.set(next)
 }
 
-function subscribeGroupClarifyServerRequests(group: string, member: GroupMember): () => void {
-  // Member-scoped: a remote-connection bot's questions arrive on ITS gateway, not the window's active one.
-  if (typeof host.onServerRequest !== 'function' || typeof host.onServerRequestCancel !== 'function') {
-    return () => undefined
-  }
+// The host fan-out carries every socket's questions; `runtimeIds` (the member's session ids seen
+// this turn) keeps another member's clarify out of this member's card.
+function subscribeGroupClarifyServerRequests(group: string, member: GroupMember, runtimeIds: Set<string>): () => void {
+  const stopRequest = host.onServerRequest(request => {
+    if (request.sessionId && runtimeIds.has(request.sessionId)) {
+      receiveGroupClarifyServerRequest(group, member, request)
+    }
+  })
 
-  const stopRequest = host.onServerRequest(member, request => receiveGroupClarifyServerRequest(group, member, request))
-  const stopCancel = host.onServerRequestCancel(member, cancel => cancelGroupClarifyServerRequest(group, member, cancel))
+  const stopCancel = host.onServerRequestCancel(cancel => cancelGroupClarifyServerRequest(group, member, cancel))
 
   return () => {
     stopRequest()
@@ -551,8 +551,6 @@ export function groupHasPendingClarify(clarifies: Record<string, GroupPrompt>, g
   return Object.values(clarifies).some(entry => entry?.group === group)
 }
 
-/** Drop every mirrored clarify belonging to `group` (disband — the room is
- *  gone, nothing to move the attention to). */
 export function clearGroupClarify(group: string) {
   const all = $groupClarify.get()
   const next: Record<string, GroupPrompt> = {}
@@ -697,14 +695,13 @@ export async function runGroupChatMemberTurn(
   let releaseTurnLease: (() => void) | undefined
 
   let stopServerRequests: (() => void) | undefined
+  const runtimeIds = new Set<string>()
 
   try {
-    // Subscribe before any await: a question the member raises while the route lease is being taken
-    // must not be missed.
-    stopServerRequests = subscribeGroupClarifyServerRequests(group, member)
+    stopServerRequests = subscribeGroupClarifyServerRequests(group, member, runtimeIds)
     releaseTurnLease = await retainGroupTurnRoute(member)
 
-    return binding.isLive() ? await runGroupChatMemberTurnLeased(group, member, prompt, thread, images) : null
+    return binding.isLive() ? await runGroupChatMemberTurnLeased(group, member, prompt, thread, runtimeIds, images) : null
   } finally {
     stopServerRequests?.()
     releaseTurnLease?.()
@@ -910,13 +907,11 @@ async function pollGroupMemberTurn(context: GroupTurnPollContext): Promise<null 
 async function prepareGroupTurnBaseline(
   member: GroupMember,
   runtime: string,
-  stored: GroupMemberSessionHandle['stored']
-) {
+  stored: GroupMemberSessionHandle['stored'],
+  runtimeIds: Set<string>
+): Promise<number> {
   // Baseline: how many messages exist before our submit.
   let before = 0
-  // Every runtime id this turn has seen for the member's session. Terminal
-  // frames are keyed by runtime id, and a resume can hand back a fresh one.
-  const runtimeIds = new Set<string>([runtime])
 
   try {
     const pre = (await requestForBot(member, 'session.resume', {
@@ -933,7 +928,7 @@ async function prepareGroupTurnBaseline(
     /* lazy session — zero messages */
   }
 
-  return { before, runtimeIds }
+  return before
 }
 
 async function runGroupChatMemberTurnLeased(
@@ -941,6 +936,7 @@ async function runGroupChatMemberTurnLeased(
   member: GroupMember,
   prompt: string,
   thread: string,
+  runtimeIds: Set<string>,
   images?: Attachment[]
 ): Promise<null | string> {
   const binding = followGroupChat(group, name => {
@@ -963,7 +959,8 @@ async function runGroupChatMemberTurnLeased(
       thread
     })
 
-    const { before, runtimeIds } = await prepareGroupTurnBaseline(member, runtime, stored)
+    runtimeIds.add(runtime)
+    const before = await prepareGroupTurnBaseline(member, runtime, stored, runtimeIds)
 
     const { failed, fileRefs } = await stageGroupTurnAttachments(member, runtime, images)
 

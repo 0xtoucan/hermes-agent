@@ -13,7 +13,7 @@ import {
   UNSCOPED_STREAM_EVENT_TYPES
 } from '@/lib/gateway-events'
 import { reconcileSessionCompacting } from '@/store/compaction'
-import { $gateway, activeGatewayConnectionId } from '@/store/gateway'
+import { $gateway, activeGatewayConnectionId, onGatewayServerRequest, onGatewayServerRequestCancel } from '@/store/gateway'
 import { $activeGatewayProfile, normalizeProfileKey } from '@/store/profile'
 import { replayPendingApproval } from '@/store/prompts'
 import { setSessionProviderWait } from '@/store/provider-wait'
@@ -81,8 +81,6 @@ const PROVIDER_WAIT_SUPERSEDING_EVENT_TYPES = new Set([
   'tool.start'
 ])
 
-// Ordered family handlers; each consumes its own event types and reports
-// whether it did, so dispatch stops at the first taker.
 const HANDLERS: GatewayEventHandler[] = [
   handleLifecycleEvent,
   handleSessionInfoEvent,
@@ -98,9 +96,6 @@ const SERVER_REQUEST_HANDLERS: Array<(request: ServerRequest, deps: GatewayEvent
   handleDesktopBridgeServerRequest
 ]
 
-
-
-/** The gateway-event dispatcher, extracted from useMessageStream. */
 export function useGatewayEventHandler(deps: GatewayEventDeps) {
   const { activeSessionIdRef, compactedTurnRef, refreshHermesConfig, sessionStateByRuntimeIdRef } = deps
 
@@ -161,23 +156,10 @@ export function useGatewayEventHandler(deps: GatewayEventDeps) {
   )
 
   useEffect(() => {
-    let disposeRequest: () => void = () => undefined
-    let disposeCancel: () => void = () => undefined
-
-    const subscribe = () => {
-      disposeRequest()
-      disposeCancel()
-      const gateway = $gateway.get()
-
-      disposeRequest = gateway?.onServerRequest(handleServerRequest) ?? (() => undefined)
-      disposeCancel = gateway?.onServerRequestCancel(handleServerRequestCancel) ?? (() => undefined)
-    }
-
-    subscribe()
-    const unlistenGateway = $gateway.listen(subscribe)
+    const disposeRequest = onGatewayServerRequest(handleServerRequest)
+    const disposeCancel = onGatewayServerRequestCancel(handleServerRequestCancel)
 
     return () => {
-      unlistenGateway()
       disposeRequest()
       disposeCancel()
     }

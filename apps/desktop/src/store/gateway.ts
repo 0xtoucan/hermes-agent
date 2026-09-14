@@ -1,11 +1,11 @@
 import {
   type ConnectionState,
   type GatewayEvent,
-  type ServerRequest,
-  type ServerRequestCancel,
   reconnectBackoffDelayMs,
   registryBackendScopeKey,
-  resolveGatewayWsUrl
+  resolveGatewayWsUrl,
+  type ServerRequest,
+  type ServerRequestCancel
 } from '@hermes/shared'
 import { atom } from 'nanostores'
 
@@ -58,8 +58,6 @@ interface RegistryConfig {
    * the connection store. */
   activeConnectionId?: () => null | string
   onEvent: (event: GatewayEvent) => void
-  onServerRequest?: (request: ServerRequest) => void
-  onServerRequestCancel?: (cancel: ServerRequestCancel) => void
   onActiveConnectionInvalidated?: (fallbackProfile: string, activationEpoch: number) => void
   onActiveConnectionChanged?: (connection: HermesConnection) => void
   /**
@@ -180,6 +178,8 @@ interface GatewayRegistryState {
   turnLeases: Map<string, () => void>
   /** Debounced releases so an immediate chained turn can reuse its lease. */
   turnLeaseReleaseTimers: Map<string, ReturnType<typeof setTimeout>>
+  serverRequestHandlers?: Set<(request: ServerRequest) => void>
+  serverRequestCancelHandlers?: Set<(cancel: ServerRequestCancel) => void>
   $gateway: ReturnType<typeof atom<HermesGateway | null>>
   $activeProfile: ReturnType<typeof atom<string>>
 }
@@ -271,6 +271,48 @@ export function configureGatewayRegistry(cfg: RegistryConfig): void {
  */
 export function emitLocalGatewayEvent(event: GatewayEvent): void {
   g.config?.onEvent(event)
+}
+
+// Backend→renderer questions arrive on whichever socket owns the session (primary or a
+// pooled secondary); one fan-out so a handler sees every socket's requests, not the active one's.
+const serverRequestHandlers = (): Set<(request: ServerRequest) => void> => (g.serverRequestHandlers ??= new Set())
+
+const serverRequestCancelHandlers = (): Set<(cancel: ServerRequestCancel) => void> =>
+  (g.serverRequestCancelHandlers ??= new Set())
+
+export function onGatewayServerRequest(handler: (request: ServerRequest) => void): () => void {
+  serverRequestHandlers().add(handler)
+
+  return () => serverRequestHandlers().delete(handler)
+}
+
+export function onGatewayServerRequestCancel(handler: (cancel: ServerRequestCancel) => void): () => void {
+  serverRequestCancelHandlers().add(handler)
+
+  return () => serverRequestCancelHandlers().delete(handler)
+}
+
+/** The two subscriptions a socket exposes for backend questions; `HermesGateway` satisfies it. */
+export type ServerRequestSource = Pick<HermesGateway, 'onServerRequest' | 'onServerRequestCancel'>
+
+/** Feed one socket's server requests into the registry fan-out; returns the unsubscribe. */
+export function bindGatewayServerRequests(gateway: ServerRequestSource): () => void {
+  const offRequest = gateway.onServerRequest(request => {
+    for (const handler of serverRequestHandlers()) {
+      handler(request)
+    }
+  })
+
+  const offCancel = gateway.onServerRequestCancel(cancel => {
+    for (const handler of serverRequestCancelHandlers()) {
+      handler(cancel)
+    }
+  })
+
+  return () => {
+    offRequest()
+    offCancel()
+  }
 }
 
 export function setPrimaryGateway(gateway: HermesGateway | null, profile = 'default'): void {
@@ -820,18 +862,20 @@ function createSecondary(profile: string, connectionId: null | string = null): S
   // everywhere. A pool secondary with no registry connection has no exact
   // connection id, so stamp this closure-owned profile before registry fan-in;
   // the recorder must not promote an arbitrary wire `profile` field instead.
-  entry.offEvent = gateway.onEvent(event => {
+  const offEvent = gateway.onEvent(event => {
     const scopedEvent = stampSecondaryProfileOwner({ ...event, ...(connectionId ? { connectionId } : {}) }, profile)
 
     g.config?.onEvent(scopedEvent)
     releaseTerminalTurnLease(entry.scope, event)
   })
-  gateway.onServerRequest(request => {
-    g.config?.onServerRequest?.(request)
-  })
-  gateway.onServerRequestCancel(cancel => {
-    g.config?.onServerRequestCancel?.(cancel)
-  })
+
+  const offServerRequests = bindGatewayServerRequests(gateway)
+
+  entry.offEvent = () => {
+    offEvent()
+    offServerRequests()
+  }
+
   entry.offState = gateway.onState(state => {
     reportGatewayState(scope, state)
 

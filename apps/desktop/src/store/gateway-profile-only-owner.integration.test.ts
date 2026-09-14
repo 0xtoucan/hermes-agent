@@ -40,6 +40,10 @@ vi.mock('@/hermes', async importActual => ({
       return () => this.eventHandlers.delete(handler)
     }
 
+    onServerRequest = vi.fn(() => () => {})
+
+    onServerRequestCancel = vi.fn(() => () => {})
+
     onState = (): (() => void) => () => undefined
 
     emit = (event: { payload?: Record<string, unknown>; session_id?: string; type: string }): void => {

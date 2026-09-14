@@ -33,6 +33,8 @@ vi.mock('@/hermes', () => ({
       this.connectionState = 'open'
     }
     onEvent = vi.fn(() => () => {})
+    onServerRequest = vi.fn(() => () => {})
+    onServerRequestCancel = vi.fn(() => () => {})
     onState = vi.fn(() => () => {})
     constructor() {
       gatewayMocks.instances.push(this as never)

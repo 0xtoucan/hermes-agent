@@ -1,3 +1,4 @@
+import type { ServerRequest } from '@hermes/plugin-sdk'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type * as groupChat from './group-chat'
@@ -380,7 +381,7 @@ describe('clarify and approvals (#90694)', () => {
     expect(Object.keys(room.chat.$groupClarify.get())).toHaveLength(0)
   })
 
-  const clarifyRequest = (id: string, params: Record<string, unknown>, sessionId = 'rt-research-1') => ({
+  const clarifyRequest = (id: string, params: ServerRequest['params'], sessionId = 'rt-research-1') => ({
     fail: vi.fn(),
     id,
     method: 'clarify.request',
@@ -390,7 +391,6 @@ describe('clarify and approvals (#90694)', () => {
     sessionId
   })
 
-  /** Deliver `request` the way the member turn's subscription does; return the mirrored entry. */
   const deliverClarify = (room: Room, group: string, member: GroupMember, request: ReturnType<typeof clarifyRequest>) => {
     room.turns.receiveGroupClarifyServerRequest(group, member, request)
 
@@ -412,11 +412,9 @@ describe('clarify and approvals (#90694)', () => {
     expect(entry!.choices).toEqual(['staging', 'prod'])
     expect(room.turns.groupHasPendingClarify(room.chat.$groupClarify.get(), 'Core')).toBe(true)
 
-    // Same request re-delivered (reconnect replay): no new entry, identity preserved.
     deliverClarify(room, 'Core', member, request)
     expect(Object.values(room.chat.$groupClarify.get())[0]).toBe(entry)
 
-    // Withdrawn by the backend (request.cancel): the mirror and the derived badge clear.
     withdrawClarify(room, 'Core', member, request)
     expect(Object.keys(room.chat.$groupClarify.get())).toHaveLength(0)
     expect(room.turns.groupHasPendingClarify(room.chat.$groupClarify.get(), 'Core')).toBe(false)
