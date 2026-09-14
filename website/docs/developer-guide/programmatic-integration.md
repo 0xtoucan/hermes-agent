@@ -46,7 +46,6 @@ session.create          session.list            session.active_list
 session.activate        session.close           session.interrupt
 session.history         session.compress        session.branch
 session.title           session.usage           session.status
-clarify.respond         sudo.respond            secret.respond
 approval.respond        config.set / config.get commands.catalog
 command.resolve         command.dispatch        cli.exec
 reload.mcp              reload.env              process.stop
@@ -76,7 +75,18 @@ On a successful truncating submit against a durable session, the `prompt.submit`
 
 ### Events streamed back
 
-`message.delta`, `message.complete`, `tool.start`, `tool.generating`, `tool.complete`, `approval.request`, `clarify.request`, `sudo.request`, `sudo.expire`, `secret.request`, `secret.expire`, `gateway.ready`, plus session lifecycle and error events. Expiry events carry the original `{ request_id }`; external hosts should clear only the matching pending prompt.
+`message.delta`, `message.complete`, `tool.start`, `tool.generating`, `tool.complete`, `approval.request`, `gateway.ready`, plus session lifecycle and error events.
+
+### Requests the backend sends to the host
+
+Questions the agent needs a human answer for (`clarify.request`, `sudo.request`, `secret.request`, `vault.unlock.request`, `vault.save_login.request`, `vault.code.request`, `mcp.setup.request`, `terminal.read.request`, `preview.read.request`, `preview.act.request`, `window.read.request`, `tour.request`) arrive as JSON-RPC **requests** with a string id prefixed `srq-`:
+
+```
+← {"jsonrpc":"2.0","id":"srq-7","method":"clarify.request","params":{"session_id":"…","question":"…","choices":[…]}}
+→ {"jsonrpc":"2.0","id":"srq-7","result":{"value":"blue"}}
+```
+
+The host answers with a response frame carrying the same id; `result.value` is the answer for single-value kinds, `result.answers` (`{qid: answer}`) for a multi-question clarify, and `{"value": ""}` skips. A multi-question clarify may lock answers early with the notification `clarify.progress {id, question_id, answer}`; the backend merges them into the final result and returns them on timeout. When the backend stops waiting (timeout, `session.interrupt`, shutdown) it sends one notification `request.cancel {session_id, id, reason}`; clear only that pending prompt. After a reconnect, `session.events.since` returns `open_requests` (same `{id, method, params}` plus `partial` locks) so the host can re-show unanswered questions and still reply by id.
 
 ### Pi-style RPC mapping
 
@@ -94,7 +104,7 @@ Every command in the Pi-mono RPC spec ([issue #360](https://github.com/NousResea
 | `get_messages` | `session.history` |
 | `switch_session` | `session.resume` |
 | `fork` | `session.branch` |
-| `ui_request` / `ui_response` | `clarify.respond` / `sudo.respond` / `secret.respond` / `approval.respond` |
+| `ui_request` / `ui_response` | response frame to a `*.request` server request / `approval.respond` |
 
 ---
 

@@ -27,6 +27,13 @@ existing topical sibling, registered in the table — no `if method == ...` chai
 New event = a new key in `apps/shared/src/gateway-events.ts::GatewayEventMap` + `BACKEND_EVENT_NAMES`
 AND `apps/shared/src/gateway-events.json`; `tests/tui_gateway/test_gateway_event_contract.py` (emitter
 side) and `apps/shared/src/gateway-events.test.ts` (type side) both fail when either drifts.
+Backend→renderer questions (clarify, sudo, secret, vault.*, mcp.setup, terminal/preview/window reads,
+tour) are JSON-RPC REQUESTS with `srq-` ids (`tui_gateway/server_requests.py`), not event pairs: the
+renderer answers with a response frame carrying the same id; the backend sends one `request.cancel`
+notification on timeout/interrupt; `session.events.since` lists `open_requests` for reconnects. New
+question kind = one `server_requests.server_request("<name>.request", sid, params)` call on the backend and
+one `onServerRequest` handler on each client. Approval is the exception: `approval.request` →
+`approval.respond` stays event+method because `tools/approval.py` is shared with the messaging platforms.
 
 ## Key surfaces
 
@@ -35,7 +42,7 @@ side) and `apps/shared/src/gateway-events.test.ts` (type side) both fail when ei
 | Chat streaming | `app.tsx` + `messageLine.tsx` | `prompt.submit` → `message.delta` / `message.complete` |
 | Tool activity | `thinking.tsx` | `tool.start` / `tool.generating` / `tool.complete` |
 | Approvals | `prompts.tsx` | `approval.request` → `approval.respond` |
-| Clarify / sudo / secret | `prompts.tsx`, `maskedPrompt.tsx` | `clarify.respond`, `sudo.respond`, `secret.respond` |
+| Clarify / sudo / secret | `prompts.tsx`, `maskedPrompt.tsx` | server requests `clarify.request`, `sudo.request`, `secret.request` → response frame by id |
 | Session picker | `sessionPicker.tsx` | `session.list` / `session.resume` |
 | Slash commands | local handler + fallthrough | `slash.exec` → `_SlashWorker`; `command.dispatch` |
 | Completions | `useCompletion` hook | `complete.slash`, `complete.path` |
