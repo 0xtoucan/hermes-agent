@@ -93,7 +93,10 @@ def test_children_and_nested_tools_share_admission_but_guide_never_counts(free_a
     from hermes_cli import auth
     token = set_hermes_home_override(str(guide))
     try:
-        auth._save_active_provider_state("nous", {"auth_method": "anonymous", "anon_token": "anon_fixture"})
+        # This identity has existing tool usage, but has not left its setup flow.
+        auth._save_active_provider_state("nous", {"auth_method": "anonymous", "anon_token": "anon_guide_fixture"})
+        for _ in range(12):
+            usage.record_completed_tool(usage.current_identity())
         assert not free_agent.run_conversation("name-only")["completed"]
         mark_onboarding_profile(guide)
         assert free_agent.run_conversation("guide")["completed"]

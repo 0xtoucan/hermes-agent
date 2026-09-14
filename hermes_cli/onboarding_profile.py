@@ -14,6 +14,7 @@ def mark_onboarding_profile(path: Path) -> None:
 
 
 def is_onboarding_profile() -> bool:
+    """Provenance only; admission additionally requires durable identity-wide grace."""
     from hermes_cli.profiles import get_profile_dir
     from hermes_constants import get_hermes_home
     home = get_hermes_home()

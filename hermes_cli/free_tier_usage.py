@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 
 TOOL_CALL_CAP = 10
+ONBOARDING_TURN_CAP = 20
 LIMIT_REASON = "free_tier_limit"
 _FAILED_IDENTITIES: set[str] = set()
 LIMIT_NOTICE = (
@@ -58,24 +59,97 @@ def _read_usage() -> dict:
 
 def _count(data: dict, identity: str | None) -> int:
     value = data.get(identity, 0) if identity else 0
+    if isinstance(value, dict):
+        value = value.get("tool_calls_used", 0)
     if not isinstance(value, int) or isinstance(value, bool) or value < 0:
         raise ValueError("Free-tier usage counter is invalid")
     return value
 
 
-def identity_status(identity: str | None) -> dict:
+def _onboarding_state(data: dict, identity: str) -> tuple[int, bool]:
+    entry = data.get(identity, 0)
+    _count(data, identity)  # Validate legacy counters before migrating them.
+    if not isinstance(entry, dict):
+        return 0, False
+    turns, complete = entry.get("onboarding_turns_used", 0), entry.get("onboarding_complete", False)
+    if not isinstance(turns, int) or isinstance(turns, bool) or turns < 0 or not isinstance(complete, bool):
+        raise ValueError("Onboarding usage counter is invalid")
+    return turns, complete or turns >= ONBOARDING_TURN_CAP
+
+
+def onboarding_available(identity: str | None) -> bool:
+    """Read-only eligibility, never a reservation or authorization on its own."""
+    if not identity or identity in _FAILED_IDENTITIES:
+        return False
     try:
-        used = _count(_read_usage(), identity) if identity else 0
+        return not _onboarding_state(_read_usage(), identity)[1]
+    except (OSError, ValueError, RuntimeError):
+        _FAILED_IDENTITIES.add(identity)
+        return False
+
+
+def reserve_onboarding_turn(identity: str) -> bool:
+    """Spend grace before inference; the final reservation starts ordinary counting next turn."""
+    from hermes_cli.auth import _write_private_file_atomic
+    from hermes_cli.auth_nous import _nous_shared_store_lock
+    if identity in _FAILED_IDENTITIES:
+        return False
+    try:
+        with _nous_shared_store_lock():
+            data = _read_usage()
+            turns, complete = _onboarding_state(data, identity)
+            if complete:
+                return False
+            data[identity] = {"tool_calls_used": _count(data, identity),
+                              "onboarding_turns_used": turns + 1,
+                              "onboarding_complete": turns + 1 >= ONBOARDING_TURN_CAP}
+            _write_private_file_atomic(_usage_path(), json.dumps(data, sort_keys=True), fsync_dir=True)
+        return True
+    except (OSError, ValueError, RuntimeError):
+        _FAILED_IDENTITIES.add(identity)
+        return False
+
+
+def finish_onboarding(identity: str | None) -> None:
+    """One-way transition shared by layout completion and handoff; never reset tool usage.
+
+    A failed write must fail the RPC, not acknowledge a handoff with renewable grace.
+    """
+    from hermes_cli.auth import _write_private_file_atomic
+    from hermes_cli.auth_nous import _nous_shared_store_lock
+    if not identity:
+        return
+    with _nous_shared_store_lock():
+        data = _read_usage()
+        turns, complete = _onboarding_state(data, identity)
+        if complete:
+            return
+        data[identity] = {"tool_calls_used": _count(data, identity),
+                          "onboarding_turns_used": turns, "onboarding_complete": True}
+        _write_private_file_atomic(_usage_path(), json.dumps(data, sort_keys=True), fsync_dir=True)
+
+
+def identity_status(identity: str | None, *, guide: bool = False) -> dict:
+    complete = False
+    try:
+        data = _read_usage() if identity else {}
+        used = _count(data, identity)
+        if guide and identity:
+            complete = _onboarding_state(data, identity)[1]
     except (OSError, ValueError, RuntimeError):
         if identity:
             _FAILED_IDENTITIES.add(identity)
         used = 0
-    return {"tool_calls_used": used, "tool_call_cap": TOOL_CALL_CAP,
-            "capped": used >= TOOL_CALL_CAP or identity in _FAILED_IDENTITIES}
+    state = {"tool_calls_used": used, "tool_call_cap": TOOL_CALL_CAP,
+             "capped": used >= TOOL_CALL_CAP or identity in _FAILED_IDENTITIES}
+    if guide and identity and (complete or identity in _FAILED_IDENTITIES):
+        state["onboarding_complete"] = True
+    return state
 
 
 def status() -> dict:
-    return identity_status(current_identity())
+    from hermes_cli.onboarding_profile import is_onboarding_profile
+    return identity_status(current_identity(), guide=is_onboarding_profile())
 
 
 def record_completed_tool(identity: str) -> None:
@@ -85,7 +159,11 @@ def record_completed_tool(identity: str) -> None:
     try:
         with _nous_shared_store_lock():
             data = _read_usage()
-            data[identity] = _count(data, identity) + 1
+            used = _count(data, identity) + 1
+            if isinstance(data.get(identity), dict):
+                data[identity]["tool_calls_used"] = used
+            else:
+                data[identity] = used
             _write_private_file_atomic(_usage_path(), json.dumps(data, sort_keys=True), fsync_dir=True)
     except (OSError, ValueError, RuntimeError):
         # Finish the active turn without losing the real tool result. All subsequent

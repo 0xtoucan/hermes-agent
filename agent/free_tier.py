@@ -59,10 +59,11 @@ def _route_identity(agent) -> str | None:
 
 def refusal(agent, history=None) -> dict | None:
     from hermes_cli.onboarding_profile import is_onboarding_profile
-    if is_onboarding_profile():
-        return None
     identity = _route_identity(agent)
-    status = usage.identity_status(identity)
+    guide = is_onboarding_profile()
+    if guide and usage.onboarding_available(identity):
+        return None
+    status = usage.identity_status(identity, guide=guide)
     if not status["capped"]:
         return None
     return {
@@ -139,13 +140,22 @@ def admit_turn(agent, history=None):
         parent = parent_ref() if callable(parent_ref) else None
         inherited = getattr(parent, "_free_tier_turn", None)
     if not isinstance(inherited, TurnAdmission) or not (inherited.identity or inherited.guide):
-        blocked = refusal(agent, history)
-        if blocked is not None:
-            _notice(agent)
-            yield blocked
-            return
         inherited = None
-    turn = inherited or TurnAdmission(_route_identity(agent), guide=is_onboarding_profile())
+    if inherited is not None:
+        turn = inherited
+    else:
+        identity = _route_identity(agent)
+        guide = bool(identity and is_onboarding_profile() and usage.reserve_onboarding_turn(identity))
+        if not guide:
+            blocked = refusal(agent, history)
+            if blocked is not None:
+                _notice(agent)
+                yield blocked
+                return
+            # Starting real work cannot leave a reusable setup exemption behind.
+            if identity and not is_onboarding_profile():
+                usage.finish_onboarding(identity)
+        turn = TurnAdmission(identity, guide=guide)
     agent._free_tier_is_child_turn = inherited is not None
     previous = getattr(agent, "_free_tier_turn", None)
     agent._free_tier_turn = turn
@@ -167,12 +177,13 @@ def record_tool_completion(agent=None) -> None:
 
 
 def finish_turn(agent, result: dict) -> dict:
+    from hermes_cli.onboarding_profile import is_onboarding_profile
     turn = getattr(agent, "_free_tier_turn", None)
-    if not isinstance(turn, TurnAdmission) or not turn.identity or turn.guide or getattr(agent, "_free_tier_is_child_turn", False):
+    if not isinstance(turn, TurnAdmission) or not turn.identity or getattr(agent, "_free_tier_is_child_turn", False):
         return result
-    state = usage.identity_status(turn.identity)
+    state = usage.identity_status(turn.identity, guide=is_onboarding_profile())
     result["free_tier"] = state
-    if state["capped"]:
+    if state["capped"] and not (turn.guide and usage.onboarding_available(turn.identity)):
         result["continuation_required"] = True
         result["free_tier_notice"] = usage.LIMIT_NOTICE
         result["response_transformed"] = True
