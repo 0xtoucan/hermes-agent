@@ -18,6 +18,7 @@ export type DeepLinkAction =
     }
   | { type: 'skill-install'; identifier: string }
   | { type: 'composer-blueprint'; name: string; params: Record<string, string> }
+  | { type: 'connection-done'; op: string; status: string }
   | { type: 'ignore' }
 
 function truthyParam(value: string | undefined, defaultValue = false): boolean {
@@ -45,6 +46,15 @@ export function resolveDeepLinkAction(payload: DeepLinkPayload | null | undefine
     return payload.name === 'install' && identifier && identifier === identifier.trim()
       ? { type: 'skill-install', identifier }
       : { type: 'ignore' }
+  }
+
+  // The browser leg of a connection came back (hermes://connections/done?op=…&status=…). The op id
+  // names the operation to show; the status is carried but never moves a row, because the link is
+  // whatever the user's browser was pointed at.
+  if (payload.kind === 'connections' && payload.name === 'done') {
+    const op = (payload.params?.op || '').trim()
+
+    return op ? { type: 'connection-done', op, status: (payload.params?.status || '').trim() } : { type: 'ignore' }
   }
 
   const repo = (
