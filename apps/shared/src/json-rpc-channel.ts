@@ -51,6 +51,32 @@ export interface JsonRpcTransport {
   send(text: string): void
 }
 
+/**
+ * A request the backend sent us (`{id: 'srq-…', method, params}`), e.g. `clarify.request`. JSON-RPC is
+ * peer-to-peer: the backend blocks until we send a response frame with the same id. Exactly one of
+ * `respond` / `fail` is sent; later calls are ignored. `cancelled` flips when the backend withdraws the
+ * question with a `request.cancel` notification (timeout, interrupt, shutdown).
+ */
+export interface ServerRequest<P = Record<string, unknown>> {
+  readonly id: string
+  readonly method: string
+  readonly params: P
+  readonly sessionId: string | null
+  respond(result: Record<string, unknown>): void
+  fail(error: JsonRpcErrorPayload): void
+  /** `clarify.progress`: lock one answer of a batch question without ending the request. */
+  notify(method: string, params: Record<string, unknown>): void
+}
+
+export interface ServerRequestCancel {
+  id: string
+  reason: string
+  sessionId: string | null
+}
+
+export const SERVER_REQUEST_ID_PREFIX = 'srq-'
+export const SERVER_REQUEST_CANCEL_METHOD = 'request.cancel'
+
 export interface JsonRpcRequestChannelOptions {
   createRequestId?: (nextId: number) => GatewayRequestId
   heartbeatDeadlineMs?: number
@@ -59,6 +85,10 @@ export interface JsonRpcRequestChannelOptions {
   onHeartbeatFailure?: (error: Error) => void
   /** Decoded `event` notification. */
   onEvent?: (event: GatewayEvent) => void
+  /** A backend→renderer request; the handler must eventually call `respond` or `fail`. */
+  onServerRequest?: (request: ServerRequest) => void
+  /** The backend withdrew an open request (`request.cancel`). */
+  onServerRequestCancel?: (cancel: ServerRequestCancel) => void
   requestIdPrefix?: string
   requestTimeoutMs?: number
   /**
@@ -130,8 +160,10 @@ export class JsonRpcRequestChannel {
   private heartbeatSequence = 0
   private readonly outstandingPings = new Set<string>()
   private lastLivenessAt = 0
-  private readonly options: Required<Omit<JsonRpcRequestChannelOptions, 'onEvent' | 'onHeartbeatFailure'>> &
-    Pick<JsonRpcRequestChannelOptions, 'onEvent' | 'onHeartbeatFailure'>
+  private readonly options: Required<
+    Omit<JsonRpcRequestChannelOptions, 'onEvent' | 'onHeartbeatFailure' | 'onServerRequest' | 'onServerRequestCancel'>
+  > &
+    Pick<JsonRpcRequestChannelOptions, 'onEvent' | 'onHeartbeatFailure' | 'onServerRequest' | 'onServerRequestCancel'>
 
   constructor(options: JsonRpcRequestChannelOptions = {}) {
     this.options = {
@@ -141,6 +173,8 @@ export class JsonRpcRequestChannel {
       heartbeatLiveness: options.heartbeatLiveness ?? 'response',
       onEvent: options.onEvent,
       onHeartbeatFailure: options.onHeartbeatFailure,
+      onServerRequest: options.onServerRequest,
+      onServerRequestCancel: options.onServerRequestCancel,
       requestIdPrefix: options.requestIdPrefix ?? 'r',
       requestTimeoutMs: options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
       unrefTimers: options.unrefTimers ?? false
@@ -277,6 +311,26 @@ export class JsonRpcRequestChannel {
       this.lastLivenessAt = Date.now()
     }
 
+    if (typeof frame.method === 'string' && typeof frame.id === 'string' && frame.id.startsWith(SERVER_REQUEST_ID_PREFIX)) {
+      this.options.onServerRequest?.(this.serverRequest(frame.id, frame.method, frame.params))
+
+      return frame
+    }
+
+    if (frame.method === SERVER_REQUEST_CANCEL_METHOD) {
+      const params = (frame.params ?? {}) as { id?: unknown; reason?: unknown; session_id?: unknown }
+
+      if (typeof params.id === 'string') {
+        this.options.onServerRequestCancel?.({
+          id: params.id,
+          reason: typeof params.reason === 'string' ? params.reason : 'cancelled',
+          sessionId: typeof params.session_id === 'string' ? params.session_id : null
+        })
+      }
+
+      return frame
+    }
+
     if (frame.id !== undefined && frame.id !== null) {
       if (typeof frame.id === 'string' && this.outstandingPings.delete(frame.id)) {
         this.lastLivenessAt = Date.now()
@@ -305,6 +359,53 @@ export class JsonRpcRequestChannel {
     }
 
     return frame
+  }
+
+  private serverRequest(id: string, method: string, rawParams: unknown): ServerRequest {
+    const params = (rawParams && typeof rawParams === 'object' ? rawParams : {}) as Record<string, unknown>
+    const sessionId = typeof params.session_id === 'string' ? params.session_id : null
+    let settled = false
+
+    const send = (frame: Record<string, unknown>) => {
+      this.transport?.send(JSON.stringify({ jsonrpc: '2.0', ...frame }))
+    }
+
+    return {
+      id,
+      method,
+      params,
+      sessionId,
+      respond: result => {
+        if (!settled) {
+          settled = true
+          send({ id, result })
+        }
+      },
+      fail: error => {
+        if (!settled) {
+          settled = true
+          send({ error, id })
+        }
+      },
+      notify: (notifyMethod, notifyParams) => {
+        if (!settled) {
+          send({ method: notifyMethod, params: { id, ...notifyParams } })
+        }
+      }
+    }
+  }
+
+  /**
+   * Answer a backend request by id when the `ServerRequest` object is no longer at hand (a card restored
+   * from `session.events.since.open_requests` after a reconnect). One frame per call; the backend drops
+   * a reply for an id it no longer waits on.
+   */
+  replyToServerRequest(id: string, result: Record<string, unknown>): void {
+    this.transport?.send(JSON.stringify({ id, jsonrpc: '2.0', result }))
+  }
+
+  notifyServerRequest(id: string, method: string, params: Record<string, unknown>): void {
+    this.transport?.send(JSON.stringify({ jsonrpc: '2.0', method, params: { id, ...params } }))
   }
 
   /**

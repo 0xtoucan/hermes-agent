@@ -84,7 +84,7 @@ export {
   type ModelOptionsResponse,
   type ModelPricing,
   type NotificationShowPayload,
-  type RequestExpirePayload,
+  type RequestCancelPayload,
   type SecretRequestPayload,
   type SessionInflightTurn,
   type SessionListItem,
@@ -124,6 +124,10 @@ export {
   JsonRpcRequestChannel,
   type JsonRpcRequestChannelOptions,
   type JsonRpcTransport,
+  SERVER_REQUEST_CANCEL_METHOD,
+  SERVER_REQUEST_ID_PREFIX,
+  type ServerRequest,
+  type ServerRequestCancel,
   wireFrameText
 } from './json-rpc-channel'
 export {

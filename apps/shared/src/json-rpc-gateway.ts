@@ -5,6 +5,8 @@ import {
   type GatewayRequestId,
   JsonRpcRequestChannel,
   type JsonRpcTransport,
+  type ServerRequest,
+  type ServerRequestCancel,
   wireFrameText
 } from './json-rpc-channel.js'
 
@@ -152,7 +154,72 @@ export class JsonRpcGatewayClient {
       heartbeatLiveness: 'any-inbound',
       onEvent: event => this.handleEvent(event),
       onHeartbeatFailure: error => this.invalidate(error.message),
+      onServerRequest: request => this.dispatchServerRequest(request),
+      onServerRequestCancel: cancel => this.dispatchServerRequestCancel(cancel),
       requestTimeoutMs: this.options.requestTimeoutMs
+    })
+  }
+
+  private readonly serverRequestHandlers = new Set<(request: ServerRequest) => void>()
+  private readonly serverRequestCancelHandlers = new Set<(cancel: ServerRequestCancel) => void>()
+
+  /** Subscribe to backend→renderer requests (`clarify.request`, `sudo.request`, …). */
+  onServerRequest(handler: (request: ServerRequest) => void): () => void {
+    this.serverRequestHandlers.add(handler)
+
+    return () => this.serverRequestHandlers.delete(handler)
+  }
+
+  /** Subscribe to `request.cancel` (the backend withdrew a question: timeout, interrupt, shutdown). */
+  onServerRequestCancel(handler: (cancel: ServerRequestCancel) => void): () => void {
+    this.serverRequestCancelHandlers.add(handler)
+
+    return () => this.serverRequestCancelHandlers.delete(handler)
+  }
+
+  private dispatchServerRequest(request: ServerRequest): void {
+    for (const handler of this.serverRequestHandlers) {
+      handler(request)
+    }
+  }
+
+  private dispatchServerRequestCancel(cancel: ServerRequestCancel): void {
+    for (const handler of this.serverRequestCancelHandlers) {
+      handler(cancel)
+    }
+  }
+
+  /**
+   * Re-deliver a question the backend is still waiting on after a reconnect, as a `ServerRequest` whose
+   * reply goes out by id (`session.events.since.open_requests`).
+   */
+  private redeliverOpenRequest(open: { id: string; method: string; params?: unknown; partial?: unknown }): void {
+    const params = (open.params && typeof open.params === 'object' ? open.params : {}) as Record<string, unknown>
+    const partial = open.partial && typeof open.partial === 'object' ? (open.partial as Record<string, unknown>) : {}
+    let settled = false
+
+    this.dispatchServerRequest({
+      id: open.id,
+      method: open.method,
+      params: { ...params, ...(Object.keys(partial).length ? { answers: partial } : {}) },
+      sessionId: typeof params.session_id === 'string' ? params.session_id : null,
+      respond: result => {
+        if (!settled) {
+          settled = true
+          this.channel.replyToServerRequest(open.id, result)
+        }
+      },
+      fail: () => {
+        if (!settled) {
+          settled = true
+          this.channel.replyToServerRequest(open.id, {})
+        }
+      },
+      notify: (method, notifyParams) => {
+        if (!settled) {
+          this.channel.notifyServerRequest(open.id, method, notifyParams)
+        }
+      }
     })
   }
 
@@ -445,7 +512,10 @@ export class JsonRpcGatewayClient {
       // One RPC per known session keeps params flat; sessions are few (<20).
       const results = await Promise.allSettled(
         entries.map(([sid, lastSeen]) =>
-          this.request<{ events?: Array<{ type: string; session_id?: string; seq?: number; payload?: unknown }> }>(
+          this.request<{
+            events?: Array<{ type: string; session_id?: string; seq?: number; payload?: unknown }>
+            open_requests?: Array<{ id: string; method: string; params?: unknown; partial?: unknown }>
+          }>(
             'session.events.since',
             { session_id: sid, last_seen: lastSeen },
             REPLAY_REQUEST_TIMEOUT_MS
@@ -479,6 +549,12 @@ export class JsonRpcGatewayClient {
           }
 
           this.dispatchIfNewer(event as GatewayEvent)
+        }
+
+        for (const open of result.value.open_requests ?? []) {
+          if (typeof open?.id === 'string' && typeof open.method === 'string') {
+            this.redeliverOpenRequest(open)
+          }
         }
       }
     } catch {

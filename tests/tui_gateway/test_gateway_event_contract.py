@@ -7,8 +7,8 @@ somewhere. This file reads only Python sources and the JSON (never ``.ts`` text 
 see ``tui_gateway/AGENTS.md``).
 
 Names are collected from the emitter side: literal first arguments to the emit
-helpers, plus the tables that derive names at runtime (``_EXPIRING_REQUESTS`` →
-``*.expire``, the change-watcher table, child delta mirroring, the subagent relay
+helpers, plus the tables that derive names at runtime (the ``request.cancel``
+notification of the server-request layer, the change-watcher table, child delta mirroring, the subagent relay
 events from ``tools/delegate_tool*.py``, the ``desktop_ui`` tool emitters, and the
 literal ``gateway.ready`` / ``setup.ready`` / browser-controller frames).
 """
@@ -50,10 +50,11 @@ def emitted_event_names() -> set[str]:
         names.update(_LITERAL_EMIT.findall(text))
         names.update(_LITERAL_FRAME.findall(text))
         names.update(_SIDE_AGENT.findall(text))
-    # ``.request`` bridges that time out fire ``f"{event.removesuffix('.request')}.expire"``.
-    from tui_gateway.server import _EXPIRING_REQUESTS
+    # Backend→renderer requests are JSON-RPC requests, not notifications; only their cancel signal is
+    # a notification the renderer must know by name.
+    from tui_gateway.server_requests import CANCEL_METHOD
 
-    names.update(f"{event.removesuffix('.request')}.expire" for event in _EXPIRING_REQUESTS)
+    names.add(CANCEL_METHOD)
     from tui_gateway.change_watcher import _CHANGE_WATCHES
 
     names.update(_CHANGE_WATCHES)

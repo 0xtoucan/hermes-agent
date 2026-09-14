@@ -190,16 +190,17 @@ class ComputeHost:
         self._guarded(frame, "interrupt.ack", body, applied=False)
 
     def _handle_respond(self, frame: dict[str, Any]) -> None:
-        """Resolve an interactive request in the host-owned pending registry."""
+        """Deliver a renderer reply frame (response or ``clarify.progress``) to the host-owned pending map."""
         def body(server: Any, sid: str, request_id: Any) -> None:
-            params = frame.get("params")
-            error = ("session not found" if sid not in server._sessions
-                     else None if isinstance(params, dict) else "response params must be an object")
-            if error:
-                self._reply("respond.error", sid, request_id, message=error)
+            reply = frame.get("params")
+            if sid not in server._sessions:
+                self._reply("respond.error", sid, request_id, message="session not found")
                 return
-            response = server._methods["clarify.respond"](request_id, params)
-            self._reply("respond.ack", sid, request_id, response=response)
+            if not isinstance(reply, dict):
+                self._reply("respond.error", sid, request_id, message="reply frame must be an object")
+                return
+            from tui_gateway import server_requests
+            self._reply("respond.ack", sid, request_id, delivered=server_requests.handle_client_frame(reply))
         self._guarded(frame, "respond.error", body)
 
     def _run_real_turn(self, frame: dict[str, Any]) -> None:

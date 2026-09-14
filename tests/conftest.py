@@ -874,15 +874,15 @@ def _reset_tui_gateway_server_state():
     if isinstance(sessions, dict):
         _teardown_tui_server_sessions(mod)
     for name in (
-        "_pending",
-        "_pending_prompt_payloads",
-        "_answers",
         "_child_mirrors",
         "_active_child_runs",
     ):
         obj = getattr(mod, name, None)
         if isinstance(obj, dict):
             obj.clear()
+    sr = sys.modules.get("tui_gateway.server_requests")
+    if sr is not None:
+        sr._reset_for_tests()
 
     if snapshot is not None:
         mod._methods.clear()

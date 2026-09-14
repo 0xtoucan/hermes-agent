@@ -307,8 +307,10 @@ export interface MoaPhasePayload {
 // Blocking bridges (`tui_gateway/server.py::_block`): every `*.request` carries a
 // `request_id`; the matching `*.expire` names the same id when the wait timed out.
 
-export interface RequestExpirePayload {
-  request_id: string
+export interface RequestCancelPayload {
+  /** The `srq-…` id of the backend→renderer request being withdrawn. */
+  id: string
+  reason: 'interrupt' | 'shutdown' | 'timeout'
 }
 
 export interface ClarifyQuestion {
@@ -405,14 +407,10 @@ export const BACKEND_EVENT_NAMES = [
   'browser.controller.command',
   'browser.progress',
   'btw.complete',
-  'clarify.expire',
-  'clarify.request',
   'cron.changed',
   'error',
   'gateway.ready',
   'layout.apply',
-  'mcp.setup.expire',
-  'mcp.setup.request',
   'message.complete',
   'message.delta',
   'message.interim',
@@ -431,20 +429,15 @@ export const BACKEND_EVENT_NAMES = [
   'pet.generate.progress',
   'pet.hatch.progress',
   'platforms.changed',
-  'preview.act.expire',
-  'preview.act.request',
   'preview.close',
   'preview.open',
-  'preview.read.expire',
-  'preview.read.request',
   'preview.restart.complete',
   'preview.restart.progress',
   'reaction',
   'reasoning.available',
   'reasoning.delta',
+  'request.cancel',
   'review.summary',
-  'secret.expire',
-  'secret.request',
   'session.control.update',
   'session.info',
   'session.reclaimed',
@@ -461,11 +454,7 @@ export const BACKEND_EVENT_NAMES = [
   'subagent.start',
   'subagent.thinking',
   'subagent.tool',
-  'sudo.expire',
-  'sudo.request',
   'terminal.close',
-  'terminal.read.expire',
-  'terminal.read.request',
   'thinking.delta',
   'tip.show',
   'todo.updated',
@@ -473,20 +462,10 @@ export const BACKEND_EVENT_NAMES = [
   'tool.generating',
   'tool.output_risk',
   'tool.start',
-  'tour.expire',
-  'tour.request',
-  'vault.code.expire',
-  'vault.code.request',
-  'vault.save_login.expire',
-  'vault.save_login.request',
-  'vault.unlock.expire',
-  'vault.unlock.request',
   'voice.interrupted',
   'voice.status',
   'voice.transcript',
   'wake.detected',
-  'window.read.expire',
-  'window.read.request'
 ] as const satisfies readonly (keyof BackendGatewayEventMap)[]
 
 export type BackendGatewayEventName = (typeof BACKEND_EVENT_NAMES)[number]
@@ -502,14 +481,10 @@ export interface BackendGatewayEventMap {
   'browser.controller.command': Record<string, unknown>
   'browser.progress': BrowserProgressPayload
   'btw.complete': SideAgentCompletePayload
-  'clarify.expire': RequestExpirePayload
-  'clarify.request': ClarifyRequestPayload
   'cron.changed': Record<string, unknown>
   error: ErrorPayload
   'gateway.ready': GatewayReadyPayload
   'layout.apply': Record<string, unknown>
-  'mcp.setup.expire': RequestExpirePayload
-  'mcp.setup.request': McpSetupRequestPayload
   'message.complete': MessageCompletePayload
   'message.delta': StreamDeltaPayload
   'message.interim': MessageInterimPayload
@@ -528,20 +503,15 @@ export interface BackendGatewayEventMap {
   'pet.generate.progress': Record<string, unknown>
   'pet.hatch.progress': Record<string, unknown>
   'platforms.changed': Record<string, unknown>
-  'preview.act.expire': RequestExpirePayload
-  'preview.act.request': Record<string, unknown>
   'preview.close': Record<string, unknown>
   'preview.open': Record<string, unknown>
-  'preview.read.expire': RequestExpirePayload
-  'preview.read.request': Record<string, unknown>
   'preview.restart.complete': SideAgentCompletePayload
   'preview.restart.progress': PreviewRestartProgressPayload
   reaction: ReactionPayload
   'reasoning.available': StreamDeltaPayload
+  'request.cancel': RequestCancelPayload
   'reasoning.delta': StreamDeltaPayload
   'review.summary': TextPayload
-  'secret.expire': RequestExpirePayload
-  'secret.request': SecretRequestPayload
   'session.control.update': SessionControlUpdatePayload
   /** Surface-specific shape (`tui_gateway/server.py::_session_info`); each client narrows. */
   'session.info': Record<string, unknown>
@@ -559,11 +529,7 @@ export interface BackendGatewayEventMap {
   'subagent.start': SubagentEventPayload
   'subagent.thinking': SubagentEventPayload
   'subagent.tool': SubagentEventPayload
-  'sudo.expire': RequestExpirePayload
-  'sudo.request': SudoRequestPayload
   'terminal.close': TerminalClosePayload
-  'terminal.read.expire': RequestExpirePayload
-  'terminal.read.request': Record<string, unknown>
   'thinking.delta': StreamDeltaPayload
   'tip.show': Record<string, unknown>
   'todo.updated': TodoStatePayload
@@ -571,20 +537,10 @@ export interface BackendGatewayEventMap {
   'tool.generating': ToolGeneratingPayload
   'tool.output_risk': ToolOutputRiskPayload
   'tool.start': ToolStartPayload
-  'tour.expire': RequestExpirePayload
-  'tour.request': Record<string, unknown>
-  'vault.code.expire': RequestExpirePayload
-  'vault.code.request': VaultCodeRequestPayload
-  'vault.save_login.expire': RequestExpirePayload
-  'vault.save_login.request': Record<string, unknown>
-  'vault.unlock.expire': RequestExpirePayload
-  'vault.unlock.request': VaultUnlockRequestPayload
   'voice.interrupted': Record<string, unknown>
   'voice.status': VoiceStatusPayload
   'voice.transcript': VoiceTranscriptPayload
   'wake.detected': WakeDetectedPayload
-  'window.read.expire': RequestExpirePayload
-  'window.read.request': Record<string, unknown>
 }
 
 /**

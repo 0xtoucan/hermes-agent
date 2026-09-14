@@ -56,9 +56,9 @@ def server():
     mod._real_stdout = real_stdout
     for sid in list(mod._sessions):
         mod._close_session_by_id(sid, end_reason="test_cleanup")
-    mod._pending.clear()
-    mod._answers.clear()
     mod._live_transports.clear()
+    from tui_gateway import server_requests
+    server_requests._reset_for_tests()
 
 
 def test_shared_fixture_cleanup_uses_full_session_teardown(server, monkeypatch):
@@ -219,44 +219,6 @@ def test_live_session_payload_replays_pending_approval(server, monkeypatch):
     assert replayed == first
 
 
-def test_live_session_payload_replays_pending_clarify(server):
-    """A reattached client also receives a clarify question emitted while detached."""
-    session = {
-        "agent": types.SimpleNamespace(),
-        "cols": 80,
-        "created_at": 1.0,
-        "history": [],
-        "history_lock": threading.Lock(),
-        "running": True,
-        "session_key": "stored-session",
-    }
-    clarify_payload = {
-        "choices": ["staging", "production"],
-        "question": "Which deployment target?",
-        "request_id": "rid-clarify",
-    }
-    with server._prompt_lock:
-        server._pending["rid-clarify"] = ("runtime-session", threading.Event())
-        server._pending_prompt_payloads["rid-clarify"] = (
-            "clarify.request",
-            dict(clarify_payload),
-        )
-
-    try:
-        payload = server._live_session_payload("runtime-session", session)
-        other = server._live_session_payload("other-session", session)
-    finally:
-        with server._prompt_lock:
-            server._pending.pop("rid-clarify", None)
-            server._pending_prompt_payloads.pop("rid-clarify", None)
-
-    assert payload["pending_clarify"] == clarify_payload
-    # Snapshot, not a live reference into the registry.
-    assert payload["pending_clarify"] is not clarify_payload
-    # Scoped to the owning runtime session only.
-    assert "pending_clarify" not in other
-
-
 def test_disable_flush_env_var_actually_wires_to_module_constant(monkeypatch):
     """End-to-end: setting `HERMES_TUI_GATEWAY_NO_FLUSH=1` and importing
     `tui_gateway.transport` fresh actually flips `_DISABLE_FLUSH` true.
@@ -290,275 +252,159 @@ def test_emit_with_payload(capture):
     assert msg["params"]["payload"]["key"] == "val"
 
 
-# ── Blocking prompt round-trip ───────────────────────────────────────
+# ── Backend→renderer requests through dispatch ──────────────────────
 
 
-def test_block_and_respond(capture):
-    server, _ = capture
-    result = [None]
-
-    threading.Thread(
-        target=lambda: result.__setitem__(0, server._block("test.prompt", "s1", {"q": "?"}, timeout=5)),
-    ).start()
-
-    for _ in range(100):
-        if server._pending:
-            break
-        threading.Event().wait(0.01)
-
-    rid = next(iter(server._pending))
-    server._answers[rid] = "my_answer"
-    # _pending values are (sid, Event) tuples — unpack to set the Event
-    _, ev = server._pending[rid]
-    ev.set()
-
-    threading.Event().wait(0.1)
-    assert result[0] == "my_answer"
+def _first_request(buf, method):
+    for line in buf.getvalue().splitlines():
+        frame = json.loads(line)
+        if frame.get("method") == method and isinstance(frame.get("id"), str):
+            return frame
+    raise AssertionError(f"no {method} request frame in {buf.getvalue()!r}")
 
 
-@pytest.mark.parametrize(
-    "event",
-    ["secret.request", "sudo.request", "clarify.request", "terminal.read.request"],
-)
-def test_sensitive_prompt_timeout_emits_expiry(capture, event):
-    server, buf = capture
-
-    assert server._block(event, "s1", {}, timeout=0) == ""
-
-    messages = [json.loads(line) for line in buf.getvalue().splitlines()]
-    request, expiry = [message["params"] for message in messages]
-    assert request["type"] == event
-    assert expiry["type"] == event.removesuffix(".request") + ".expire"
-    assert expiry["session_id"] == "s1"
-    assert expiry["payload"]["request_id"] == request["payload"]["request_id"]
-
-
-@pytest.mark.parametrize(
-    ("method", "value_key"),
-    [
-        ("secret.respond", "value"),
-        ("sudo.respond", "password"),
-        ("clarify.respond", "answer"),
-        ("terminal.read.respond", "text"),
-    ],
-)
-def test_late_prompt_response_is_idempotent(server, method, value_key):
-    """All four blocking bridges tolerate a late reply after their request has
-    expired — the `*.respond` returns a graceful `{"status": "expired"}` instead
-    of the raw 4009 protocol error a client would otherwise surface verbatim."""
-    response = server.handle_request(
-        {
-            "id": "late-response",
-            "method": method,
-            "params": {"request_id": "expired-request", value_key: ""},
-        }
-    )
-
-    assert response["result"] == {"status": "expired"}
-
-
-# ── clarify batch (multi-question) bridge ────────────────────────────
-
-
-def _drain_batch_block(server, qids, timeout=5, payload=None):
-    """Run a batch _block on a worker thread and return (thread, result box,
-    emitted request payload). The caller resolves questions via
-    handle_request and then joins."""
-    box = {}
-
-    def run():
-        box["answer"] = server._block(
-            "clarify.request",
-            "s1",
-            dict(payload or {"questions": [{"qid": q, "question": q} for q in qids]}),
-            timeout=timeout,
-            batch_qids=list(qids),
-        )
-
-    thread = threading.Thread(target=run, daemon=True)
-    thread.start()
-    # Wait for the request to be registered so respond calls can find it.
-    deadline = time.monotonic() + 2
+def _wait_until(pred, timeout=2.0):
+    deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        with server._prompt_lock:
-            if server._batch_clarify:
-                rid = next(iter(server._batch_clarify))
-                return thread, box, rid
+        if pred():
+            return True
         time.sleep(0.01)
-    raise AssertionError("batch clarify request never registered")
+    return False
 
 
-def test_clarify_batch_resolves_when_all_questions_locked(capture):
+def test_ask_round_trip_through_dispatch(server):
+    """A response frame fed to ``dispatch`` (the way ws.py / entry.py deliver every inbound line) settles the
+    blocked agent thread; the frame is not a method call, so no ``-32601`` and no response is written."""
+    from tui_gateway import server_requests
+    result = [None]
+    threading.Thread(target=lambda: result.__setitem__(0, server._ask("secret.request", "s1", {"env_var": "X"}, timeout=5)),
+                     daemon=True).start()
+    assert _wait_until(lambda: server_requests.open_requests("s1"))
+    req = server_requests.open_requests("s1")[0]
+    assert req["method"] == "secret.request" and req["params"] == {"session_id": "s1", "env_var": "X"}
+
+    assert server.dispatch({"jsonrpc": "2.0", "id": req["id"], "result": {"value": "hunter2"}}) is None
+    assert _wait_until(lambda: result[0] is not None)
+    assert result[0] == "hunter2"
+    assert server_requests.open_requests("s1") == []
+
+
+@pytest.mark.parametrize("method", ["secret.request", "sudo.request", "clarify.request", "terminal.read.request"])
+def test_ask_timeout_sends_request_cancel(capture, method):
     server, buf = capture
-    thread, box, rid = _drain_batch_block(server, ["q0", "q1"])
+    assert server._ask(method, "s1", {}, timeout=0) == ""
+    frames = [json.loads(line) for line in buf.getvalue().splitlines()]
+    request, cancel = frames
+    assert request["method"] == method and request["id"].startswith("srq-")
+    assert cancel["method"] == "request.cancel" and "id" not in cancel
+    assert cancel["params"] == {"session_id": "s1", "id": request["id"], "reason": "timeout"}
 
-    first = server.handle_request({
-        "id": "a1", "method": "clarify.respond",
-        "params": {"request_id": rid, "question_id": "q1", "answer": "beta"},
-    })
-    assert first["result"]["status"] == "ok"
-    assert first["result"]["remaining"] == ["q0"]
-    assert thread.is_alive()  # one question left — still blocking
 
-    second = server.handle_request({
-        "id": "a2", "method": "clarify.respond",
-        "params": {"request_id": rid, "question_id": "q0", "answer": "alpha"},
-    })
-    assert second["result"]["status"] == "ok"
-    assert second["result"]["remaining"] == []
+def test_late_response_is_dropped_silently(server):
+    """A reply after the request expired is not an error the renderer sees: no method lookup, no frame back."""
+    assert server.dispatch({"jsonrpc": "2.0", "id": "srq-999", "result": {"value": ""}}) is None
 
+
+def test_events_since_lists_open_requests(capture):
+    server, buf = capture
+    threading.Thread(target=lambda: server._ask("sudo.request", "s1", {}, timeout=5), daemon=True).start()
+    assert _wait_until(lambda: "sudo.request" in buf.getvalue())
+    req = _first_request(buf, "sudo.request")
+    resp = server.handle_request({"id": 1, "method": "session.events.since", "params": {"session_id": "s1", "last_seen": 0}})
+    assert resp["result"]["open_requests"] == [{"id": req["id"], "method": "sudo.request",
+                                                 "params": {"session_id": "s1"}, "partial": {}}]
+    other = server.handle_request({"id": 2, "method": "session.events.since", "params": {"session_id": "s2", "last_seen": 0}})
+    assert other["result"]["open_requests"] == []
+    server.dispatch({"jsonrpc": "2.0", "id": req["id"], "result": {"value": ""}})
+
+
+# ── clarify batch (multi-question) ──────────────────────────────────
+
+
+def _start_batch(server, buf, qids, timeout=5):
+    box = {}
+    questions = [{"qid": q, "id": q, "question": q, "choices": None, "multi_select": False} for q in qids]
+    thread = threading.Thread(
+        target=lambda: box.__setitem__("answer", server._clarify_block("s1", "", None, questions=questions)), daemon=True)
+    thread.start()
+    assert _wait_until(lambda: "clarify.request" in buf.getvalue())
+    return thread, box, _first_request(buf, "clarify.request")["id"]
+
+
+def _progress(server, rid, qid, answer):
+    assert server.dispatch({"jsonrpc": "2.0", "method": "clarify.progress",
+                            "params": {"id": rid, "question_id": qid, "answer": answer}}) is None
+
+
+def test_clarify_batch_resolves_on_response_with_progress_locks(capture):
+    """Per-question locks are ``clarify.progress`` notifications; the response frame ends the batch. The
+    tool receives every lock, whichever frame carried it."""
+    server, buf = capture
+    thread, box, rid = _start_batch(server, buf, ["q0", "q1"])
+    _progress(server, rid, "q1", "beta")
+    assert thread.is_alive()
+    server.dispatch({"jsonrpc": "2.0", "id": rid, "result": {"answers": {"q0": "alpha"}}})
     thread.join(timeout=5)
-    assert not thread.is_alive()
     assert json.loads(box["answer"]) == {"answers": {"q0": "alpha", "q1": "beta"}}
 
 
-def test_clarify_batch_answer_update_overwrites_before_completion(server):
-    thread, box, rid = _drain_batch_block(server, ["q0", "q1"])
-
-    server.handle_request({
-        "id": "a1", "method": "clarify.respond",
-        "params": {"request_id": rid, "question_id": "q0", "answer": "first"},
-    })
-    server.handle_request({
-        "id": "a2", "method": "clarify.respond",
-        "params": {"request_id": rid, "question_id": "q0", "answer": "changed"},
-    })
-    server.handle_request({
-        "id": "a3", "method": "clarify.respond",
-        "params": {"request_id": rid, "question_id": "q1", "answer": "done"},
-    })
-
-    thread.join(timeout=5)
-    assert json.loads(box["answer"])["answers"]["q0"] == "changed"
-
-
-def test_clarify_batch_empty_answer_is_a_locked_skip(server):
-    """Skipping one question locks an empty answer — it counts toward
-    completion instead of leaving the batch waiting."""
-    thread, box, rid = _drain_batch_block(server, ["q0", "q1"])
-
-    server.handle_request({
-        "id": "a1", "method": "clarify.respond",
-        "params": {"request_id": rid, "question_id": "q0", "answer": ""},
-    })
-    server.handle_request({
-        "id": "a2", "method": "clarify.respond",
-        "params": {"request_id": rid, "question_id": "q1", "answer": "kept"},
-    })
-
-    thread.join(timeout=5)
-    assert json.loads(box["answer"]) == {"answers": {"q0": "", "q1": "kept"}}
-
-
-def test_clarify_batch_unknown_question_id_rejected(server):
-    thread, box, rid = _drain_batch_block(server, ["q0"])
-
-    response = server.handle_request({
-        "id": "bad", "method": "clarify.respond",
-        "params": {"request_id": rid, "question_id": "q9", "answer": "x"},
-    })
-    assert response["error"]["code"] == 4002
-
-    server.handle_request({
-        "id": "ok", "method": "clarify.respond",
-        "params": {"request_id": rid, "question_id": "q0", "answer": "fine"},
-    })
-    thread.join(timeout=5)
-
-
-def test_clarify_batch_timeout_keeps_locked_answers(capture):
-    """Locked answers survive the deadline: the tool sees the partials plus
-    timed_out instead of an empty string."""
+def test_clarify_batch_progress_overwrites_before_completion(capture):
     server, buf = capture
-    thread, box, rid = _drain_batch_block(server, ["q0", "q1"], timeout=1)
+    thread, box, rid = _start_batch(server, buf, ["q0", "q1"])
+    _progress(server, rid, "q0", "first")
+    _progress(server, rid, "q0", "changed")
+    server.dispatch({"jsonrpc": "2.0", "id": rid, "result": {"answers": {"q1": "done"}}})
+    thread.join(timeout=5)
+    assert json.loads(box["answer"])["answers"] == {"q0": "changed", "q1": "done"}
 
-    server.handle_request({
-        "id": "a1", "method": "clarify.respond",
-        "params": {"request_id": rid, "question_id": "q0", "answer": "kept"},
-    })
 
-    thread.join(timeout=10)
+def test_clarify_batch_timeout_keeps_locked_answers(capture, monkeypatch):
+    """Locks made before the deadline reach the tool with ``timed_out``; the renderer gets one cancel."""
+    server, buf = capture
+    monkeypatch.setattr(server, "_clarify_timeout_seconds", lambda: 0.5)
+    thread, box, rid = _start_batch(server, buf, ["q0", "q1"])
+    _progress(server, rid, "q0", "kept")
+    thread.join(timeout=5)
     assert not thread.is_alive()
-    result = json.loads(box["answer"])
-    assert result == {"answers": {"q0": "kept"}, "timed_out": True}
-    # The expire notification still fires for the un-finished batch.
-    messages = [json.loads(line) for line in buf.getvalue().splitlines()]
-    assert any(m["params"]["type"] == "clarify.expire" for m in messages)
+    assert json.loads(box["answer"]) == {"answers": {"q0": "kept"}, "timed_out": True}
+    frames = [json.loads(line) for line in buf.getvalue().splitlines()]
+    assert frames[-1]["method"] == "request.cancel"
+    assert frames[-1]["params"] == {"session_id": "s1", "id": rid, "reason": "timeout"}
 
 
-def test_clarify_batch_cancel_all_returns_empty(server):
-    """A respond without question_id cancels the whole batch (Esc path)."""
-    thread, box, rid = _drain_batch_block(server, ["q0", "q1"])
-
-    server.handle_request({
-        "id": "cancel", "method": "clarify.respond",
-        "params": {"request_id": rid, "answer": ""},
-    })
-
+def test_clarify_batch_cancel_all_returns_empty(capture):
+    """A response carrying ``value`` answers the whole batch at once (Esc path)."""
+    server, buf = capture
+    thread, box, rid = _start_batch(server, buf, ["q0", "q1"])
+    server.dispatch({"jsonrpc": "2.0", "id": rid, "result": {"value": ""}})
     thread.join(timeout=5)
     assert box["answer"] == ""
 
 
-def test_clarify_batch_late_question_respond_is_idempotent(server):
-    response = server.handle_request({
-        "id": "late", "method": "clarify.respond",
-        "params": {"request_id": "gone", "question_id": "q0", "answer": "x"},
-    })
-    assert response["result"] == {"status": "expired"}
-
-
-def test_clarify_batch_state_cleared_after_resolution(server):
-    thread, box, rid = _drain_batch_block(server, ["q0"])
-    server.handle_request({
-        "id": "a", "method": "clarify.respond",
-        "params": {"request_id": rid, "question_id": "q0", "answer": "x"},
-    })
+def test_clarify_batch_state_cleared_after_resolution(capture):
+    server, buf = capture
+    thread, box, rid = _start_batch(server, buf, ["q0"])
+    server.dispatch({"jsonrpc": "2.0", "id": rid, "result": {"answers": {"q0": "x"}}})
     thread.join(timeout=5)
-    with server._prompt_lock:
-        assert rid not in server._batch_clarify
-        assert rid not in server._pending
+    from tui_gateway import server_requests
+    assert server_requests.open_requests("s1") == []
 
 
 def test_clarify_block_helper_builds_batch_payload(capture):
-    """_clarify_block forwards only wire fields (qid/question/choices/
-    multi_select) — the tool-side normalized entries carry extra keys the
-    renderer must not see."""
+    """_clarify_block forwards only wire fields (qid/question/choices/multi_select); the tool-side normalized
+    entries carry extra keys the renderer must not see."""
     server, buf = capture
-    normalized = [
-        {
-            "qid": "q0", "id": "approach", "question": "Which?",
-            "choices": ["a (Recommended)", "b"], "choices_offered": ["a", "b"],
-            "multi_select": False,
-        },
-    ]
-
+    normalized = [{"qid": "q0", "id": "approach", "question": "Which?", "choices": ["a (Recommended)", "b"],
+                   "choices_offered": ["a", "b"], "multi_select": False}]
     box = {}
-
-    def run():
-        box["answer"] = server._clarify_block("s1", "", None, questions=normalized)
-
-    thread = threading.Thread(target=run, daemon=True)
+    thread = threading.Thread(
+        target=lambda: box.__setitem__("answer", server._clarify_block("s1", "", None, questions=normalized)), daemon=True)
     thread.start()
-    deadline = time.monotonic() + 2
-    rid = None
-    while time.monotonic() < deadline and rid is None:
-        with server._prompt_lock:
-            rid = next(iter(server._batch_clarify), None)
-        time.sleep(0.01)
-    assert rid
-
-    server.handle_request({
-        "id": "a", "method": "clarify.respond",
-        "params": {"request_id": rid, "question_id": "q0", "answer": "a"},
-    })
+    assert _wait_until(lambda: "clarify.request" in buf.getvalue())
+    req = _first_request(buf, "clarify.request")
+    server.dispatch({"jsonrpc": "2.0", "id": req["id"], "result": {"answers": {"q0": "a"}}})
     thread.join(timeout=5)
-
-    messages = [json.loads(line) for line in buf.getvalue().splitlines()]
-    request = messages[0]["params"]
-    assert request["type"] == "clarify.request"
-    sent = request["payload"]["questions"][0]
-    assert set(sent) == {"qid", "question", "choices", "multi_select"}
-    assert "id" not in sent and "choices_offered" not in sent
+    assert set(req["params"]["questions"][0]) == {"qid", "question", "choices", "multi_select"}
 
 
 def test_approval_pending_replays_unresolved_requests(server, monkeypatch):
@@ -701,14 +547,16 @@ def test_approval_respond_4001_when_nothing_resolves(server, monkeypatch):
     assert response["error"]["code"] == 4001
 
 
-def test_clear_pending(server):
-    ev = threading.Event()
-    # _pending values are (sid, Event) tuples
-    server._pending["r1"] = ("sid-x", ev)
+def test_clear_pending_cancels_open_requests(capture):
+    server, buf = capture
+    result = [None]
+    threading.Thread(target=lambda: result.__setitem__(0, server._ask("sudo.request", "sid-x", {}, timeout=5)), daemon=True).start()
+    assert _wait_until(lambda: "sudo.request" in buf.getvalue())
     server._clear_pending()
-
-    assert ev.is_set()
-    assert server._answers["r1"] == ""
+    assert _wait_until(lambda: result[0] is not None)
+    assert result[0] == ""
+    frames = [json.loads(line) for line in buf.getvalue().splitlines()]
+    assert frames[-1]["method"] == "request.cancel" and frames[-1]["params"]["reason"] == "shutdown"
 
 
 # ── Session lookup ───────────────────────────────────────────────────

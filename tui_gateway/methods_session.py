@@ -2174,11 +2174,14 @@ def _(rid, params: dict) -> dict:
         last_seen = int(params.get("last_seen", 0))
     except (TypeError, ValueError):
         return _err(rid, -32602, "invalid params: last_seen must be an integer")
-    from tui_gateway import event_replay as er
+    from tui_gateway import event_replay as er, server_requests
     frames = er.events_since(sid, last_seen)
     # ``epoch``: in-process seq — clients reset watermarks when this differs from gateway.ready's.
+    # ``open_requests``: backend→renderer questions still waiting for an answer; the ring cannot replay
+    # a question whose answer is still pending, so the pending map is the source.
     return _ok(rid, {"events": frames, "latest_seq": er.latest_seq(sid), "truncated": er.is_truncated(sid, last_seen),
-                     "count": len(frames), "epoch": er.replay_epoch()})
+                     "count": len(frames), "epoch": er.replay_epoch(),
+                     "open_requests": server_requests.open_requests(sid) + _compute_host_open_requests(sid)})
 
 
 @method("session.events.stats")

@@ -3,7 +3,7 @@ bridge timeout per call.
 
 The renderer's handler ships in the desktop bundle; the tool is offered by the
 backend. An app build older than the tour tool has no branch for the event, so
-nothing ever calls ``tour.respond`` and the agent blocks for the whole deadline
+nothing ever answers the ``tour.request`` and the agent blocks for the whole deadline
 — once per action the model tries. See tui_gateway.server._tour_request.
 """
 
@@ -23,7 +23,7 @@ def session(monkeypatch):
 
 @pytest.fixture
 def bridge(monkeypatch):
-    """Record every _block call and serve canned answers."""
+    """Record every _ask call and serve canned answers."""
     calls = []
 
     def fake_block(event, sid, payload, timeout=None, **_kw):
@@ -33,7 +33,7 @@ def bridge(monkeypatch):
 
     fake_block.answers = []
     fake_block.calls = calls
-    monkeypatch.setattr(server, "_block", fake_block)
+    monkeypatch.setattr(server, "_ask", fake_block)
     return fake_block
 
 
