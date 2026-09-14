@@ -1,6 +1,7 @@
 """ACP gating is presentation/pending state, never a synthetic conversation turn."""
 import asyncio
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 from acp.schema import TextContentBlock
@@ -121,7 +122,18 @@ async def test_authentication_refreshes_welcome_runtime_without_draining_pending
         created.append(kwargs)
         return original_factory(**kwargs)
     monkeypatch.setattr(manager, "_make_agent", capture_factory)
+    from hermes_cli.model_switch import ModelSwitchResult
+    switch = Mock(return_value=ModelSwitchResult(
+        success=True, new_model="paid-model", target_provider="nous",
+        base_url=Agent.base_url, api_key="fixture", api_mode="chat_completions"))
+    monkeypatch.setattr("hermes_cli.model_switch.switch_model", switch)
     await server.set_session_model("nous:paid-model", state.session_id)
+    assert switch.call_args.kwargs["explicit_provider"] == "nous"
+    assert switch.call_args.kwargs["current_base_url"] == DEFAULT_NOUS_WELCOME_URL
+    assert created[-1]["requested_provider"] == "nous"
+    assert created[-1]["model"] == "paid-model"
     assert not created[-1].get("base_url")
     assert state.pending_prompt[0].text == "retry me"
+    assert state.queued_prompts == ["later"]
+    assert not state.agent.calls
     db.close()

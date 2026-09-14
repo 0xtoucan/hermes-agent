@@ -60,6 +60,7 @@ describe('free-tier continuation in TUI and embedded web chat', () => {
     if (typeof picker !== 'object') {
       throw new Error('missing continuation picker')
     }
+
     picker.onSignIn?.()
     picker.onSetup?.()
     expect(ctx.submission.submitRef.current.mock.calls).toEqual([['/login'], ['/setup model']])

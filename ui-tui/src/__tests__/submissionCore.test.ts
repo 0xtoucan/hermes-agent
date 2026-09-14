@@ -1,6 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { JsonRpcGatewayError } from '@hermes/shared/json-rpc-channel'
-import { $freeTierBlocks } from '../app/freeTierGate.js'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { $freeTierBlocks } from '../app/freeTierGate.js'
 import { isSessionBusyError, markSubmitting, submitPrompt, type SubmitPromptDeps } from '../app/submissionCore.js'

@@ -1,4 +1,5 @@
 import { JsonRpcGatewayError } from '@hermes/shared/json-rpc-channel'
+
 import { FREE_TIER_LIMIT_KEY } from '../content/setup.js'
 import type { GatewayClient } from '../gatewayClient.js'
 import type { InputDetectDropResponse, PromptSubmitResponse } from '../gatewayTypes.js'

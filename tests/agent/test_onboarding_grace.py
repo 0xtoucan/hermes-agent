@@ -146,7 +146,28 @@ def test_text_only_grace_expires_atomically_without_a_separate_gate(guide_env):
     assert result["completed"] and usage.status()["tool_calls_used"] == 2
     assert restarted._cached_system_prompt == "Stable guide prefix"
     assert "anon_guide_fixture" not in usage._usage_path().read_text()
-    assert usage._usage_path().stat().st_mode & 0o077 == 0
+
+
+def _assert_private_onboarding_files(env):
+    from hermes_cli import free_tier_usage as usage
+    from hermes_cli.onboarding_profile import _MARKER
+
+    identity = usage.current_identity()
+    assert identity is not None
+    assert usage.reserve_onboarding_turn(identity)
+    for path in (usage._usage_path(), env.guide / _MARKER):
+        assert path.stat().st_mode & 0o777 == 0o600
+        assert path.parent.stat().st_mode & 0o777 == 0o700
+
+
+@pytest.mark.linux_only
+def test_onboarding_files_are_private_on_linux(guide_env):
+    _assert_private_onboarding_files(guide_env)
+
+
+@pytest.mark.macos_only
+def test_onboarding_files_are_private_on_macos(guide_env):
+    _assert_private_onboarding_files(guide_env)
 
 
 def test_setup_completion_starts_shared_counting_in_the_same_guide_chat(guide_env, monkeypatch):
@@ -165,7 +186,7 @@ def test_setup_completion_starts_shared_counting_in_the_same_guide_chat(guide_en
         assert "error" in env.rpc("free_tier.finish_onboarding", session_id="missing")
         assert usage.onboarding_available(usage.current_identity())
         with monkeypatch.context() as m:
-            m.setattr(auth, "_write_private_file_atomic", Mock(side_effect=OSError("fixture write failure")))
+            m.setattr(auth, "_save_private_json", Mock(side_effect=OSError("fixture write failure")))
             assert "error" in env.rpc("free_tier.finish_onboarding", session_id="guide")
         assert usage.onboarding_available(usage.current_identity())
         response = env.rpc("free_tier.finish_onboarding", session_id="guide")

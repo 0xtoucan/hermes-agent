@@ -1,12 +1,12 @@
 import { PassThrough } from 'node:stream'
 
 import { renderSync } from '@hermes/ink'
+import { stripAnsi } from '@hermes/shared/ansi'
 import React from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { continuationProviders, ModelPicker } from '../components/modelPicker.js'
 import type { GatewayClient } from '../gatewayClient.js'
-import { stripAnsi } from '../lib/text.js'
 import { DEFAULT_THEME } from '../theme.js'
 
 const providers = [

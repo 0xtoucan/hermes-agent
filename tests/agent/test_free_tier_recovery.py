@@ -25,7 +25,7 @@ def test_failed_usage_write_preserves_current_result_and_refuses_next(tmp_path, 
     auth._save_active_provider_state("nous", {"auth_method": "anonymous", "anon_token": "anon_io_fixture"})
     agent = SimpleNamespace(base_url="https://welcome-api.nousresearch.com/v1")
     with admit_turn(agent):
-        monkeypatch.setattr(auth, "_write_private_file_atomic", Mock(side_effect=OSError("disk full")))
+        monkeypatch.setattr(auth, "_save_private_json", Mock(side_effect=OSError("disk full")))
         record_tool_completion(agent)
         result = finish_turn(agent, {"completed": True, "messages": [], "final_response": "actual result"})
         assert result["completed"] and result["final_response"].startswith("actual result")

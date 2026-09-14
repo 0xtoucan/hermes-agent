@@ -138,6 +138,7 @@ export async function finishOnboardingAllowance(sessionId: string | null): Promi
 
   try {
     const result = await continuationRequester(target)<{ finished: boolean }>('free_tier.finish_onboarding', { session_id: sessionId })
+
     if (result?.finished !== true) {
       throw new Error('Could not confirm setup completion. Please retry.')
     }

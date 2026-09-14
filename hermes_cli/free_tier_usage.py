@@ -90,7 +90,7 @@ def onboarding_available(identity: str | None) -> bool:
 
 def reserve_onboarding_turn(identity: str) -> bool:
     """Spend grace before inference; the final reservation starts ordinary counting next turn."""
-    from hermes_cli.auth import _write_private_file_atomic
+    from hermes_cli.auth import _save_private_json
     from hermes_cli.auth_nous import _nous_shared_store_lock
     if identity in _FAILED_IDENTITIES:
         return False
@@ -103,7 +103,7 @@ def reserve_onboarding_turn(identity: str) -> bool:
             data[identity] = {"tool_calls_used": _count(data, identity),
                               "onboarding_turns_used": turns + 1,
                               "onboarding_complete": turns + 1 >= ONBOARDING_TURN_CAP}
-            _write_private_file_atomic(_usage_path(), json.dumps(data, sort_keys=True), fsync_dir=True)
+            _save_private_json(_usage_path(), data, sort_keys=True, fsync_dir=True)
         return True
     except (OSError, ValueError, RuntimeError):
         _FAILED_IDENTITIES.add(identity)
@@ -115,7 +115,7 @@ def finish_onboarding(identity: str | None) -> None:
 
     A failed write must fail the RPC, not acknowledge a handoff with renewable grace.
     """
-    from hermes_cli.auth import _write_private_file_atomic
+    from hermes_cli.auth import _save_private_json
     from hermes_cli.auth_nous import _nous_shared_store_lock
     if not identity:
         return
@@ -126,7 +126,7 @@ def finish_onboarding(identity: str | None) -> None:
             return
         data[identity] = {"tool_calls_used": _count(data, identity),
                           "onboarding_turns_used": turns, "onboarding_complete": True}
-        _write_private_file_atomic(_usage_path(), json.dumps(data, sort_keys=True), fsync_dir=True)
+        _save_private_json(_usage_path(), data, sort_keys=True, fsync_dir=True)
 
 
 def identity_status(identity: str | None, *, guide: bool = False) -> dict:
@@ -154,7 +154,7 @@ def status() -> dict:
 
 def record_completed_tool(identity: str) -> None:
     """Atomic increment, including completions after the cap within an admitted turn."""
-    from hermes_cli.auth import _write_private_file_atomic
+    from hermes_cli.auth import _save_private_json
     from hermes_cli.auth_nous import _nous_shared_store_lock
     try:
         with _nous_shared_store_lock():
@@ -164,7 +164,7 @@ def record_completed_tool(identity: str) -> None:
                 data[identity]["tool_calls_used"] = used
             else:
                 data[identity] = used
-            _write_private_file_atomic(_usage_path(), json.dumps(data, sort_keys=True), fsync_dir=True)
+            _save_private_json(_usage_path(), data, sort_keys=True, fsync_dir=True)
     except (OSError, ValueError, RuntimeError):
         # Finish the active turn without losing the real tool result. All subsequent
         # admissions in this process fail closed for this identity, not just this agent.
