@@ -304,14 +304,14 @@ def test_setup_completion_starts_shared_counting_in_the_same_guide_chat(guide_en
     assert result["completed"] and usage.status()["tool_calls_used"] == 0
     with admit_turn(agent) as blocked:
         assert blocked is None and agent._free_tier_turn.guide
-        assert "error" in env.rpc("free_tier.finish_onboarding", session_id="missing")
-        assert usage.onboarding_available(usage.current_identity())
+        identity = usage.current_identity()
+        assert usage.onboarding_available(identity)
         with monkeypatch.context() as m:
             m.setattr(auth, "_save_private_json", Mock(side_effect=OSError("fixture write failure")))
-            assert "error" in env.rpc("free_tier.finish_onboarding", session_id="guide")
-        assert usage.onboarding_available(usage.current_identity())
-        response = env.rpc("free_tier.finish_onboarding", session_id="guide")
-        assert response.get("result", {}).get("finished") is True
+            with pytest.raises(OSError, match="fixture write failure"):
+                usage.finish_onboarding(identity)
+        assert usage.onboarding_available(identity)
+        usage.finish_onboarding(identity)
         record_tool_completion(agent)  # already-admitted work retains its reservation
     assert usage.status()["tool_calls_used"] == 0
 
@@ -342,7 +342,7 @@ def test_setup_completion_starts_shared_counting_in_the_same_guide_chat(guide_en
         assert status["onboarding_complete"] is True
         assert env.rpc("prompt.submit", session_id="guide", text="Not appended")["error"]["data"]["reason"] == usage.LIMIT_REASON
     assert usage._usage_path().read_bytes() == stored
-    assert env.rpc("free_tier.finish_onboarding", finished=False)["result"]["finished"] is True
+    usage.finish_onboarding(usage.current_identity())
     assert usage.status()["tool_calls_used"] == usage.TOOL_CALL_CAP
     assert "result" in env.rpc("profiles.ensure_onboarding")
     assert refusal(agent) is not None

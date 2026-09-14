@@ -31,6 +31,11 @@ interface ContinuationVerdict {
   status: FreeTierStatus
 }
 
+interface ContinuationInput {
+  text: string
+  hidden?: boolean
+}
+
 // A route verdict is not an identity counter: one capped identity can still
 // supply connectors beside a local/BYO session. Never gate from $freeTierStatus.
 export const $freeTierContinuation = atom<Record<string, ContinuationVerdict>>({})
@@ -118,7 +123,11 @@ export async function refreshContinuation(
       const current = $freeTierContinuation.get()
       const previous = current[key]?.status
 
-      if (previous?.continuation_required !== status.continuation_required || previous?.tool_calls_used !== status.tool_calls_used || previous?.onboarding_complete !== status.onboarding_complete) {
+      if (
+        previous?.continuation_required !== status.continuation_required
+        || previous?.tool_calls_used !== status.tool_calls_used
+        || previous?.onboarding_complete !== status.onboarding_complete
+      ) {
         $freeTierContinuation.set({ ...current, [key]: { target, status } })
       }
     }
@@ -131,7 +140,7 @@ export async function refreshContinuation(
 
 /** Only the actual first-task response starts the clarification grace. Setup
  * notes and the explicit "figure it out" fallback are not task choices. */
-function choosingFirstTask(sessionId: string | null, input?: { text: string; hidden?: boolean }): boolean {
+function choosingFirstTask(sessionId: string | null, input?: ContinuationInput): boolean {
   if (!sessionId || !input || input.hidden || !input.text.trim() || input.text.trim() === "Let's figure it out together") {
     return false
   }
@@ -150,7 +159,7 @@ function choosingFirstTask(sessionId: string | null, input?: { text: string; hid
 
 /** Runs before optimistic insertion or attachment/draft mutation, including
  * queue drains. The gateway still enforces the same rule for races/other clients. */
-export async function blockContinuationSend(sessionId: string | null, input?: { text: string; hidden?: boolean }): Promise<boolean> {
+export async function blockContinuationSend(sessionId: string | null, input?: ContinuationInput): Promise<boolean> {
   const target = continuationTarget(sessionId)
 
   if (!target) {

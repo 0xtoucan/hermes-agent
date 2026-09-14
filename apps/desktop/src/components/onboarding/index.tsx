@@ -482,13 +482,7 @@ export function DesktopOnboardingOverlay({
   )
 }
 
-/**
- * The one-time free-tier welcome, shown when the free tier is what serves this
- * user. Bare and centered like the model-confirm screen it stands in for: this
- * IS their "you're in" moment, so it names the route, its model and its price,
- * and offers the two ways out of it (a real account, or a provider of their
- * own) without making either the default.
- */
+/** Shared welcome surface; continuation swaps in recovery choices without Begin. */
 export function FreeTierReadyPanel({
   leaving,
   onDismiss,
@@ -511,18 +505,22 @@ export function FreeTierReadyPanel({
           leaving ? 'opacity-0 saturate-0' : 'opacity-100 saturate-100'
         )}
       >
-        {continuation ? <p className="max-w-md text-sm text-muted-foreground">{copy.continueBody}</p> : <>
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-[0.625rem] uppercase tracking-[0.2em] text-muted-foreground">
-            {t.onboarding.defaultModel}
-          </span>
-          <Badge size="xs" variant="success">
-            {t.onboarding.freeTier}
-          </Badge>
-        </div>
-        <p className="font-mono text-base">{FREE_TIER_MODEL}</p>
-        <p className="font-mono text-xs text-muted-foreground">{copy.readyCaption}</p>
-        </>}
+        {continuation ? (
+          <p className="max-w-md text-sm text-muted-foreground">{copy.continueBody}</p>
+        ) : (
+          <>
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-[0.625rem] uppercase tracking-[0.2em] text-muted-foreground">
+                {t.onboarding.defaultModel}
+              </span>
+              <Badge size="xs" variant="success">
+                {t.onboarding.freeTier}
+              </Badge>
+            </div>
+            <p className="font-mono text-base">{FREE_TIER_MODEL}</p>
+            <p className="font-mono text-xs text-muted-foreground">{copy.readyCaption}</p>
+          </>
+        )}
       </div>
 
       <div
@@ -531,26 +529,30 @@ export function FreeTierReadyPanel({
           leaving ? 'opacity-0 saturate-0' : 'opacity-100 saturate-100'
         )}
       >
-        {continuation ? <>
-          <Button onClick={continuation.onSignIn} type="button">{copy.signInOrCreate}</Button>
-          <Button onClick={continuation.onLocal} type="button" variant="text">{copy.useLocal}</Button>
-          <Button onClick={continuation.onProviders} type="button" variant="text">{copy.otherProviders}</Button>
-        </> : <>
-        <Button onClick={() => void onDismiss()} type="button">
-          {copy.begin}
-        </Button>
-        <Button onClick={() => void onDismiss(() => openFreeTierSignIn())} size="xs" type="button" variant="text">
-          {copy.signInInstead}
-        </Button>
-        <Button
-          onClick={() => void onDismiss(() => startManualOnboarding(null))}
-          size="xs"
-          type="button"
-          variant="text"
-        >
-          {copy.otherProviders}
-        </Button>
-        </>}
+        {continuation ? (
+          <>
+            <Button onClick={continuation.onSignIn} type="button">{copy.signInOrCreate}</Button>
+            <Button onClick={continuation.onLocal} type="button" variant="text">{copy.useLocal}</Button>
+            <Button onClick={continuation.onProviders} type="button" variant="text">{copy.otherProviders}</Button>
+          </>
+        ) : (
+          <>
+            <Button onClick={() => void onDismiss()} type="button">
+              {copy.begin}
+            </Button>
+            <Button onClick={() => void onDismiss(() => openFreeTierSignIn())} size="xs" type="button" variant="text">
+              {copy.signInInstead}
+            </Button>
+            <Button
+              onClick={() => void onDismiss(() => startManualOnboarding(null))}
+              size="xs"
+              type="button"
+              variant="text"
+            >
+              {copy.otherProviders}
+            </Button>
+          </>
+        )}
       </div>
     </div>
   )

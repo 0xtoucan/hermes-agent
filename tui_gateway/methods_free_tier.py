@@ -107,28 +107,6 @@ def _(rid, params: dict) -> dict:
         return _err(rid, 5094, "Could not mark the onboarding task choice. Please retry.")
 
 
-@method("free_tier.finish_onboarding")
-@_profile_scoped
-def _(rid, params: dict) -> dict:
-    """End setup grace for this identity before the next guide or default-profile turn.
-
-    Session-scoped callers must own the session; no request parameter can reopen grace.
-    """
-    from hermes_cli import free_tier_usage
-    try:
-        if params.get("session_id"):
-            session, err = _sess_nowait(params, rid)
-            if err:
-                return err
-            with _session_profile_runtime_scope(session):
-                free_tier_usage.finish_onboarding(free_tier_usage.current_identity())
-        else:
-            free_tier_usage.finish_onboarding(free_tier_usage.current_identity())
-        return _ok(rid, {"finished": True})
-    except Exception:
-        return _err(rid, 5093, "Could not finish free-tier setup. Please retry.")
-
-
 @method("free_tier.ack_notice")
 @_profile_scoped
 def _(rid, params: dict) -> dict:

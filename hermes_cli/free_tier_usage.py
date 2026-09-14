@@ -12,6 +12,7 @@ from pathlib import Path
 
 TOOL_CALL_CAP = 10
 ONBOARDING_TURN_CAP = 20
+TASK_CLARIFICATION_TURNS = 2
 LIMIT_REASON = "free_tier_limit"
 _FAILED_IDENTITIES: set[str] = set()
 LIMIT_NOTICE = (
@@ -78,11 +79,11 @@ def _onboarding_state(data: dict, identity: str) -> tuple[int, bool]:
         chosen = entry["onboarding_task_chosen_after_turn"]
         completed = entry.get("onboarding_task_completed_turns")
         if (type(chosen) is not int or not 0 <= chosen <= turns
-                or not isinstance(completed, list) or len(completed) > 2
+                or not isinstance(completed, list) or len(completed) > TASK_CLARIFICATION_TURNS
                 or any(type(turn) is not int or not chosen < turn <= turns for turn in completed)
                 or len(set(completed)) != len(completed)):
             raise ValueError("Onboarding task progress is invalid")
-        complete = complete or len(completed) >= 2
+        complete = complete or len(completed) >= TASK_CLARIFICATION_TURNS
     return turns, complete or turns >= ONBOARDING_TURN_CAP
 
 
@@ -167,7 +168,7 @@ def complete_onboarding_task_turn(identity: str, admission: int) -> None:
             if admission in completed:
                 return
             completed.append(admission)
-            entry["onboarding_complete"] = len(completed) >= 2
+            entry["onboarding_complete"] = len(completed) >= TASK_CLARIFICATION_TURNS
             _save_private_json(_usage_path(), data, sort_keys=True, fsync_dir=True)
     except (OSError, ValueError, RuntimeError):
         _FAILED_IDENTITIES.add(identity)
@@ -176,7 +177,7 @@ def complete_onboarding_task_turn(identity: str, admission: int) -> None:
 def finish_onboarding(identity: str | None) -> None:
     """One-way transition on real work admission; never reset tool usage.
 
-    A failed write must fail the RPC, not acknowledge a handoff with renewable grace.
+    A failed write must stop admission rather than leave renewable grace behind.
     """
     from hermes_cli.auth import _save_private_json
     from hermes_cli.auth_nous import _nous_shared_store_lock
