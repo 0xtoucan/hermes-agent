@@ -1,8 +1,11 @@
 import { atom } from 'nanostores'
 
 import { getGlobalModelInfo } from '@/hermes'
+import { isMissingRpcMethod } from '@/lib/gateway-rpc'
 import { type FreeTierRequester } from '@/store/free-tier'
 import { requestGatewayForAgent } from '@/store/gateway'
+import { notifyError } from '@/store/notifications'
+import { $onboardingAnswers } from '@/store/onboarding-answers'
 import { guidedOnboardingActive } from '@/store/onboarding-gate'
 import { onboardingSurfaceActive } from '@/store/onboarding-presence'
 import { $activeGatewayProfile, $newChatProfile, resolveNewChatOwnerRoute } from '@/store/profile'
@@ -66,8 +69,11 @@ export function continuationTarget(sessionId: string | null): ContinuationTarget
   }
 }
 
-export function continuationSuppressed(): boolean {
-  return guidedOnboardingActive() || onboardingSurfaceActive()
+export function continuationSuppressed(target: ContinuationTarget | null = null): boolean {
+  const status = target ? $freeTierContinuation.get()[continuationKey(target)]?.status : undefined
+
+  return (guidedOnboardingActive() || onboardingSurfaceActive())
+    && !(status?.continuation_required && status.onboarding_complete)
 }
 
 export function continuationRequired(target: ContinuationTarget | null): boolean {
@@ -111,7 +117,7 @@ export async function refreshContinuation(
       const current = $freeTierContinuation.get()
       const previous = current[key]?.status
 
-      if (previous?.continuation_required !== status.continuation_required || previous?.tool_calls_used !== status.tool_calls_used) {
+      if (previous?.continuation_required !== status.continuation_required || previous?.tool_calls_used !== status.tool_calls_used || previous?.onboarding_complete !== status.onboarding_complete) {
         $freeTierContinuation.set({ ...current, [key]: { target, status } })
       }
     }
@@ -122,17 +128,44 @@ export async function refreshContinuation(
   return continuationRequired(target)
 }
 
+/** Idempotent on the backend. A renderer can end grace, never grant or renew it. */
+export async function finishOnboardingAllowance(sessionId: string | null): Promise<void> {
+  const target = continuationTarget(sessionId)
+
+  if (!target || !sessionId) {
+    throw new Error('Could not identify the setup conversation. Please retry.')
+  }
+
+  try {
+    const result = await continuationRequester(target)<{ finished: boolean }>('free_tier.finish_onboarding', { session_id: sessionId })
+    if (result?.finished !== true) {
+      throw new Error('Could not confirm setup completion. Please retry.')
+    }
+  } catch (error) {
+    // Old backends have no continuation allowance to close.
+    if (!isMissingRpcMethod(error)) {
+      throw error
+    }
+  }
+}
+
 /** Runs before optimistic insertion or attachment/draft mutation, including
  * queue drains. The gateway still enforces the same rule for races/other clients. */
 export async function blockContinuationSend(sessionId: string | null): Promise<boolean> {
-  if (continuationSuppressed()) {
-    return false
-  }
-
   const target = continuationTarget(sessionId)
 
   if (!target) {
     return false // Unresolved owners are handled by the submit router.
+  }
+
+  if (target.owner.profile === 'hermes-setup' && ($onboardingAnswers.get().layoutSelected || $onboardingAnswers.get().committed.includes('layout'))) {
+    try {
+      await finishOnboardingAllowance(sessionId)
+    } catch (error) {
+      notifyError(error, 'Could not finish setup. Your draft is kept; please retry.')
+
+      return true
+    }
   }
 
   return refreshContinuation(target)

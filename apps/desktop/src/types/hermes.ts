@@ -153,6 +153,8 @@ export interface FreeTierStatus {
   capped?: boolean
   /** Backend verdict for the requested inference route, not identity presence. */
   continuation_required?: boolean
+  /** Backend onboarding grace has ended for this identity. */
+  onboarding_complete?: boolean
 }
 
 export interface MemoryProviderOAuthStatus {

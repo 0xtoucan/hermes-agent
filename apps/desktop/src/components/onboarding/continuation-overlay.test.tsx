@@ -6,9 +6,11 @@ import type * as Hermes from '@/hermes'
 import { listOAuthProviders } from '@/hermes'
 import { $freeTierContinuation, continuationKey } from '@/store/free-tier-continuation'
 import { closeFreeTierSignIn } from '@/store/free-tier-sign-in'
+import { requestGatewayForAgent } from '@/store/gateway'
 import type * as Gateway from '@/store/gateway'
 import { $desktopOnboarding } from '@/store/onboarding'
 import { $onboardingGate } from '@/store/onboarding-gate'
+import { $onboardingSurfaces } from '@/store/onboarding-presence'
 import { $activeSessionId, $gatewayState, $selectedStoredSessionId, setSessionOwnerHint } from '@/store/session'
 import { $sessionStates } from '@/store/session-states'
 
@@ -67,4 +69,34 @@ it('waits for the active turn, keeps the guide protected, and returns after canc
   expect(screen.getByRole('button', { name: 'Sign in / create account' })).toBeTruthy()
   act(() => $onboardingGate.set({ phase: 'guided', guideQueued: false }))
   expect(screen.queryByRole('button', { name: 'Sign in / create account' })).toBeNull()
+})
+
+it('shows the global cap inside the old guide after setup is finished', async () => {
+  seed(false)
+  $onboardingGate.set({ phase: 'guided', guideQueued: false })
+  $onboardingSurfaces.set(new Set(['solo-chat']))
+
+  const verdict = {
+    ...$freeTierContinuation.get()[continuationKey(target)].status,
+    tool_calls_used: 10, capped: true, onboarding_complete: true
+  }
+
+  vi.mocked(requestGatewayForAgent).mockResolvedValue(verdict as never)
+  $freeTierContinuation.set({}) // Relaunch: no cached refusal to reveal the modal.
+
+  try {
+    render(<DesktopOnboardingOverlay enabled={false} profile="writer" requestGateway={vi.fn() as never} />)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in / create account' })).toBeTruthy())
+    expect(screen.getByText(/free tool calls included after setup/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Other providers' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: /ChatGPT or Codex Subscription/ })).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(screen.getByRole('button', { name: 'Sign in / create account' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in / create account' }))
+    act(() => closeFreeTierSignIn())
+    expect(screen.getByRole('button', { name: 'Sign in / create account' })).toBeTruthy()
+  } finally {
+    act(() => $onboardingSurfaces.set(new Set()))
+    vi.mocked(requestGatewayForAgent).mockResolvedValue({ has_guest: true, continuation_required: true, tool_calls_used: 10 } as never)
+  }
 })

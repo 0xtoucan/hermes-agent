@@ -52,12 +52,12 @@ export function useContinuation() {
 
   const target = continuationTarget(runtimeId ?? storedId)
   const key = target ? continuationKey(target) : ''
-  const suppressed = continuationSuppressed()
+  const suppressed = continuationSuppressed(target)
   const [running, , , hydrated] = JSON.parse(activity) as [boolean, string?, string?, boolean?]
   const busy = running || Boolean((runtimeId || storedId) && !hydrated)
 
   useEffect(() => {
-    if (!target || suppressed || busy || gatewayState !== 'open') {
+    if (!target || busy || gatewayState !== 'open') {
       return
     }
 

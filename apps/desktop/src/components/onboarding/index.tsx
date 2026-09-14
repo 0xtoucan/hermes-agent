@@ -343,7 +343,7 @@ export function DesktopOnboardingOverlay({
   }, [ctx, onboarding.flow.status, onboarding.manual, onboarding.providers])
 
   if (
-    !onboarding.manual &&
+    !onboarding.manual && !continuation.required &&
     (introReveal.phase !== 'hidden' || onboardingSurfaceActive() || shouldPlayFirstRunIntro(onboarding.firstRunSkipped))
   ) {
     return null
