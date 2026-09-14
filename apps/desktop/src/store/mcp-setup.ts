@@ -1,3 +1,4 @@
+import type { McpSetupParams } from '@hermes/shared'
 import { atom, computed } from 'nanostores'
 
 import { respondToServerRequest } from './server-requests'
@@ -9,13 +10,8 @@ import { respondToServerRequest } from './server-requests'
  * session can park its card while the user looks at another chat, and the
  * inline McpSetupTool reads its own session's entry.
  */
-export interface McpSetupRequest {
+export interface McpSetupRequest extends Pick<McpSetupParams, 'action' | 'reason' | 'server'> {
   requestId: string
-  /** Catalog name (install) or mcp_servers config name (enable/authorize). */
-  server: string
-  action: 'authorize' | 'enable' | 'install'
-  /** Agent-supplied one-liner: why this server helps right now. */
-  reason: string
   sessionId: string | null
 }
 
@@ -104,7 +100,7 @@ export async function skipMcpSetupRequest(sessionId: string | null | undefined):
   // leave a live card the user can answer a second time.
   clearMcpSetupRequest(request.requestId, request.sessionId)
 
-  respondToServerRequest(request.requestId, {
+  respondToServerRequest('mcp.setup', request.requestId, {
     value: JSON.stringify({ server: request.server, status: 'declined' })
   })
 

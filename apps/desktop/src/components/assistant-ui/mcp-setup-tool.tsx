@@ -230,7 +230,7 @@ function McpSetupPending({ args }: ToolCallMessagePartProps) {
         invalidateMcpSuggestionIndex()
       }
 
-      respondToServerRequest(request.requestId, { value: JSON.stringify(outcome) })
+      respondToServerRequest('mcp.setup', request.requestId, { value: JSON.stringify(outcome) })
       // tool.complete lands next → McpSetupSettled.
     },
     [copy.gatewayDisconnected, copy.reloadFailed, copy.sendFailed, gateway, request]
