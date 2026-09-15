@@ -3116,6 +3116,8 @@ def _is_gateway_hidden_reasoning_incomplete_turn(agent_result: dict) -> bool:
     if (not isinstance(agent_result, dict) or agent_result.get("failed")
             or agent_result.get("interrupted") or not agent_result.get("partial")):
         return False
+    if agent_result.get("hidden_reasoning_incomplete"):
+        return True
     error_text = str(agent_result.get("error", "") or "").strip()
     if "remained incomplete after" not in error_text.lower():
         return False

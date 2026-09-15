@@ -245,6 +245,11 @@ _ONE_OFF_COPY: Dict[str, str] = {
         "its reasoning effort with `/reasoning low`, or switch to a different model with /model. "
         "Its last thoughts, which may contain the answer:\n\n{preview}"
     ),
+    "reasoning_only_no_text": (
+        "⚠️ {model} kept thinking without writing an answer, even after Hermes asked it three times "
+        "to continue. Send /retry to try again, lower its reasoning effort with `/reasoning low`, or "
+        "switch models with /model."
+    ),
     "max_iterations_no_summary": (
         "I ran out of steps for this turn ({limit} tool calls) before finishing, and couldn't "
         "produce a summary. Send `continue` to keep going, or raise `max_iterations` in your config."

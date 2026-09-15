@@ -57,6 +57,7 @@ _REPETITION_DOMINATED = (
     "Model output entered a repetition loop and was truncated mid-loop; refusing to continue a "
     "degenerate response.",
 )
+_CODEX_INCOMPLETE_SENTINEL = "Codex response remained incomplete after 3 continuation attempts"
 _CEILING_NO_TEXT = (
     "⚠️ **No visible answer was produced.** The model hit its output-token limit on every "
     "continuation attempt — its reasoning consumed the entire budget each time.\n\nTo fix this:\n"
@@ -538,9 +539,16 @@ def continue_codex_incomplete(
 
     agent._codex_incomplete_retries = 0
     agent._persist_session(messages, conversation_history)
-    return partial_result(
-        messages, api_call_count, "Codex response remained incomplete after 3 continuation attempts"
-    )
+    # ``error`` keeps the sentinel the gateway keys its suppression on
+    # (``_is_gateway_hidden_reasoning_incomplete_turn``); ``final_response`` is what a CLI/TUI/Desktop
+    # user actually reads, so it gets the plain-language copy and next steps.
+    result = stamp_failure(partial_result(
+        messages, api_call_count,
+        site_copy("reasoning_only_no_text", model=getattr(agent, "model", None) or "the model"),
+        _CODEX_INCOMPLETE_SENTINEL,
+    ), "empty_response", True)
+    result["hidden_reasoning_incomplete"] = True  # gateway suppresses (peer-agent loops, #51628)
+    return result
 
 
 @dataclass
