@@ -35,7 +35,15 @@ class _SlowUnwindingChild:
         # Model the real child turn's finally path: it still performs session
         # activity/SQLite cleanup after the parent requests interruption.
         self.unwinding.set()
-        assert self.allow_finish.wait(timeout=2)
+        # The invariant under test is ORDERING (close() only after the worker
+        # returns), not a wall-clock window: the test releases this event only
+        # after _run_single_child has returned, and that return pays a cold
+        # `import model_tools` in _ChildRun.cleanup (1-4 s in a fresh test
+        # process; already imported in production). A short patience here made
+        # the worker give up first, so the deferred close() fired at the
+        # sanctioned boundary and the test blamed the deferral (#112367). The
+        # timeout is only a safeguard against a broken test hanging forever.
+        assert self.allow_finish.wait(timeout=60)
         self.finished.set()
         return {
             "final_response": "",
