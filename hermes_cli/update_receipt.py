@@ -54,7 +54,13 @@ def _str_records(entries: Any, keys: tuple[str, ...], *, pid: bool = False) -> l
 class UpdateReceipt:
     """Collects the observable facts of one ``hermes update`` run."""
 
-    def __init__(self) -> None:
+    def __init__(self, directory: Path) -> None:
+        # Where finalize writes. Resolved at begin, NOT at finalize: the updater is the pre-pull
+        # interpreter, and after ``_purge_stale_hermes_modules`` a ``_receipt_dir()`` call re-imports
+        # the PULLED ``hermes_cli.config`` into a world where the purge-protected modules are still
+        # pre-pull — one new module-level import there (``utils.file_signature``, #112465) raised
+        # inside finalize and the whole receipt was dropped. Nothing on the write path may import.
+        self.directory = directory
         self.data: dict[str, Any] = {
             "schema": 1, "started_at": _utc_now_iso(), "finished_at": None,
             "argv": list(sys.argv), "pid": os.getpid(),
@@ -126,9 +132,9 @@ def begin_update_receipt() -> None:
     """Start recording a new update receipt. Never raises."""
     global _current
     try:
-        _current = UpdateReceipt()
+        _current = UpdateReceipt(_receipt_dir())
     except Exception as exc:  # pragma: no cover - defensive
-        logger.debug("Could not start update receipt: %s", exc)
+        logger.warning("Could not start update receipt: %s", exc)
         _current = None
 
 
@@ -173,7 +179,7 @@ def finalize_update_receipt(outcome: str, fleet: list | None = None, stop_reason
             receipt.data["stop_reason"] = stop_reason
         if fleet is not None:
             receipt.data["fleet"] = fleet
-        directory = _receipt_dir()
+        directory = receipt.directory
         directory.mkdir(parents=True, exist_ok=True)
         path = directory / f"update_{time.strftime('%Y%m%d_%H%M%S')}_{os.getpid()}.json"
         body = json.dumps(receipt.data, indent=2, default=str)
@@ -183,7 +189,9 @@ def finalize_update_receipt(outcome: str, fleet: list | None = None, stop_reason
         _prune_old_receipts(directory)
         return path
     except Exception as exc:  # pragma: no cover - defensive
-        logger.debug("Could not write update receipt: %s", exc)
+        # WARNING, not DEBUG: the updater logs at INFO, and a receipt that silently never lands is
+        # indistinguishable from "no receipt expected" — the exact post-mortem gap of #112465.
+        logger.warning("Could not write update receipt: %s", exc)
         return None
 
 
