@@ -102,6 +102,15 @@ def build_profile_parser(subparsers, *, cmd_profile: Callable) -> None:
     profile_migrate.add_argument("old_name", help="Profile name before the rename")
     profile_migrate.add_argument("new_name", help="Profile name after the rename")
 
+    profile_purge = profile_subparsers.add_parser(
+        "purge-identity",
+        help="Retry a deleted profile's session/routing identity purge",
+        description="Re-run the identity purge that `hermes profile delete` performs automatically: "
+            "routing, heartbeat and delivery rows still keyed by the deleted profile name are removed "
+            "from the shared state.db. Run it after restarting or stopping the gateway when the delete "
+            "warned that the live gateway could not purge. Refuses a name that exists again. Idempotent.")
+    profile_purge.add_argument("profile_name", help="Name of the deleted profile")
+
     profile_export = profile_subparsers.add_parser("export", help="Export a profile to archive")
     profile_export.add_argument("profile_name", help="Profile to export")
     profile_export.add_argument(

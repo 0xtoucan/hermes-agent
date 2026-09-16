@@ -119,6 +119,17 @@ def _migrate_profile_identity(old_canon: str, new_canon: str, live_mux: bool) ->
     return migrated
 
 
+def retry_purge_profile_identity(name: str) -> bool:
+    """``hermes profile purge-identity <name>``: retry the identity purge of a delete that already
+    completed (a live gateway did not answer the verb). Refuses a name that exists again — the
+    purge keys off the name alone and would strip a recreated profile's live routes."""
+    from hermes_cli.profiles import _canon_valid, _live_default_multiplexer, profile_exists
+    canon = _canon_valid(name)
+    if canon == "default" or profile_exists(canon):
+        raise ValueError(f"Profile '{canon}' exists; purge-identity only settles a completed delete.")
+    return purge_profile_identity(canon, _live_default_multiplexer())
+
+
 def purge_profile_identity(canon: str, live_mux: bool) -> bool:
     """Purge a deleted profile's durable identity (#112727) — the delete-side twin of
     :func:`_migrate_profile_identity`, same ownership rule: a live multiplexer drops
@@ -138,7 +149,8 @@ def purge_profile_identity(canon: str, live_mux: bool) -> bool:
                 return True
             reason = _control_answer_failure(answer)
         print(f"⚠ Profile was deleted, but the live gateway could not purge its session/routing "
-              f"identity ({reason}). Restart the gateway to drop the stale routes.", file=sys.stderr)
+              f"identity ({reason}). Restart the gateway, then run:\n"
+              f"    hermes profile purge-identity {canon}", file=sys.stderr)
         return False
 
     from hermes_constants import get_default_hermes_root

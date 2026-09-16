@@ -451,6 +451,19 @@ def _profile_migrate_identity(args):
     print(f"✓ Session/routing identity migrated: {args.old_name} → {args.new_name}")
 
 
+def _profile_purge_identity(args):
+    """Retry the identity purge of a delete that already completed (#112727)."""
+    from hermes_cli.profile_identity import retry_purge_profile_identity
+    try:
+        purged = retry_purge_profile_identity(args.profile_name)
+    except (ValueError, FileNotFoundError) as e:
+        _die(f"Error: {e}")
+    if not purged:
+        _die("Error: session identity was not purged. Restart or stop the gateway, then run:\n"
+             f"    hermes profile purge-identity {args.profile_name}", err=True)
+    print(f"✓ Session/routing identity purged: {args.profile_name}")
+
+
 def _profile_export(args):
     from hermes_cli.profiles import export_profile, get_profile_export_path
     name = args.profile_name
@@ -591,6 +604,7 @@ PROFILE_ACTIONS = {
     'alias': _profile_alias,
     'rename': _profile_rename,
     'migrate-identity': _profile_migrate_identity,
+    'purge-identity': _profile_purge_identity,
     'export': _profile_export,
     'import': _profile_import,
     'install': _profile_install,

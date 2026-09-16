@@ -276,6 +276,14 @@ hermes profile migrate-identity mybot assistant
 # ✓ Session/routing identity migrated: mybot → assistant
 ```
 
+## `hermes profile purge-identity`
+
+```bash
+hermes profile purge-identity <name>
+```
+
+Retries the identity purge of a delete that already completed. `hermes profile delete` removes the deleted profile's routing, heartbeat and pending-delivery rows from the shared `state.db` (via the live gateway's control socket, or directly when no gateway is running); run this if the delete warned that the live gateway could not purge — after restarting or stopping the gateway. Refuses a name that exists as a profile again. Idempotent.
+
 ## `hermes profile export`
 
 ```bash
