@@ -304,3 +304,30 @@ def migrate_profile_identity_verb(runner):
                     logger.debug("Failed to release renamed profile state DB", exc_info=True)
 
     return _handler
+
+
+def purge_profile_identity_verb(runner):
+    """Build the ``purge-profile-identity`` control-verb handler for ``hermes profile delete``
+    (#112727): the delete-side twin of ``migrate-profile-identity``, with the same ownership rule —
+    this process holds the routing index in memory, so it drops ``agent:<name>:*`` from
+    ``SessionStore._entries`` and purges the root store's heartbeat/delivery/topic rows itself.
+    Deliberately NOT part of ``_unserve_profile``: that also runs for a rename's old name, whose
+    identity the rekey that follows still needs."""
+
+    def _handler(params: dict) -> dict:
+        name = str(params.get("name") or "").strip()
+        if not name:
+            return {"ok": False, "error": "name required"}
+        store = getattr(runner, "session_store", None)
+        if store is None:
+            return {"ok": False, "error": "live gateway has no session store"}
+        try:
+            dropped = store.drop_profile_routing(name)
+            routing_db = getattr(store, "_routing_db", None)
+            db_counts = routing_db.purge_profile_state(name) if routing_db is not None else {}
+            return {"ok": True, "dropped": dropped, "db": db_counts}
+        except Exception as exc:
+            logger.warning("Profile identity purge failed for %r: %s", name, exc)
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+    return _handler

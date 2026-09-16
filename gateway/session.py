@@ -1148,6 +1148,22 @@ class SessionStore(
                 self._save()
         return len(moving)
 
+    def drop_profile_routing(self, name: str) -> int:
+        """Drop a deleted profile's ``agent:<name>:*`` keys from the live routing index and persist
+        the index without them (#112727). A DB-only delete would be clobbered by this store's next
+        whole-index save, so the owner of ``_entries`` does the drop."""
+        name = (name or "").strip()
+        if not name:
+            return 0
+        ns = f"agent:{name}:"
+        with self._lock:
+            dropped = [key for key in self._entries if key.startswith(ns)]
+            for key in dropped:
+                del self._entries[key]
+            if dropped:
+                self._save()
+        return len(dropped)
+
     # Compression repoint is store bookkeeping, not user activity — leave ``updated_at`` alone so a
     # background compression on an idle session cannot make it look fresh to the
     # restart-resume freshness gate (#85709).

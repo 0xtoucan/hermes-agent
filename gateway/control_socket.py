@@ -368,3 +368,10 @@ def migrate_gateway_profile_identity(home: Path, old_name: str, new_name: str, *
     and a restart reconciles the in-memory copy."""
     return query_gateway_control(home, "migrate-profile-identity",
                                  params={"old": old_name, "new": new_name}, timeout=timeout)
+
+
+def purge_gateway_profile_identity(home: Path, name: str, *, timeout: float = 8.0) -> Optional[dict[str, Any]]:
+    """Ask the multiplexer serving ``home`` to drop a deleted profile's ``agent:<name>:*`` routing
+    (in memory + on disk) and purge its heartbeat/delivery rows now. None when no gateway answers or
+    the gateway predates the verb."""
+    return query_gateway_control(home, "purge-profile-identity", params={"name": name}, timeout=timeout)

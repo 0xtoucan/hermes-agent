@@ -653,6 +653,35 @@ class SessionGatewayMixin:
         self._execute_write(_do)
         return counts
 
+    def purge_profile_state(self, profile: str) -> Dict[str, int]:
+        """Delete every row keyed to a profile that no longer exists (#112727) — the delete-side
+        mirror of :meth:`rekey_profile_state`. ``agent:<name>:*`` routing keys, heartbeat rows,
+        delivery obligations and telegram topic rows are pure bookkeeping for a dead name; left
+        behind, the routing index keeps resolving the deleted profile on every inbound event.
+        ``sessions`` rows are history, not identity, and are left alone. Idempotent."""
+        name = (profile or "").strip()
+        counts: Dict[str, int] = {}
+        if not name:
+            return counts
+        ns = f"agent:{name}:"
+        prefix = ("substr(session_key, 1, ?) = ?", (len(ns), ns))
+
+        def _do(conn):
+            existing = {row[0] for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+            for table, where, args in (
+                ("gateway_routing", prefix[0], prefix[1]),
+                ("gateway_heartbeats", "profile = ?", (name,)),
+                ("delivery_obligations", f"adapter_profile = ? OR {prefix[0]}", (name, *prefix[1])),
+                ("telegram_dm_topic_mode", "profile_name = ?", (name,)),
+                ("telegram_dm_topic_bindings", f"profile_name = ? OR {prefix[0]}", (name, *prefix[1])),
+            ):
+                if table in existing:
+                    counts[table] = conn.execute(f"DELETE FROM {table} WHERE {where}", args).rowcount
+
+        self._execute_write(_do)
+        return counts
+
     @staticmethod
     def session_gateway_runtime(session_meta: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         """Read the persisted runtime route off a session row dict (``model_config`` as

@@ -339,7 +339,7 @@ rename), but `rename` for them still renames the profile itself.
 hermes profile delete coder
 ```
 
-This stops the gateway, removes the systemd/launchd service, removes the command alias, and deletes all profile data. You'll be asked to type the profile name to confirm.
+This stops the gateway, removes the systemd/launchd service, removes the command alias, and deletes all profile data. It also drops the profile's chat routes, heartbeat and pending-delivery records from the shared `state.db`, so a live multiplexed gateway stops resolving the deleted name (a running gateway does this itself via its control socket). You'll be asked to type the profile name to confirm.
 
 Use `--yes` to skip confirmation: `hermes profile delete coder --yes`
 

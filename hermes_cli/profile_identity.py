@@ -117,3 +117,45 @@ def _migrate_profile_identity(old_canon: str, new_canon: str, live_mux: bool) ->
                 with contextlib.suppress(Exception):
                     release_or_close(db)
     return migrated
+
+
+def purge_profile_identity(canon: str, live_mux: bool) -> bool:
+    """Purge a deleted profile's durable identity (#112727) — the delete-side twin of
+    :func:`_migrate_profile_identity`, same ownership rule: a live multiplexer drops
+    ``agent:<canon>:*`` from its in-memory routing index and purges the root store through the
+    ``purge-profile-identity`` verb; with no live multiplexer this process purges the root
+    ``state.db`` directly (the profile's own ``state.db`` goes with its directory). Never fatal to
+    the delete, which has already happened. Returns False when the identity was NOT purged."""
+    if live_mux:
+        from hermes_constants import get_default_hermes_root
+        try:
+            from gateway.control_socket import purge_gateway_profile_identity
+            answer = purge_gateway_profile_identity(get_default_hermes_root(), canon)
+        except Exception as exc:
+            reason = f"{type(exc).__name__}: {exc}"
+        else:
+            if isinstance(answer, dict) and answer.get("ok") is True:
+                return True
+            reason = _control_answer_failure(answer)
+        print(f"⚠ Profile was deleted, but the live gateway could not purge its session/routing "
+              f"identity ({reason}). Restart the gateway to drop the stale routes.", file=sys.stderr)
+        return False
+
+    from hermes_constants import get_default_hermes_root
+    from hermes_state_registry import acquire, release_or_close
+    db_path = get_default_hermes_root() / "state.db"
+    if not db_path.exists():
+        return True
+    db = None
+    try:
+        db = acquire(db_path)
+        db.purge_profile_state(canon)
+        return True
+    except Exception as exc:
+        print(f"⚠ Profile was deleted, but identity purge failed for {db_path}: "
+              f"{type(exc).__name__}: {exc}", file=sys.stderr)
+        return False
+    finally:
+        if db is not None:
+            with contextlib.suppress(Exception):
+                release_or_close(db)

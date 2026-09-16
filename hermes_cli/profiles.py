@@ -1361,6 +1361,11 @@ def delete_profile(name: str, yes: bool = False) -> Path:
     _retarget_active_profile(canon, "default", "✓ Active profile reset to default")
     if remove_error is not None:
         raise RuntimeError(f"Could not remove profile directory {profile_dir}: {remove_error}") from remove_error
+    # 6. Purge profile-name-keyed identity (routing index, heartbeats, delivery obligations) from
+    # the root store — the delete-side twin of rename's identity migration. A stale ``agent:<name>:*``
+    # route otherwise resolves a profile that no longer exists on every inbound event (#112727).
+    from hermes_cli.profile_identity import purge_profile_identity
+    purge_profile_identity(canon, _live_default_multiplexer())
     print(f"\nProfile '{canon}' deleted.")
     return profile_dir
 
