@@ -137,6 +137,35 @@ def _profile_role(profile_dir: Path) -> str:
     return _swallow(_role, "")
 
 
+def _profile_title(profile_dir: Path) -> str:
+    """The Bot Mode title the roster shows for a profile ("" when unnamed). Never raises."""
+    return _swallow(lambda: str((_bots_meta(_read_yaml_dict(profile_dir / "profile.yaml", "hermes-bots")) or {})
+                                .get("title") or "").strip(), "")
+
+
+def _display_name(name: str, profile_dir: Path) -> str:
+    """Human-facing sender name: the Bot Mode title when the profile has one, else its @handle —
+    the renamed primary signs as ``Maia (@hermes)``, not ``hermes (@hermes)``."""
+    return _profile_title(profile_dir) or _handle(name)
+
+
+def _title_mention_forms(title: str) -> set[str]:
+    """The @tag forms the Desktop derives from a friendly name (slugified and collapsed); mirrors
+    ``data.ts::mentionNameForms`` so a teammate can target what autocomplete inserts."""
+    lowered = title.strip().lower()
+    forms = {re.sub(r"[^a-z0-9_-]+", "-", lowered).strip("-"), re.sub(r"[^a-z0-9_-]+", "", lowered)}
+    return {f for f in forms if re.fullmatch(r"[a-z0-9][a-z0-9_-]*", f)
+            and f not in ("all", "everyone", "user", "default", "hermes")}
+
+
+def resolve_title_mention(target: str, roster_homes: dict[str, Path]) -> str | None:
+    """Profile whose Bot Mode title slugifies to ``target`` (``@maia`` → ``default`` after
+    ``hermes profile rename default Maia``); None when no title matches. Never raises."""
+    want = target.strip().lstrip("@").lower()
+    return _swallow(lambda: next((n for n, d in roster_homes.items()
+                                  if want and want in _title_mention_forms(_profile_title(d))), None), None)
+
+
 def _peers(root: Path) -> list[str]:
     """Registered peer gateway names (``hermes peer``) from config.yaml, read
     directly (no config-loader import; the section is absent on most installs). Never raises."""

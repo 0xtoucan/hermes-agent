@@ -395,6 +395,33 @@ def test_peer_delivery_author_carries_the_sender_hostname_and_local_stays_bare(t
     assert _runner_author(calls[1]["command"]) == {"id": "bot:coder", "name": "coder", "is_bot": True}
 
 
+def test_renamed_primary_signs_with_its_title_and_is_reachable_by_that_tag(tmp_path, monkeypatch):
+    """#89720: `hermes profile rename default Maia` / a Bot Mode title on the primary must show up
+    in the delivery notice (`Maia (@hermes)`, not `hermes (@hermes)`) and a teammate must be able
+    to target `@maia` — the tag the Desktop roster and autocomplete give that bot. `@hermes`
+    keeps resolving (legacy alias)."""
+    calls = _capture_spawn(monkeypatch)
+    monkeypatch.setattr(bot_relay, "_hermes_cli", lambda: "hermes")
+    home = _managed_home(tmp_path, teammates=("coder",))
+    (home / "profile.yaml").write_text(
+        "ui_meta:\n  hermes-bots:\n    title: Maia Prime\n    shape: circle\n", encoding="utf-8"
+    )
+
+    # Primary → teammate: signature carries the title, routing handle stays @hermes.
+    result = json.loads(bot_mode_dm.message_agent_tool(target="coder", message="hi", agent=_FakeAgent(home)))
+    assert result["status"] == "sent"
+    _mode, dm_file, _argv = _runner_parts(calls[0]["command"])
+    assert Path(dm_file).read_text(encoding="utf-8").startswith("Message from 🤖 Maia Prime (@hermes): ")
+
+    # Teammate → primary by the title's tag (slug and collapsed forms), and by the legacy alias.
+    coder = _FakeAgent(home / "profiles" / "coder")
+    for target in ("@maia-prime", "maiaprime", "@hermes"):
+        result = json.loads(bot_mode_dm.message_agent_tool(target=target, message="pong", agent=coder))
+        assert result["status"] == "sent", (target, result)
+        _mode, _dm_file, argv = _runner_parts(calls[-1]["command"])
+        assert argv[1:3] == ["-p", "default"], (target, argv)
+
+
 def test_named_profile_sender_prefix(tmp_path, monkeypatch):
     """A named-profile bot signs with its own handle, not @hermes."""
     calls = _capture_spawn(monkeypatch)

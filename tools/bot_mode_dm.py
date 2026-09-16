@@ -180,8 +180,8 @@ def message_agent_tool(target: str = "", message: str = "", task_id: Optional[st
     home = _agent_home(agent)
     try:
         from tools.bot_mode_probe import (
-            BOT_CHAT_TITLE, _handle, _hermes_root, _peers, _profile_name as _self_profile_name, _roster,
-            is_bot_mode_managed,
+            BOT_CHAT_TITLE, _display_name, _handle, _hermes_root, _peers, _profile_name as _self_profile_name,
+            _roster, is_bot_mode_managed, resolve_title_mention,
         )
         from tools.bot_relay import BOT_CHAT_TURN_ARGS, _hermes_cli
 
@@ -213,7 +213,8 @@ def message_agent_tool(target: str = "", message: str = "", task_id: Optional[st
     raw_target = str(target or "").strip().lstrip("@")
     if not raw_target:
         return _roster_err("target is required.")
-    content = f"Message from 🤖 {_handle(me)} (@{_handle(me)}): " + body
+    # Sender signature: the Bot Mode title when named (#89720), the @handle stays the routing alias.
+    content = f"Message from 🤖 {_display_name(me, roster_homes[me])} (@{_handle(me)}): " + body
     delivery = dict(task_id=task_id, agent=agent)
     # Attribution for the recipient's memory hooks; the text prefix above stays the human-facing signature.
     author = {"id": f"bot:{me}", "name": _handle(me), "is_bot": True}
@@ -244,7 +245,10 @@ def message_agent_tool(target: str = "", message: str = "", task_id: Optional[st
     is_local_shape = bool(_LOCAL_TARGET_RE.match(raw_target))
     if not is_local_shape and "@" not in raw_target:
         return _roster_err(f"Invalid target: {raw_target!r}.")
-    resolved = _resolve_local_name(raw_target, roster) if is_local_shape else None
+    # Profile name / 'hermes' first; then the Bot Mode title's @tag (the form autocomplete
+    # inserts for a renamed bot, `@maia` → default) — same order as the Desktop resolvers.
+    resolved = (_resolve_local_name(raw_target, roster) or resolve_title_mention(raw_target, roster_homes)) \
+        if is_local_shape else None
     if resolved is None or resolved == me:
         # Unknown locally, or same-name target on ANOTHER connection (this gateway's 'default'
         # messaging the cloud 'default'): every Desktop-connected gateway is reachable via the
