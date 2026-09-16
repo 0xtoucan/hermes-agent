@@ -159,6 +159,34 @@ class TestReceiptLifecycle:
     def test_read_latest_receipt_missing(self, receipt_home):
         assert ur.read_latest_receipt() is None
 
+    def test_finalize_writes_without_resolving_the_directory_again(self, receipt_home, monkeypatch):
+        """The updater is the pre-pull interpreter: after the stale-module purge, resolving the
+        receipt directory re-imports the PULLED ``hermes_cli.config``, which can fail on a symbol a
+        still-stale module lacks. A receipt begun before the pull must land regardless (#112465)."""
+        ur.begin_update_receipt()
+        ur.record_step("git_pull", True)
+
+        def _post_purge_import_fails():
+            raise ImportError("cannot import name 'file_signature' from 'utils'")
+
+        monkeypatch.setattr(ur, "_receipt_dir", _post_purge_import_fails)
+        path = _finalize("partial")
+        assert path is not None and path.is_file()
+        assert path.parent == receipt_home / "logs" / "update_receipts"
+        assert json.loads(path.read_text(encoding="utf-8"))["outcome"] == "partial"
+
+    def test_write_failure_is_logged_above_debug(self, receipt_home, caplog):
+        """The updater logs at INFO; a receipt that silently never lands is indistinguishable from
+        \"no receipt expected\" (#112465)."""
+        (receipt_home / "logs").write_text("not a directory", encoding="utf-8")
+        ur.begin_update_receipt()
+        with caplog.at_level("WARNING", logger="hermes_cli.update_receipt"):
+            assert _finalize("failed") is None
+        assert any(
+            r.levelname == "WARNING" and "Could not write update receipt" in r.getMessage()
+            for r in caplog.records
+        )
+
 
 class TestCommandBoundaryFinalization:
     """Receipt lifetime is owned by the update-command boundary (#91283 review).
