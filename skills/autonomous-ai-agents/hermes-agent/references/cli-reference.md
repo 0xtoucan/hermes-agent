@@ -102,6 +102,7 @@ Webhook payloads/routes: `references/webhooks.md`.
 hermes profile list|create NAME (--clone|--clone-all|--clone-from)|use|show|delete
 hermes profile rename A B | alias NAME | export NAME | import FILE
 hermes profile migrate-identity A B   Retry a completed rename's session/routing identity migration
+hermes profile purge-identity NAME    Drop a deleted profile's leftover routing/heartbeat/obligation rows from state.db
 ```
 
 ### Credentials & Pools

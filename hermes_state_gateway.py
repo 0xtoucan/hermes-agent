@@ -658,7 +658,9 @@ class SessionGatewayMixin:
         mirror of :meth:`rekey_profile_state`. ``agent:<name>:*`` routing keys, heartbeat rows,
         delivery obligations and telegram topic rows are pure bookkeeping for a dead name; left
         behind, the routing index keeps resolving the deleted profile on every inbound event.
-        ``sessions`` rows are history, not identity, and are left alone. Idempotent."""
+        ``sessions`` rows are history, not identity, and are left alone, as are the inert
+        session_key-keyed bookkeeping tables (``gateway_hygiene_state``, ``conversation_generations``)
+        that nothing resolves a profile from — :meth:`rekey_profile_state` skips them too. Idempotent."""
         name = (profile or "").strip()
         counts: Dict[str, int] = {}
         if not name:
