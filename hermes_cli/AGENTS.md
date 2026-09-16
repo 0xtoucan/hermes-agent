@@ -129,7 +129,11 @@ it guards. `plan → snapshot → apply → restart-per-kind → verify → repo
   (`latest.json` pointer; steps, skips WITH reasons, restart outcome, plan, fleet snapshot).
   Finalization is owned by the `cmd_update` command boundary — early `sys.exit` paths (preflight
   refusals, fetch failures) still persist a receipt with the real exit code. A begun-but-unwritten
-  receipt is a bug: refused/failed runs are the ones receipts exist for.
+  receipt is a bug: refused/failed runs are the ones receipts exist for. The write path imports
+  nothing: the updater is the pre-pull interpreter, and after the stale-module purge any import on
+  that path loads PULLED source against still-stale protected modules (`update_receipt` resolves
+  its directory at `begin_update_receipt()`, never at finalize — #112465). Receipt-write failures
+  log at WARNING; the updater runs at INFO, so a DEBUG line is a silent loss.
 
 Process-scan coordination between updater, serve/dashboard, and gateway is being replaced by a
 gateway-owned control socket (#92091); scans are the fallback layer for old/crashed processes — read
