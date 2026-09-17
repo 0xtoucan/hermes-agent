@@ -66,19 +66,35 @@ def mute(state, hours: float) -> float:
 
 
 def prompt_section(state) -> str:
-    """Rendered once per new session by the host; empty string means no section."""
+    """Rendered once per new session by the host; empty string means no section. Three bounded
+    blocks: team feed notices, the update-policy sweep (applied / needs a human), share candidates."""
+    from plugins.wisdom import candidates, updates
+    from plugins.wisdom.client import entitled
+    parts = []
     try:
-        notices = refresh(state)
+        if not entitled():
+            return ""
+        if notices := refresh(state):
+            lines = [f"- {n['skill_id']} v{n['version']} ({n['kind']}" + (f", you have v{n['installed']}" if n["installed"] else "") + ")"
+                     for n in notices]
+            parts.append("Your team published or updated Collective Wisdom skills since you last looked:\n" + "\n".join(lines)
+                         + "\nMention this once if relevant; the user can review with wisdom_browse and install with "
+                           "wisdom_install (native consent required). Do not install anything unprompted.")
+        if state.get("installed") and not state.get("muted_until", 0) > time.time():
+            if lines := updates.summary_lines(updates.sweep(state)):
+                parts.append("Collective Wisdom update policy:\n" + "\n".join(f"- {line}" for line in lines)
+                             + "\nTell the user once. Conflicts and manual updates need their decision via wisdom_install "
+                               "(action=update) or `/wisdom update`.")
+        if cands := candidates.qualify(state):
+            for c in cands:
+                candidates.mark_presented(state, c["skill"])
+            parts.append("Local skills that qualify as share candidates for the team (deterministic usage rules):\n"
+                         + "\n".join(f"- {candidates.describe(c)}" for c in cands)
+                         + "\nSuggest sharing at most once, only when relevant; wisdom_share asks the user natively. "
+                           "`/wisdom candidates` lists them; `/wisdom not-now <skill>` silences one.")
     except Exception as exc:  # a broken feed must never break session start
         logger.debug("wisdom notices unavailable: %s", exc)
-        return ""
-    if not notices:
-        return ""
-    lines = [f"- {n['skill_id']} v{n['version']} ({n['kind']}" + (f", you have v{n['installed']}" if n["installed"] else "") + ")"
-             for n in notices]
-    return ("Your team published or updated Collective Wisdom skills since you last looked:\n" + "\n".join(lines)
-            + "\nMention this once if relevant; the user can review with wisdom_browse and install with "
-              "wisdom_install (native consent required). Do not install anything unprompted.")
+    return "\n\n".join(parts)
 
 
 def summary(state) -> dict[str, Any]:

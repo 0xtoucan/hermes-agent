@@ -13,6 +13,7 @@ import hashlib
 import re
 import shutil
 import tempfile
+import time
 from pathlib import Path
 from typing import Any, Callable
 
@@ -125,6 +126,7 @@ class Wisdom:
                 if local and latest and latest > local["version"]:
                     updates.append({"skill_id": row["skill_id"], "slug": local["slug"],
                                     "installed": local["version"], "latest": latest,
+                                    "mode": row.get("update_mode") or local.get("update_mode") or "MANUAL",
                                     "required": row.get("update_mode") == "REQUIRED"})
         shown = ledger if include_paths else {k: {kk: vv for kk, vv in v.items() if kk != "path"} for k, v in ledger.items()}
         return {"org_id": self.client.org_id, "installed": shown, "updates": updates, **notices.summary(self.state)}
@@ -148,12 +150,14 @@ class Wisdom:
                 "takedown_generation": int(skill.get("takedown_generation", 0)),
                 "security": f"{security.get('status')} — {security.get('summary', '')}",
                 "author": v.get("author_description"), "explanation": v.get("explanation"),
+                "update_mode": skill.get("update_mode") or skill.get("default_update_mode"),
                 "target": str(self._root() / slug)}
 
     def install(self, skill_id: str, *, version: int | None, confirm: Confirm) -> dict:
         p = self.plan(skill_id, version=version)
         title = f"Install Wisdom skill {p['slug']} v{p['version']}"
-        shown = {k: p[k] for k in ("skill_id", "version", "content_hash", "security", "author", "explanation", "target")}
+        shown = {k: p[k] for k in ("skill_id", "version", "content_hash", "security", "author", "explanation",
+                                   "update_mode", "target")}
         if not confirm(title, _text(shown)):
             raise NotConfirmed("install not confirmed")
         ident = self.installation_id()
@@ -189,11 +193,26 @@ class Wisdom:
             out["preserved_local_edits"] = str(kept)
         return out
 
-    def update(self, skill_id: str | None, *, confirm: Confirm) -> list[dict]:
-        pending = self.status()["updates"]
+    def update(self, skill_id: str | None, *, confirm: Confirm, keep: bool = False) -> list[dict]:
+        """Review-and-apply pending updates (``skill_id`` narrows to one; ``keep`` records "keep my
+        edited copy for this version" instead). Local edits are never lost either way: the swap
+        parks the edited tree and reports ``preserved_local_edits``."""
+        from plugins.wisdom import updates
+        rows = updates.pending(self)
         if skill_id:
-            pending = [u for u in pending if u["skill_id"] == skill_id or u["slug"] == skill_id]
-        return [self.install(u["skill_id"], version=u["latest"], confirm=confirm) for u in pending]
+            rows = [u for u in rows if u["skill_id"] == skill_id or u["slug"] == skill_id]
+        if keep:
+            for u in rows:
+                updates.defer(self.state, u["skill_id"], u["latest"])
+            return [{"kept": u["skill_id"], "slug": u["slug"], "version": u["latest"]} for u in rows]
+        out = []
+        for u in rows:
+            if u["action"] == "deferred" and not skill_id:
+                continue
+            detail_extra = " (you edited your copy; it will be kept aside)" if u["modified"] else ""
+            out.append(self.install(u["skill_id"], version=u["latest"],
+                                    confirm=lambda t, d, extra=detail_extra: confirm(t + extra, d)))
+        return out
 
     def uninstall(self, skill_id: str, *, confirm: Confirm) -> dict:
         ledger = self._ledger()
@@ -252,6 +271,9 @@ class Wisdom:
         result = self.client.approve_and_publish(draft["id"], content_hash=prepared.content_hash,
                                                  description_hash=prepared.description_hash,
                                                  manifest_hash=prepared.manifest_hash)
+        shared = dict(self.state.get("shared") or {})
+        shared[skill_name] = {"slug": slug, "skill_id": result.get("skill_id"), "version": result.get("version")}
+        self.state.set("shared", shared)
         return {"draft_id": draft["id"], "skill_id": result.get("skill_id"), "version": result.get("version"),
                 "outcome": result.get("publication_outcome"), "message": result.get("user_message"),
                 "review_url": result.get("review_url")}

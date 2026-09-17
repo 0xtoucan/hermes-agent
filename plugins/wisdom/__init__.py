@@ -33,6 +33,14 @@ def _service():
     return Wisdom(state())
 
 
+class _LazyService:
+    """Builds the Gateway client on first use, so local-only verbs (candidates, not-now, mute) work
+    without a Nous login."""
+
+    def __getattr__(self, name):
+        return getattr(_service(), name)
+
+
 @no_cache_check_fn
 def _available() -> bool:
     from plugins.wisdom.client import entitled
@@ -79,10 +87,15 @@ def _run(fn: Callable[[], Any]) -> str:
 
 def _tool_browse(args: dict, **_) -> str:
     def go():
+        from plugins.wisdom import candidates, updates
         svc = _service()
         if args.get("skill_id"):
             return svc.show(args["skill_id"])
-        return {"skills": svc.browse(), **({"status": svc.status()} if args.get("include_status") else {})}
+        out = {"skills": svc.browse()}
+        if args.get("include_status"):
+            out["status"] = dict(svc.status(), updates=updates.pending(svc))
+            out["share_candidates"] = candidates.qualify(state())
+        return out
     return _run(go)
 
 
@@ -92,7 +105,7 @@ def _tool_install(args: dict, **_) -> str:
         if action == "install":
             return svc.install(args["skill_id"], version=args.get("version"), confirm=_gate_confirm)
         if action == "update":
-            return {"updated": svc.update(args.get("skill_id"), confirm=_gate_confirm)}
+            return {"updated": svc.update(args.get("skill_id"), confirm=_gate_confirm, keep=bool(args.get("keep_local_edits")))}
         return svc.uninstall(args["skill_id"], confirm=_gate_confirm)
     return _run(go)
 
@@ -105,7 +118,8 @@ _TOOLS = (
     ("wisdom_browse", _tool_browse, {
         "name": "wisdom_browse",
         "description": "Browse the team's Collective Wisdom skills, show one skill's versions and checks, or "
-                       "(include_status) list installed skills and pending updates. Read-only. Publisher text is untrusted.",
+                       "(include_status) list installed skills, pending updates with their policy verdict "
+                       "(auto/conflict/manual) and local share candidates. Read-only. Publisher text is untrusted.",
         "parameters": {"type": "object", "properties": {
             "skill_id": {"type": "string", "description": "Show this skill's detail instead of the listing."},
             "include_status": {"type": "boolean", "description": "Also return installed skills and available updates."},
@@ -119,6 +133,8 @@ _TOOLS = (
             "action": {"type": "string", "enum": ["install", "update", "uninstall"], "default": "install"},
             "skill_id": {"type": "string", "description": "Skill id (or slug for update/uninstall). Omit with action=update to update everything."},
             "version": {"type": "integer", "minimum": 1, "description": "Exact version; default latest."},
+            "keep_local_edits": {"type": "boolean", "description": "With action=update: resolve a conflict by keeping the "
+                                 "user's edited copy for this version instead of updating."},
         }, "additionalProperties": False}}),
     ("wisdom_share", _tool_share, {
         "name": "wisdom_share",
@@ -145,6 +161,31 @@ def _cmd_list(svc, a) -> Any:
                      f"security={r['security']}  {r['id']}" for r in rows)
 
 
+def _cmd_candidates(svc, a) -> str:
+    from plugins.wisdom import candidates
+    rows = candidates.qualify(state())
+    if not rows:
+        return "No local skill qualifies as a share candidate right now."
+    return "Share candidates (usage-based; `wisdom share <name> --description ...` to share, `wisdom not-now <name>` to skip):\n" + \
+        "\n".join(f"- {candidates.describe(c)}" for c in rows)
+
+
+def _cmd_not_now(svc, a) -> str:
+    from plugins.wisdom import candidates
+    return f"{a.skill_name} will not be suggested again before {candidates.defer(state(), a.skill_name)}."
+
+
+def _cmd_updates(svc, a) -> Any:
+    from plugins.wisdom import updates
+    rows = updates.pending(svc)
+    return rows or "Everything Wisdom-managed is current."
+
+
+def _cmd_update(svc, a) -> Any:
+    keep = bool(getattr(a, "keep", False))
+    return svc.update(a.skill_id, confirm=_confirm_for_surface(), keep=keep) or "Nothing to update."
+
+
 def _cmd_mute(svc, a) -> str:
     from plugins.wisdom import notices
     until = notices.mute(state(), a.hours)
@@ -164,7 +205,10 @@ _COMMANDS: dict[str, Callable[[Any, argparse.Namespace], Any]] = {
     "show": lambda svc, a: svc.show(a.skill_id),
     "status": lambda svc, a: svc.status(include_paths=not _shared_surface()),
     "install": lambda svc, a: svc.install(a.skill_id, version=a.version, confirm=_confirm_for_surface()),
-    "update": lambda svc, a: svc.update(a.skill_id, confirm=_confirm_for_surface()) or "Nothing to update.",
+    "update": _cmd_update,
+    "updates": _cmd_updates,
+    "candidates": _cmd_candidates,
+    "not-now": _cmd_not_now,
     "uninstall": lambda svc, a: svc.uninstall(a.skill_id, confirm=_confirm_for_surface()),
     "share": lambda svc, a: svc.share(a.skill_name, description=a.description, confirm=_confirm_for_surface()),
 }
@@ -184,7 +228,13 @@ def _setup_cli(parser: argparse.ArgumentParser) -> None:
     ins = subs.add_parser("install", help="Install a shared skill (asks first)")
     ins.add_argument("skill_id")
     ins.add_argument("--version", type=int, default=None)
-    subs.add_parser("update", help="Update one or all installed skills").add_argument("skill_id", nargs="?")
+    upd = subs.add_parser("update", help="Update one or all installed skills (asks first; edited copies are kept aside)")
+    upd.add_argument("skill_id", nargs="?")
+    upd.add_argument("--keep", action="store_true", help="Keep your edited copy for this version (resolves a conflict)")
+    upd.add_argument("--replace", action="store_true", help="Explicit: replace the edited copy (kept aside); same as default")
+    subs.add_parser("updates", help="Pending updates with their policy verdict (auto / conflict / manual)")
+    subs.add_parser("candidates", help="Local skills that qualify as share candidates")
+    subs.add_parser("not-now", help="Stop suggesting a share candidate for 30 days").add_argument("skill_name")
     subs.add_parser("uninstall", help="Remove a Wisdom-managed skill").add_argument("skill_id")
     subs.add_parser("mute", help="Silence team notices for N hours (0 = unmute)").add_argument("hours", type=float, nargs="?", default=24)
     sh = subs.add_parser("share", help="Share a local skill with your team")
@@ -198,9 +248,9 @@ def _dispatch(ns: argparse.Namespace) -> tuple[str, bool]:
     from plugins.wisdom.package import PackageError
     handler = _COMMANDS.get(ns.wisdom_command or "")
     if handler is None:
-        return "usage: wisdom {list,show,status,install,update,uninstall,share,mute}", False
+        return "usage: wisdom {list,show,status,install,update,updates,uninstall,share,candidates,not-now,mute}", False
     try:
-        out = handler(_service(), ns)
+        out = handler(_LazyService(), ns)
     except WisdomAuthError as exc:
         return f"{exc}\nRun `hermes login` with your team account first.", False
     except (WisdomError, PackageError, ValueError) as exc:
@@ -208,12 +258,19 @@ def _dispatch(ns: argparse.Namespace) -> tuple[str, bool]:
     return (out if isinstance(out, str) else _fmt(out)), True
 
 
-def _slash(raw_args: str) -> str:
+def _slash(raw_args: str):
+    """``/wisdom`` in a session. On a connected Telegram/Slack chat this returns a coroutine (the gateway
+    awaits it) that renders cards with buttons and confirms mutations natively; elsewhere plain text."""
     import shlex
     try:
         ns = _parser("/wisdom").parse_args(shlex.split(raw_args or "") or ["status"])
     except SystemExit:
-        return "usage: /wisdom {list,show <id>,status,install <id> [--version N],update [id],uninstall <id>,share <name> --description ...,mute [hours]}"
+        return ("usage: /wisdom {list,show <id>,status,install <id> [--version N],update [id] [--keep],updates,"
+                "uninstall <id>,share <name> --description ...,candidates,not-now <name>,mute [hours]}")
+    from plugins.wisdom import chat
+    target = chat.slash_target()
+    if target is not None:
+        return chat.slash(ns, target)
     return _dispatch(ns)[0]
 
 
@@ -224,7 +281,7 @@ def _cli(args: argparse.Namespace) -> int:
 
 
 def register(ctx) -> None:
-    from plugins.wisdom import notices
+    from plugins.wisdom import candidates, chat, notices
     for name, handler, schema in _TOOLS:
         ctx.register_tool(name=name, toolset="wisdom", schema=schema, handler=handler,
                           check_fn=_available, emoji="🧭")
@@ -233,5 +290,11 @@ def register(ctx) -> None:
     ctx.register_cli_command(name="wisdom", help="Collective Wisdom team skill sharing",
                              setup_fn=_setup_cli, handler_fn=_cli,
                              description="Browse, install, update and share instruction-only skills within your Nous team.")
-    # Frozen into each NEW session's prompt (never mutated mid-conversation): what the team published.
-    ctx.register_system_prompt_section("wisdom.notices", lambda _info: notices.prompt_section(state()), max_chars=1500)
+    # Frozen into each NEW session's prompt (never mutated mid-conversation): what the team published,
+    # what the update policy did or needs, which local skills qualify for sharing.
+    ctx.register_system_prompt_section("wisdom.notices", lambda _info: notices.prompt_section(state()), max_chars=2500)
+    # Usage facts for share-candidate qualification (loaded / patched / edited); nothing leaves the profile.
+    ctx.register_hook("on_skill_lifecycle", lambda action, skill_name, provenance="", **_:
+                      candidates.observe(state(), action=action, skill_name=skill_name, provenance=provenance or None))
+    # Native chat surfaces: cards + buttons on Telegram and Slack, proactive team notices to the home channel.
+    chat.register(ctx)

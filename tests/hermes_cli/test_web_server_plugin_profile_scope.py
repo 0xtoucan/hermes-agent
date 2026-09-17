@@ -24,6 +24,7 @@ def _app(router: APIRouter) -> TestClient:
 def test_plugin_routes_resolve_hermes_home_for_the_requested_profile(tmp_path, monkeypatch):
     home = tmp_path / ".hermes"
     (home / "profiles" / "research").mkdir(parents=True)
+    (home / "profiles" / "research" / "config.yaml").write_text("{}\n", encoding="utf-8")  # a live profile carries identity
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     monkeypatch.setenv("HERMES_HOME", str(home))
     router = APIRouter()
