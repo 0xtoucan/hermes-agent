@@ -114,6 +114,14 @@ def _new_card(live: Live, chat_id: str, thread_id: Optional[str], actions: list[
     return card
 
 
+def _tg_markup(token: str, labels: list[str]):
+    """Inline keyboard, two buttons per row; PTB is imported here because it is an optional dependency
+    that is only present when a Telegram adapter is connected."""
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    keys = [InlineKeyboardButton(lbl[:64], callback_data=f"wisdom:{token}:{i}") for i, lbl in enumerate(labels)]
+    return InlineKeyboardMarkup([keys[i:i + 2] for i in range(0, len(keys), 2)]) if keys else None
+
+
 async def send_card(live: Live, chat_id: str, thread_id: Optional[str], text: str,
                     buttons: Optional[list[tuple[str, Action]]] = None) -> Card:
     native = live.native
@@ -121,11 +129,8 @@ async def send_card(live: Live, chat_id: str, thread_id: Optional[str], text: st
     card = _new_card(live, chat_id, thread_id, [a for _, a in buttons])
     labels = [label for label, _ in buttons]
     if live.platform == "telegram":
-        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-        keys = [InlineKeyboardButton(lbl[:64], callback_data=f"wisdom:{card.token}:{i}") for i, lbl in enumerate(labels)]
-        markup = InlineKeyboardMarkup([keys[i:i + 2] for i in range(0, len(keys), 2)]) if keys else None
         kwargs: dict[str, Any] = {"chat_id": int(chat_id) if str(chat_id).lstrip("-").isdigit() else chat_id,
-                                  "text": text[:4000], "reply_markup": markup}
+                                  "text": text[:4000], "reply_markup": _tg_markup(card.token, labels)}
         if thread_id and str(thread_id).isdigit():
             kwargs["message_thread_id"] = int(thread_id)
         msg = await native.bot.send_message(**kwargs)

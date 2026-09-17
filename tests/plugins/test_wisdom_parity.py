@@ -222,6 +222,17 @@ def _buttons(msg):
     return [(b.text, b.callback_data) for row in msg.reply_markup.inline_keyboard for b in row]
 
 
+class _Btn:
+    def __init__(self, text, data):
+        self.text, self.callback_data = text, data
+
+
+def _fake_markup(token, labels):
+    """PTB is optional in CI; mirror InlineKeyboardMarkup's shape (rows of buttons with text + callback_data)."""
+    keys = [_Btn(lbl, f"wisdom:{token}:{i}") for i, lbl in enumerate(labels)]
+    return type("Markup", (), {"inline_keyboard": [keys[i:i + 2] for i in range(0, len(keys), 2)]})() if keys else None
+
+
 async def _tap(chat, msg, data, user_id, username="tek"):
     """Simulate a Telegram callback query through the handler the plugin registered on the PTB app."""
     answers = []
@@ -251,8 +262,13 @@ def test_telegram_card_flow_is_authorized_and_hash_bound(tmp_path, monkeypatch):
     monkeypatch.setattr(wisdom, "state", lambda: state)
     monkeypatch.setattr(service_mod, "WisdomClient", lambda: gw)
     monkeypatch.setattr(chat, "CONFIRM_TIMEOUT", 5.0)
+    monkeypatch.setattr(chat, "_tg_markup", _fake_markup)
     handlers = []
-    monkeypatch.setattr("telegram.ext.CallbackQueryHandler", lambda cb, pattern=None: handlers.append(cb) or ("cb", cb, pattern))
+    import sys, types
+    fake_ext = types.ModuleType("telegram.ext")
+    fake_ext.CallbackQueryHandler = lambda cb, pattern=None: handlers.append(cb) or ("cb", cb, pattern)
+    monkeypatch.setitem(sys.modules, "telegram", sys.modules.get("telegram") or types.ModuleType("telegram"))
+    monkeypatch.setitem(sys.modules, "telegram.ext", fake_ext)
     monkeypatch.setattr(chat, "_TG_HANDLERS", handlers, raising=False)
     chat._live.clear(); chat._cards.clear(); chat._pending.clear()
     app, adapter, ctx = _TgApp(), _TgAdapter(), _Ctx()
@@ -327,6 +343,7 @@ def test_proactive_delivery_sends_each_team_event_once_per_platform(tmp_path, mo
     monkeypatch.setattr(service_mod, "WisdomClient", lambda: gw)
     monkeypatch.setattr("plugins.wisdom.client.WisdomClient", lambda **_: gw)
     monkeypatch.setattr("plugins.wisdom.client.entitled", lambda scope="wisdom:read": True)
+    monkeypatch.setattr(chat, "_tg_markup", _fake_markup)
     chat._live.clear(); chat._cards.clear()
     app = _TgApp()
     live = chat.Live("telegram", app, _TgAdapter(), "home")
