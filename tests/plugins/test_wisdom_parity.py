@@ -223,8 +223,9 @@ def _buttons(msg):
 
 
 async def _tap(chat, msg, data, user_id, username="tek"):
-    """Simulate a Telegram callback query through the plugin's handler."""
+    """Simulate a Telegram callback query through the handler the plugin registered on the PTB app."""
     answers = []
+    handler = chat._TG_HANDLERS[-1]
 
     class Q:
         def __init__(self):
@@ -235,7 +236,7 @@ async def _tap(chat, msg, data, user_id, username="tek"):
             answers.append(text)
 
     update = type("Upd", (), {"callback_query": Q()})()
-    await chat._telegram_callback(update, None)
+    await handler(update, None)
     return answers
 
 
@@ -250,7 +251,9 @@ def test_telegram_card_flow_is_authorized_and_hash_bound(tmp_path, monkeypatch):
     monkeypatch.setattr(wisdom, "state", lambda: state)
     monkeypatch.setattr(service_mod, "WisdomClient", lambda: gw)
     monkeypatch.setattr(chat, "CONFIRM_TIMEOUT", 5.0)
-    monkeypatch.setattr("telegram.ext.CallbackQueryHandler", lambda cb, pattern=None: ("cb", cb, pattern), raising=False)
+    handlers = []
+    monkeypatch.setattr("telegram.ext.CallbackQueryHandler", lambda cb, pattern=None: handlers.append(cb) or ("cb", cb, pattern))
+    monkeypatch.setattr(chat, "_TG_HANDLERS", handlers, raising=False)
     chat._live.clear(); chat._cards.clear(); chat._pending.clear()
     app, adapter, ctx = _TgApp(), _TgAdapter(), _Ctx()
 
@@ -258,9 +261,19 @@ def test_telegram_card_flow_is_authorized_and_hash_bound(tmp_path, monkeypatch):
         chat._connect(ctx, "telegram", app, adapter)
         for t in ctx.tasks:  # the poller is started; not exercised here
             t.cancel()
-        # /wisdom list from an authorized chat renders a card whose install button carries no wire payload.
-        ns = wisdom._parser("/wisdom").parse_args(["list"])
-        assert await chat.slash(ns, ("telegram", "555", None)) is None
+        live = chat.live_for("telegram")
+        assert live is not None and app.handlers  # the callback handler was bound to THIS bot
+        # /wisdom list typed in a Telegram chat: the gateway's plugin-command dispatch gets a coroutine
+        # (awaited by the gateway) that renders a card whose install button carries no wire payload.
+        from gateway.session_context import clear_session_vars, set_session_vars
+        tokens = set_session_vars(platform="telegram", chat_id="555", user_id="1001", session_key="telegram:555")
+        try:
+            pending = wisdom._slash("list")
+            assert asyncio.iscoroutine(pending)
+            assert await pending is None
+        finally:
+            clear_session_vars(tokens)
+        assert state["chat_home"]["telegram"]["chat_id"] == "555"
         listing = app.bot.sent[-1]
         (label, data), = _buttons(listing)
         assert label.startswith("⬇") and re.fullmatch(r"wisdom:[0-9a-f]{12}:0", data) and "sk1" not in data
@@ -316,18 +329,18 @@ def test_proactive_delivery_sends_each_team_event_once_per_platform(tmp_path, mo
     monkeypatch.setattr("plugins.wisdom.client.entitled", lambda scope="wisdom:read": True)
     chat._live.clear(); chat._cards.clear()
     app = _TgApp()
-    chat._live["telegram"] = (app, _TgAdapter())
+    live = chat.Live("telegram", app, _TgAdapter(), "home")
 
     async def scenario():
-        sent = await chat.deliver("telegram", now=10_000.0)
+        sent = await chat.deliver(live, now=10_000.0)
         texts = [m.text for m in app.bot.sent]
         assert sent == 2 and any("sk2 v1" in t for t in texts) and any("canonical v1 → v2" in t for t in texts)
         # Same items, next poll: nothing is repeated, even past the poll interval.
-        assert await chat.deliver("telegram", now=10_000.0 + 2 * chat.POLL_INTERVAL) == 0
+        assert await chat.deliver(live, now=10_000.0 + 2 * chat.POLL_INTERVAL) == 0
         # Muted: silence; a home channel is the target so a 555 chat received everything.
         state.set("muted_until", 99_999.0)
         gw.feed_events.append({"kind": "new", "skill_id": "sk3", "version": 1})
-        assert await chat.deliver("telegram", now=20_000.0) == 0
+        assert await chat.deliver(live, now=20_000.0) == 0
         assert {str(m.chat.id) for m in app.bot.sent} == {"555"}
 
     asyncio.run(scenario())
@@ -361,10 +374,11 @@ def test_slack_blocks_carry_opaque_actions_and_refuse_strangers(tmp_path, monkey
     monkeypatch.setattr(wisdom, "state", lambda: state)
     chat._live.clear(); chat._cards.clear(); chat._pending.clear()
     native = type("App", (), {"client": _SlackClient()})()
-    chat._live["slack"] = (native, _SlackAdapter())
+    live = chat.Live("slack", native, _SlackAdapter(), "home")
+    chat._live[("slack", "home")] = live
 
     async def scenario():
-        card = await chat.send_card("slack", "C1", "171.5", "Mute?", [("🔕 Mute 24h", ("mute",))])
+        card = await chat.send_card(live, "C1", "171.5", "Mute?", [("🔕 Mute 24h", ("mute",))])
         post = native.client.posted[-1]
         assert post["thread_ts"] == "171.5" and post["blocks"][1]["elements"][0]["action_id"] == f"wisdom:{card.token}:0"
         assert "mute" not in json.dumps(post["blocks"][1])  # the verb never rides on the wire
@@ -384,3 +398,45 @@ def test_slack_blocks_carry_opaque_actions_and_refuse_strangers(tmp_path, monkey
         assert state["muted_until"] == 0 and "expired" in native.client.ephemeral[-1]["text"]
 
     asyncio.run(scenario())
+
+
+def test_desktop_router_keeps_conflicts_and_gates_share_on_gateway_verdicts(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    import plugins.wisdom.service as service_mod
+    from plugins.wisdom.dashboard import plugin_api
+    gw = _Gateway(mode="AUTO_WITH_NOTICE")
+    svc, state = _installed(tmp_path, monkeypatch, gw)
+    (Path(state["installed"]["sk1"]["path"]) / "SKILL.md").write_text("edited\n", encoding="utf-8")
+    gw.latest = 2
+    monkeypatch.setattr(service_mod, "WisdomClient", lambda: gw)
+    monkeypatch.setattr(plugin_api, "entitlement", lambda: {"org_id": "org-test", "scopes": ("wisdom:read",)})
+    monkeypatch.setattr(plugin_api, "state", lambda: state)
+    http = TestClient(_mk_app(plugin_api.router))
+
+    over = http.get("/overview").json()
+    (upd,) = over["status"]["updates"]
+    assert upd["action"] == "conflict" and upd["modified"] is True and over["candidates"] == []
+    assert http.post("/update/keep", json={"skill_id": "sk1", "version": 2}).status_code == 200
+    assert http.get("/overview").json()["status"]["updates"][0]["action"] == "deferred"
+    assert state["installed"]["sk1"]["version"] == 1  # the overview sweep applied nothing: conflict, then deferred
+
+    # Share: confirm 2 passes only on pass+pass; anything else withdraws the draft and surfaces the verdict.
+    seen = []
+
+    def share(self, name, *, description, confirm):
+        assert confirm("Share x with your team as x", "content_hash: sha256:" + "a" * 64) is True
+        assert confirm("Share x with your team as x", "content_hash: sha256:" + "b" * 64) is False
+        seen.append(confirm("Publish x to your team", "security: pass — ok\nprofessionalism: pass — ok"))
+        seen.append(confirm("Publish x to your team", "security: pass — ok\nprofessionalism: needs_review — tone"))
+        return {"ok": True}
+    monkeypatch.setattr(service_mod.Wisdom, "share", share)
+    r = http.post("/share", json={"skill_name": "x", "description": "d", "content_hash": "sha256:" + "a" * 64})
+    assert r.status_code == 200 and seen == [True, False]
+
+
+def _mk_app(router):
+    from fastapi import FastAPI
+    app = FastAPI()
+    app.include_router(router)
+    return app

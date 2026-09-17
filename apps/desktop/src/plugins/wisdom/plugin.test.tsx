@@ -29,8 +29,17 @@ function boot() {
       return {
         entitled: true,
         skills: [{ id: 'sk1', slug: 'deploy', version: 3, installs: 4, description: 'd', security: 'pass' }],
-        status: { installed: {}, updates: [], notices: [] }
+        status: {
+          installed: { sk2: { slug: 'notes', version: 1, path: '/x/notes' } },
+          updates: [{ skill_id: 'sk2', slug: 'notes', installed: 1, latest: 2, required: false, mode: 'AUTO_WITH_NOTICE', modified: true, action: 'conflict' }],
+          notices: []
+        },
+        candidates: [{ skill: 'standup', reason: 'high_usage', evidence: { consecutive_business_days: 7, used_days: 9 } }]
       }
+    }
+
+    if (path === '/share/prepare') {
+      return { skill_name: 'standup', slug: 'standup', description: 'Daily standup notes', content_hash: HASH, files: [{ path: 'SKILL.md', bytes: 12 }] }
     }
 
     if (path === '/plan') {
@@ -56,6 +65,22 @@ function boot() {
 afterEach(cleanup)
 
 describe('wisdom desktop plugin', () => {
+  it('resolves an update conflict without touching the package: keep pins the exact version', async () => {
+    const { calls } = boot()
+    fireEvent.click(await screen.findByRole('button', { name: 'Keep mine' }))
+    await waitFor(() => expect(calls.find(([p]) => p === '/update/keep')?.[1]).toEqual({ skill_id: 'sk2', version: 2 }))
+    expect(calls.some(([p]) => p === '/install' || p === '/plan')).toBe(false)
+  })
+
+  it('shares a candidate only after the prepared package dialog, echoing its hash', async () => {
+    const { calls } = boot()
+    fireEvent.click(await screen.findByRole('button', { name: 'Share…' }))
+    await screen.findByText(HASH)
+    expect(calls.some(([p]) => p === '/share')).toBe(false)
+    fireEvent.click(await screen.findByRole('button', { name: 'Share' }))
+    await waitFor(() => expect(calls.find(([p]) => p === '/share')?.[1]).toEqual({ skill_name: 'standup', description: 'Daily standup notes', content_hash: HASH }))
+  })
+
   it('installs only after the plan dialog, echoing the exact planned hash', async () => {
     const { calls } = boot()
     fireEvent.click(await screen.findByRole('button', { name: 'Install' }))

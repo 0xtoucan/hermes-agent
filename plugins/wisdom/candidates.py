@@ -129,6 +129,20 @@ def defer(state, skill: str, *, days: int = NOT_NOW_DAYS, now: float | None = No
     return until
 
 
+def default_description(skill_name: str) -> str:
+    """Share description a surface may prefill: the skill's own frontmatter description."""
+    from agent.skill_utils import parse_frontmatter
+    from tools.skill_usage import _find_skill_dir
+    d = _find_skill_dir(skill_name)
+    if d is None:
+        raise ValueError(f"local skill {skill_name!r} not found")
+    meta, _body = parse_frontmatter((d / "SKILL.md").read_text(encoding="utf-8"))
+    desc = str((meta or {}).get("description") or "").strip()
+    if not desc:
+        raise ValueError(f"{skill_name} has no frontmatter description; pass one explicitly")
+    return desc
+
+
 def describe(c: dict) -> str:
     ev = c["evidence"]
     if c["reason"] == "high_usage":

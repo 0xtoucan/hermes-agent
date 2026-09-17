@@ -1365,10 +1365,13 @@ Team skill sharing over the Nous Gateway (bundled `wisdom` plugin; needs a `herm
 | `show <skill-id>` | Versions plus the Gateway's security/professionalism checks. |
 | `status` | Installed Wisdom skills and pending updates. |
 | `install <skill-id> [--version N]` | Install an exact version after a terminal confirmation. |
-| `update [skill-id]` | Update one or every installed skill (confirms each). |
+| `update [skill-id] [--keep]` | Update one or every installed skill (confirms each; an edited copy is kept aside). `--keep` resolves a conflict by keeping your edited copy for that version. |
+| `updates` | Pending updates with the team's policy verdict per skill: `auto`, `conflict`, `manual`, `deferred`. |
 | `uninstall <skill-id>` | Remove a Wisdom-managed skill. |
 | `share <skill> --description "..."` | Package a local instruction-only skill, upload a private draft, and publish after you approve the package and the Gateway's review. |
-| `mute [hours]` | Silence "your team published X" notices for N hours (default 24; `0` unmutes). |
+| `candidates` | Local skills that qualify as share candidates (usage-based, deterministic). |
+| `not-now <skill>` | Stop suggesting a share candidate for 30 days. |
+| `mute [hours]` | Silence team notices for N hours (default 24; `0` unmutes). |
 
 ## `hermes bundles`
 

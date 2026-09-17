@@ -37,18 +37,31 @@ Action = tuple[str, ...]
 
 
 @dataclass
+class Live:
+    """One connected adapter: the platform SDK handle plus the adapter (authorization, config)."""
+    platform: str
+    native: Any
+    adapter: Any
+    home: str
+
+
+@dataclass
 class Card:
     token: str
-    platform: str
+    live: Live
     chat_id: str
     thread_id: Optional[str]
     actions: list[Action]
     message_id: Optional[str] = None
     created: float = field(default_factory=time.time)
 
+    @property
+    def platform(self) -> str:
+        return self.live.platform
+
 
 _ctx: Any = None                                 # PluginContext (supervised tasks)
-_live: dict[str, tuple[Any, Any]] = {}          # platform -> (native sdk app, adapter)
+_live: dict[tuple[str, str], Live] = {}         # (platform, profile home key) -> Live
 _cards: dict[str, Card] = {}
 _pending: dict[str, dict] = {}                   # confirm token -> {"event", "approved", "actor"}
 
@@ -56,6 +69,16 @@ _pending: dict[str, dict] = {}                   # confirm token -> {"event", "a
 def _state():
     from plugins.wisdom import state
     return state()
+
+
+def _home_key() -> str:
+    from hermes_constants import hermes_home_key
+    return hermes_home_key()
+
+
+def live_for(platform: str) -> Optional[Live]:
+    """The connected adapter of ``platform`` serving the current profile (multiplex-safe)."""
+    return _live.get((platform, _home_key()))
 
 
 # --- registration -----------------------------------------------------------------------------
@@ -68,37 +91,36 @@ def register(ctx) -> None:
 
 
 def _connect(ctx, platform: str, native: Any, adapter: Any) -> None:
-    """Adapter ``connect()`` hook: remember the live SDK handle, bind callbacks, start the poller."""
+    """Adapter ``connect()`` hook (runs under the adapter's profile scope): remember the live SDK
+    handle, bind callbacks, start this profile's poller."""
     if native is None:
         return
-    _live[platform] = (native, adapter)
+    live = Live(platform, native, adapter, _home_key())
+    _live[(platform, live.home)] = live
     if platform == "telegram":
         from telegram.ext import CallbackQueryHandler
-        native.add_handler(CallbackQueryHandler(_telegram_callback, pattern=_CB_RE))
-    ctx.spawn_task(_poll(platform), name=f"plugin:wisdom:notices:{platform}")
-
-
-def connected(platform: str) -> bool:
-    return platform in _live
+        native.add_handler(CallbackQueryHandler(
+            lambda update, context: _telegram_callback(update, context, live), pattern=_CB_RE))
+    ctx.spawn_task(_poll(live), name=f"plugin:wisdom:notices:{platform}")
 
 
 # --- cards ------------------------------------------------------------------------------------
-def _new_card(platform: str, chat_id: str, thread_id: Optional[str], actions: list[Action]) -> Card:
+def _new_card(live: Live, chat_id: str, thread_id: Optional[str], actions: list[Action]) -> Card:
     now = time.time()
     for tok in [t for t, c in _cards.items() if now - c.created > CARD_TTL]:
         _cards.pop(tok, None)
-    card = Card(secrets.token_hex(6), platform, str(chat_id), thread_id or None, actions)
+    card = Card(secrets.token_hex(6), live, str(chat_id), thread_id or None, actions)
     _cards[card.token] = card
     return card
 
 
-async def send_card(platform: str, chat_id: str, thread_id: Optional[str], text: str,
+async def send_card(live: Live, chat_id: str, thread_id: Optional[str], text: str,
                     buttons: Optional[list[tuple[str, Action]]] = None) -> Card:
-    native, _adapter = _live[platform]
+    native = live.native
     buttons = buttons or []
-    card = _new_card(platform, chat_id, thread_id, [a for _, a in buttons])
+    card = _new_card(live, chat_id, thread_id, [a for _, a in buttons])
     labels = [label for label, _ in buttons]
-    if platform == "telegram":
+    if live.platform == "telegram":
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
         keys = [InlineKeyboardButton(lbl[:64], callback_data=f"wisdom:{card.token}:{i}") for i, lbl in enumerate(labels)]
         markup = InlineKeyboardMarkup([keys[i:i + 2] for i in range(0, len(keys), 2)]) if keys else None
@@ -123,7 +145,7 @@ async def send_card(platform: str, chat_id: str, thread_id: Optional[str], text:
 async def edit_card(card: Card, text: str) -> None:
     """Replace a card's text and drop its buttons (outcome shown in place; taps become no-ops)."""
     _cards.pop(card.token, None)
-    native, _adapter = _live[card.platform]
+    native = card.live.native
     try:
         if card.platform == "telegram":
             await native.bot.edit_message_text(chat_id=int(card.chat_id) if card.chat_id.lstrip("-").isdigit() else card.chat_id,
@@ -136,12 +158,12 @@ async def edit_card(card: Card, text: str) -> None:
 
 
 # --- callbacks (inbound wire data: authorize first) ----------------------------------------------
-async def _telegram_callback(update, _context) -> None:
+async def _telegram_callback(update, _context, live: Live) -> None:
     q = update.callback_query
     m = _CB_RE.match(q.data or "")
     if not m:
         return
-    _native, adapter = _live["telegram"]
+    adapter = live.adapter
     chat = q.message.chat if q.message else None
     thread = getattr(q.message, "message_thread_id", None) if q.message else None
     ok = adapter._is_callback_user_authorized(
@@ -161,7 +183,11 @@ async def _slack_action(ack, body, action) -> None:
     m = _CB_RE.match(str(action.get("action_id") or ""))
     if not m:
         return
-    _native, adapter = _live["slack"]
+    card = _cards.get(m.group(1))
+    lives = [card.live] if card else [x for x in _live.values() if x.platform == "slack"]
+    if not lives:
+        return
+    adapter = lives[0].adapter
     user = body.get("user") or {}
     channel = (body.get("channel") or {}).get("id", "")
     auth = getattr(adapter, "_is_interactive_user_authorized", None)
@@ -172,8 +198,7 @@ async def _slack_action(ack, body, action) -> None:
         return
     reply = await _dispatch(m.group(1), int(m.group(2)), actor=user.get("username") or user.get("name") or str(user.get("id")))
     if reply:
-        with_native = _live["slack"][0]
-        await with_native.client.chat_postEphemeral(channel=channel, user=user.get("id"), text=reply[:3000])
+        await lives[0].native.client.chat_postEphemeral(channel=channel, user=user.get("id"), text=reply[:3000])
 
 
 async def _dispatch(token: str, idx: int, *, actor: str) -> Optional[str]:
@@ -197,13 +222,13 @@ class ChatConfirm:
     and block until an authorized tap (or ``CONFIRM_TIMEOUT``). Approvals bind to the card, so
     the title + detail the human read is exactly what the service then applies."""
 
-    def __init__(self, platform: str, chat_id: str, thread_id: Optional[str], loop: asyncio.AbstractEventLoop):
-        self.platform, self.chat_id, self.thread_id, self.loop = platform, chat_id, thread_id, loop
+    def __init__(self, live: Live, chat_id: str, thread_id: Optional[str], loop: asyncio.AbstractEventLoop):
+        self.live, self.chat_id, self.thread_id, self.loop = live, chat_id, thread_id, loop
         self.decisions: list[tuple[str, bool, str]] = []
 
     def __call__(self, title: str, detail: str) -> bool:
         fut = asyncio.run_coroutine_threadsafe(
-            send_card(self.platform, self.chat_id, self.thread_id, f"{title}\n\n{detail}\n\nApprove to proceed.",
+            send_card(self.live, self.chat_id, self.thread_id, f"{title}\n\n{detail}\n\nApprove to proceed.",
                       [("✅ Approve", ("approve",)), ("✖ Deny", ("deny",))]), self.loop)
         card = fut.result(timeout=30)
         pending = {"event": threading.Event(), "approved": False, "actor": ""}
@@ -226,13 +251,13 @@ async def _act_decide(card: Card, actor: str, *, approved: bool) -> Optional[str
     return None
 
 
-async def run_verb(platform: str, chat_id: str, thread_id: Optional[str], label: str,
+async def run_verb(live: Live, chat_id: str, thread_id: Optional[str], label: str,
                    fn: Callable[[Callable[[str, str], bool]], Any]) -> None:
     """Run a mutating ``Wisdom`` verb off the loop with a chat confirm; post the outcome as a card."""
     from plugins.wisdom.client import WisdomAuthError, WisdomError
     from plugins.wisdom.package import PackageError
     from plugins.wisdom.service import NotConfirmed
-    confirm = ChatConfirm(platform, chat_id, thread_id, asyncio.get_running_loop())
+    confirm = ChatConfirm(live, chat_id, thread_id, asyncio.get_running_loop())
     try:
         result = await asyncio.to_thread(fn, confirm)
         text = f"{label}: done." if not result else f"{label}:\n{_fmt(result)}"
@@ -242,7 +267,7 @@ async def run_verb(platform: str, chat_id: str, thread_id: Optional[str], label:
         text = f"{label}: {exc}. Run `hermes login` with your team account."
     except (WisdomError, PackageError, ValueError) as exc:
         text = f"{label} failed: {exc}"
-    await send_card(platform, chat_id, thread_id, text)
+    await send_card(live, chat_id, thread_id, text)
 
 
 def _fmt(value: Any) -> str:
@@ -259,31 +284,17 @@ def _service():
     return _service()
 
 
-def _skill_description(skill_name: str) -> str:
-    """Default share description: the skill's own frontmatter description."""
-    from tools.skill_usage import _find_skill_dir
-    from agent.skill_utils import parse_frontmatter
-    d = _find_skill_dir(skill_name)
-    if d is None:
-        raise ValueError(f"local skill {skill_name!r} not found")
-    meta, _body = parse_frontmatter((d / "SKILL.md").read_text(encoding="utf-8"))
-    desc = str((meta or {}).get("description") or "").strip()
-    if not desc:
-        raise ValueError(f"{skill_name} has no frontmatter description; share it with `/wisdom share {skill_name} --description ...`")
-    return desc
-
-
 # --- actions -----------------------------------------------------------------------------------
 async def _act_install(card: Card, actor: str, skill_id: str, version: str = "") -> Optional[str]:
     await edit_card(card, f"Preparing install of {skill_id}{' v' + version if version else ''} (requested by {actor})…")
-    _background(run_verb(card.platform, card.chat_id, card.thread_id, f"Install {skill_id}",
+    _background(run_verb(card.live, card.chat_id, card.thread_id, f"Install {skill_id}",
                          lambda confirm: _service().install(skill_id, version=int(version) if version else None, confirm=confirm)), "install")
     return None
 
 
 async def _act_update(card: Card, actor: str, skill_id: str = "") -> Optional[str]:
     await edit_card(card, f"Reviewing update{' of ' + skill_id if skill_id else 's'} (requested by {actor})…")
-    _background(run_verb(card.platform, card.chat_id, card.thread_id, f"Update {skill_id or 'all'}",
+    _background(run_verb(card.live, card.chat_id, card.thread_id, f"Update {skill_id or 'all'}",
                          lambda confirm: _service().update(skill_id or None, confirm=confirm)), "update")
     return None
 
@@ -297,15 +308,16 @@ async def _act_keep(card: Card, actor: str, skill_id: str, version: str) -> Opti
 
 async def _act_uninstall(card: Card, actor: str, skill_id: str) -> Optional[str]:
     await edit_card(card, f"Uninstall of {skill_id} requested by {actor}…")
-    _background(run_verb(card.platform, card.chat_id, card.thread_id, f"Uninstall {skill_id}",
+    _background(run_verb(card.live, card.chat_id, card.thread_id, f"Uninstall {skill_id}",
                          lambda confirm: _service().uninstall(skill_id, confirm=confirm)), "uninstall")
     return None
 
 
 async def _act_share(card: Card, actor: str, skill_name: str) -> Optional[str]:
+    from plugins.wisdom import candidates
     await edit_card(card, f"Preparing {skill_name} for sharing (requested by {actor})…")
-    _background(run_verb(card.platform, card.chat_id, card.thread_id, f"Share {skill_name}",
-                         lambda confirm: _service().share(skill_name, description=_skill_description(skill_name), confirm=confirm)), "share")
+    _background(run_verb(card.live, card.chat_id, card.thread_id, f"Share {skill_name}",
+                         lambda confirm: _service().share(skill_name, description=candidates.default_description(skill_name), confirm=confirm)), "share")
     return None
 
 
@@ -333,7 +345,7 @@ async def _act_show(card: Card, actor: str, skill_id: str) -> Optional[str]:
             f"{latest.get('author_description') or ''}").strip()
     installed = detail.get("installed_version")
     buttons = [] if installed == latest.get("version") else [("⬇ Install", ("install", skill_id, str(latest.get("version") or "")))]
-    await send_card(card.platform, card.chat_id, card.thread_id, text, buttons)
+    await send_card(card.live, card.chat_id, card.thread_id, text, buttons)
     return None
 
 
@@ -346,17 +358,18 @@ _ACTIONS: dict[str, Callable[..., Any]] = {
 
 
 # --- /wisdom on a chat platform ------------------------------------------------------------------
-def slash_target() -> Optional[tuple[str, str, Optional[str]]]:
-    """``(platform, chat_id, thread_id)`` when the current turn is a connected chat platform."""
+def slash_target() -> Optional[tuple[Live, str, Optional[str]]]:
+    """``(live, chat_id, thread_id)`` when the current turn is a connected chat platform."""
     from gateway.session_context import get_session_env
     platform = get_session_env("HERMES_SESSION_PLATFORM", "")
     chat_id = get_session_env("HERMES_SESSION_CHAT_ID", "")
-    if platform not in _live or not chat_id:
+    live = live_for(platform) if platform else None
+    if live is None or not chat_id:
         return None
     homes = dict(_state().get("chat_home") or {})
     homes[platform] = {"chat_id": chat_id, "thread_id": get_session_env("HERMES_SESSION_THREAD_ID", "") or None}
     _state().set("chat_home", homes)
-    return platform, chat_id, homes[platform]["thread_id"]
+    return live, chat_id, homes[platform]["thread_id"]
 
 
 def _background(coro, name: str) -> None:
@@ -368,10 +381,10 @@ def _background(coro, name: str) -> None:
         asyncio.get_running_loop().create_task(coro)
 
 
-async def slash(ns, target: tuple[str, str, Optional[str]]) -> Optional[str]:
+async def slash(ns, target: tuple[Live, str, Optional[str]]) -> Optional[str]:
     """Card-rendering ``/wisdom`` for chat platforms; ``None`` when a card was (or will be) sent, else text."""
     from plugins.wisdom import candidates, updates
-    platform, chat_id, thread_id = target
+    live, chat_id, thread_id = target
     cmd = ns.wisdom_command or "status"
     svc = _service()
     if cmd == "list":
@@ -382,7 +395,7 @@ async def slash(ns, target: tuple[str, str, Optional[str]]) -> Optional[str]:
         text = "\n".join(f"• {r['slug'] or r['id']} v{r['version']} · {r['installs']} installs · security {r['security']}"
                          + (f"\n  {r['description']}" if r.get("description") else "") for r in rows[:12])
         buttons = [(f"⬇ {r['slug'] or r['id']}"[:40], ("install", r["id"], "")) for r in rows if r["id"] not in installed][:6]
-        await send_card(platform, chat_id, thread_id, text, buttons)
+        await send_card(live, chat_id, thread_id, text, buttons)
         return None
     if cmd in ("status", "updates"):
         rows = await asyncio.to_thread(updates.pending, svc)
@@ -398,7 +411,7 @@ async def slash(ns, target: tuple[str, str, Optional[str]]) -> Optional[str]:
             elif u["action"] in ("manual", "deferred"):
                 buttons.append((f"⬆ Update {u['slug']}"[:40], ("update", u["skill_id"])))
         buttons.append(("🔕 Mute 24h", ("mute",)))
-        await send_card(platform, chat_id, thread_id, "\n".join(lines), buttons[:8])
+        await send_card(live, chat_id, thread_id, "\n".join(lines), buttons[:8])
         return None
     if cmd == "candidates":
         rows = candidates.qualify(_state())
@@ -408,26 +421,26 @@ async def slash(ns, target: tuple[str, str, Optional[str]]) -> Optional[str]:
         for c in rows:
             candidates.mark_presented(_state(), c["skill"])
             buttons += [(f"📤 Share {c['skill']}"[:40], ("share", c["skill"])), (f"⏸ Not now {c['skill']}"[:40], ("not-now", c["skill"]))]
-        await send_card(platform, chat_id, thread_id, "Share candidates:\n" + "\n".join(f"• {candidates.describe(c)}" for c in rows), buttons[:8])
+        await send_card(live, chat_id, thread_id, "Share candidates:\n" + "\n".join(f"• {candidates.describe(c)}" for c in rows), buttons[:8])
         return None
     if cmd == "show":
-        card = _new_card(platform, chat_id, thread_id, [])
+        card = _new_card(live, chat_id, thread_id, [])
         await _act_show(card, "", ns.skill_id)
         return None
     if cmd == "install":
-        _background(run_verb(platform, chat_id, thread_id, f"Install {ns.skill_id}",
+        _background(run_verb(live, chat_id, thread_id, f"Install {ns.skill_id}",
                              lambda confirm: svc.install(ns.skill_id, version=ns.version, confirm=confirm)), "install")
         return None
     if cmd == "update" and not getattr(ns, "keep", False):
-        _background(run_verb(platform, chat_id, thread_id, f"Update {ns.skill_id or 'all'}",
+        _background(run_verb(live, chat_id, thread_id, f"Update {ns.skill_id or 'all'}",
                              lambda confirm: svc.update(ns.skill_id, confirm=confirm)), "update")
         return None
     if cmd == "uninstall":
-        _background(run_verb(platform, chat_id, thread_id, f"Uninstall {ns.skill_id}",
+        _background(run_verb(live, chat_id, thread_id, f"Uninstall {ns.skill_id}",
                              lambda confirm: svc.uninstall(ns.skill_id, confirm=confirm)), "uninstall")
         return None
     if cmd == "share":
-        _background(run_verb(platform, chat_id, thread_id, f"Share {ns.skill_name}",
+        _background(run_verb(live, chat_id, thread_id, f"Share {ns.skill_name}",
                              lambda confirm: svc.share(ns.skill_name, description=ns.description, confirm=confirm)), "share")
         return None
     return await asyncio.to_thread(_text_dispatch, ns)
@@ -439,12 +452,11 @@ def _text_dispatch(ns) -> str:
 
 
 # --- proactive delivery ----------------------------------------------------------------------------
-def _target(platform: str, st) -> Optional[tuple[str, Optional[str]]]:
-    _native, adapter = _live[platform]
-    home = getattr(getattr(adapter, "config", None), "home_channel", None)
+def _target(live: Live, st) -> Optional[tuple[str, Optional[str]]]:
+    home = getattr(getattr(live.adapter, "config", None), "home_channel", None)
     if home is not None and getattr(home, "chat_id", None):
         return str(home.chat_id), getattr(home, "thread_id", None)
-    last = (st.get("chat_home") or {}).get(platform)
+    last = (st.get("chat_home") or {}).get(live.platform)
     return (last["chat_id"], last.get("thread_id")) if last else None
 
 
@@ -478,35 +490,35 @@ def pending_items(st, *, now: float | None = None) -> list[tuple[str, str, list[
     return items
 
 
-async def deliver(platform: str, *, now: float | None = None) -> int:
-    """One delivery pass for a platform; returns how many cards were sent."""
+async def deliver(live: Live, *, now: float | None = None) -> int:
+    """One delivery pass for a connected adapter; returns how many cards were sent."""
     from plugins.wisdom.client import entitled
     st = _state()
     now = now or time.time()
     if not entitled() or st.get("muted_until", 0) > now:
         return 0
-    target = _target(platform, st)
+    target = _target(live, st)
     if target is None:
         return 0
     delivered = dict(st.get("chat_delivered") or {})
-    mine = {k: v for k, v in (delivered.get(platform) or {}).items() if now - v < 30 * 86400}
+    mine = {k: v for k, v in (delivered.get(live.platform) or {}).items() if now - v < 30 * 86400}
     sent = 0
     for key, text, buttons in pending_items(st, now=now):
         if key in mine:
             continue
-        await send_card(platform, target[0], target[1], text, buttons)
+        await send_card(live, target[0], target[1], text, buttons)
         mine[key] = now
         sent += 1
-    delivered[platform] = mine
+    delivered[live.platform] = mine
     st.set("chat_delivered", delivered)
     return sent
 
 
-async def _poll(platform: str) -> None:
+async def _poll(live: Live) -> None:
     await asyncio.sleep(FIRST_POLL_DELAY)
     while True:
         try:
-            await deliver(platform)
+            await deliver(live)
         except Exception as exc:  # the poller must outlive a bad Gateway answer
-            logger.debug("[wisdom] %s notice delivery skipped: %s", platform, exc)
+            logger.debug("[wisdom] %s notice delivery skipped: %s", live.platform, exc)
         await asyncio.sleep(POLL_INTERVAL)
