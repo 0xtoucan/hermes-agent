@@ -514,6 +514,40 @@ class TestAnthropicAdapterMultimodal:
         assert len(placeholders) == IMAGE_EVICTION_BATCH
         assert len(with_images) == total - IMAGE_EVICTION_BATCH
 
+    def test_wire_pass_holds_the_byte_budget_for_the_auxiliary_client(self):
+        """The auxiliary Anthropic client reaches the wire pass through build_anthropic_kwargs
+        WITHOUT the compressor's byte-aware pass. Seven ~3.5 MB frames are under the block
+        ceiling but past the request-size limit; the wire pass must retire on bytes too."""
+        import json
+        from agent.anthropic_adapter import build_anthropic_kwargs
+        from agent.image_eviction_policy import OUTBOUND_IMAGE_BUDGET_BYTES
+
+        frame = "A" * 3_500_000
+        messages: List[Dict[str, Any]] = [{"role": "user", "content": "start"}]
+        for i in range(7):
+            messages.append({
+                "role": "assistant", "content": "",
+                "tool_calls": [{"id": f"call_{i}", "type": "function",
+                                "function": {"name": "computer_use", "arguments": "{}"}}],
+            })
+            messages.append({
+                "role": "tool", "tool_call_id": f"call_{i}",
+                "content": {"_multimodal": True, "text_summary": "cap", "content": [
+                    {"type": "text", "text": "cap"},
+                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{frame}"}},
+                ]},
+            })
+        messages.append({"role": "assistant", "content": "done"})
+
+        kwargs = build_anthropic_kwargs(
+            model="claude-sonnet-4-5", messages=messages, tools=None, max_tokens=64,
+            reasoning_config=None,
+        )
+        wire = json.dumps(kwargs["messages"])
+        assert len(wire) <= OUTBOUND_IMAGE_BUDGET_BYTES + 100_000
+        assert len(wire) < 32 * 1024 * 1024
+        assert frame in wire, "the newest frames must survive a byte-triggered retire"
+
     def test_parallel_batch_retires_the_oldest_siblings_first(self):
         """Sibling tool_results in one user message are oldest-first; eviction must not
         retire the newest of them (#103217)."""

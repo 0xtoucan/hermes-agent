@@ -592,33 +592,52 @@ def _manage_thinking_signatures(result: List[Dict[str, Any]], base_url: str | No
         m.pop("_thinking_signature_invalidated", None)  # internal flag, never on the wire
 
 
+def _image_block_bytes(block: Dict[str, Any]) -> int:
+    """Payload length of a wire image block (base64 ``source.data``; URL sources cost nothing)."""
+    source = block.get("source")
+    data = source.get("data") if isinstance(source, dict) else None
+    return len(data) if isinstance(data, str) else 0
+
+
 def _evict_old_screenshots(result: List[Dict[str, Any]]) -> None:
     """Retire screenshot payloads once the request would cross the API's per-request image limit.
 
-    Mutates ``result`` in place. This wire pass has no byte sizes, so it enforces the block
-    ceiling only; the auxiliary Anthropic client (``agent.auxiliary_client`` via
-    ``anthropic_adapter.build_anthropic_kwargs``) reaches it without the compressor's
-    send-path pass, so it must hold the invariant alone. Policy: :mod:`agent.image_eviction_policy`.
+    Mutates ``result`` in place. Enforces both the block ceiling and the byte budget: the
+    auxiliary Anthropic client (``agent.auxiliary_client`` via
+    ``anthropic_adapter.build_anthropic_kwargs``, e.g. the MoA aggregator) reaches this pass
+    without the compressor's send-path pass, so a block-only pass here would let seven ~3.5 MB
+    frames build a request past the 32 MB Messages limit and 413. Policy:
+    :mod:`agent.image_eviction_policy`.
     """
-    reserved = sum(
-        1
-        for msg in result
-        for block in (msg.get("content") if isinstance(msg.get("content"), list) else [])
-        if _block_type(block) == "image"
-    )
+    reserved_blocks = reserved_bytes = 0
+    for msg in result:
+        content = msg.get("content")
+        for block in content if isinstance(content, list) else []:
+            if _block_type(block) == "image":
+                reserved_blocks += 1
+                reserved_bytes += _image_block_bytes(block)
     # Parallel tool calls land as sibling tool_result blocks inside ONE user message
     # (oldest first), so the inner walk must also run newest -> oldest or a batch that
     # ends mid-message retires the newest frames instead of the oldest (#103217).
     carriers = [
-        (block, sum(1 for b in block["content"] if _block_type(b) == "image"))
+        (
+            block,
+            sum(1 for b in block["content"] if _block_type(b) == "image"),
+            sum(_image_block_bytes(b) for b in block["content"] if _block_type(b) == "image"),
+        )
         for msg in reversed(result)
         for block in reversed(msg.get("content") if isinstance(msg.get("content"), list) else [])
         if _block_type(block) == "tool_result"
         and isinstance(block.get("content"), list)
         and _has_block_type(block["content"], {"image"})
     ]
-    retire = outbound_image_retire_count([n for _, n in carriers], reserved)
-    for block, _ in carriers[len(carriers) - retire:]:
+    retire = outbound_image_retire_count(
+        [n for _, n, _ in carriers],
+        reserved_blocks,
+        carrier_bytes_newest_first=[size for _, _, size in carriers],
+        reserved_bytes=reserved_bytes,
+    )
+    for block, _, _ in carriers[len(carriers) - retire:]:
         placeholder = _text_block("[screenshot removed to save context]")
         block["content"] = [
             placeholder if _block_type(b) == "image" else b for b in block["content"]
