@@ -312,6 +312,7 @@ def _apply_toolset_selection(tools: set, names: List[str], quiet_mode: bool, *, 
 
 
 _DISABLED_FUNCTIONS_CACHE: tuple = (None, frozenset())
+DISABLED_TOOLS_ENV = "HERMES_DISABLED_TOOLS"
 
 
 def disabled_function_names() -> frozenset:
@@ -323,11 +324,14 @@ def disabled_function_names() -> frozenset:
     changes), so every agent constructor, cron, the gateway and delegated children
     see the same list without threading a parameter through each of them."""
     global _DISABLED_FUNCTIONS_CACHE
+    # ``hermes --disable-tools a,b`` (per-invocation layer; set by hermes_cli.main, inherited by
+    # the TUI backend and child processes). Part of the fingerprint so a change is never served stale.
+    flag_value = os.environ.get(DISABLED_TOOLS_ENV, "")
     try:
         from hermes_cli.config import get_config_path
         path = get_config_path()
         stat = path.stat()
-        fingerprint = (str(path), stat.st_mtime_ns, stat.st_size)
+        fingerprint = (str(path), stat.st_mtime_ns, stat.st_size, flag_value)
     except (OSError, ImportError):
         fingerprint = None
     if fingerprint is not None and _DISABLED_FUNCTIONS_CACHE[0] == fingerprint:
@@ -336,11 +340,12 @@ def disabled_function_names() -> frozenset:
         from agent.skill_utils import parse_config_string_list
         from hermes_cli.config import load_config_readonly
         raw = ((load_config_readonly() or {}).get("tools") or {}).get("disabled_functions")
-        # Legacy names (``todo`` for ``todo_list``) disable the tool they now resolve to.
-        names = frozenset(_LEGACY_TOOL_ALIASES.get(name.strip(), name.strip())
-                          for name in parse_config_string_list(raw or []) if name.strip())
+        configured = parse_config_string_list(raw or [])
     except Exception:  # a config problem must never break tool loading
-        names = frozenset()
+        configured = []
+    # Legacy names (``todo`` for ``todo_list``) disable the tool they now resolve to.
+    names = frozenset(_LEGACY_TOOL_ALIASES.get(name.strip(), name.strip())
+                      for name in [*configured, *flag_value.split(",")] if name.strip())
     _DISABLED_FUNCTIONS_CACHE = (fingerprint, names)
     return names
 
@@ -927,7 +932,7 @@ def handle_function_call(
     if function_name in disabled_function_names():
         # Schemas never offer a disabled tool; this also refuses direct registry calls
         # (execute_code's sandbox, plugins) that do not go through the agent's name check.
-        return tool_error(f"Tool '{function_name}' is disabled by configuration (tools.disabled_functions).")
+        return tool_error(f"Tool '{function_name}' is disabled by configuration (tools.disabled_functions or --disable-tools).")
 
     def _emit(result: Any, **extra: Any) -> Any:
         """Emit post_tool_call with this call's identity fields; returns *result*."""

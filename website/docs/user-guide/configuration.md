@@ -947,6 +947,11 @@ no restart needed.
 
 Leaving the list empty, or omitting the key, is a no-op.
 
+For a single run, `hermes --disable-tools web_extract,patch` (also `chat`, `-z` and
+`--tui`) removes tools the same way without touching `config.yaml`; the two
+lists are combined. MCP tools use their registered names (`mcp__<server>__<tool>`);
+to drop a whole MCP server, list the server name under `agent.disabled_toolsets`.
+
 ## Git Worktree Isolation
 
 Enable isolated git worktrees for running multiple agents in parallel on the same repo:
