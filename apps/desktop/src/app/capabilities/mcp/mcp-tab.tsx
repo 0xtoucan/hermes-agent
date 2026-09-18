@@ -1,11 +1,5 @@
-import { compactNumber } from '@hermes/shared'
-import { useStore } from '@nanostores/react'
-import { useQuery } from '@tanstack/react-query'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 
-import { type CodeEditorApi } from '@/components/chat/code-editor'
-import { JsonDocumentEditor } from '@/components/chat/json-document-editor'
-import { LogTail } from '@/components/chat/log-tail'
 import { PageLoader } from '@/components/page-loader'
 import { AvatarChip } from '@/components/ui/avatar-chip'
 import { Button } from '@/components/ui/button'
@@ -14,982 +8,65 @@ import { ErrorBanner } from '@/components/ui/error-state'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Switch } from '@/components/ui/switch'
-import { TextTab } from '@/components/ui/text-tab'
 import { Textarea } from '@/components/ui/textarea'
 import { Tip } from '@/components/ui/tooltip'
 import {
   getActionStatus,
-  getLogs,
-  getMcpCatalog,
-  getUsageAnalytics,
   type HermesGateway,
   installMcpCatalogEntry,
   type McpCatalogEntry,
-  type McpTestResult,
-  type ProfileScope,
-  profileScopeKey,
-  saveMcpServers,
-  testMcpServer
+  type ProfileScope
 } from '@/hermes'
-import { type Translations, useI18n } from '@/i18n'
-import { startCompletionPoll } from '@/lib/completion-poll'
+import { useI18n } from '@/i18n'
 import { brandFor } from '@/lib/mcp-brands'
-import { estimateServerTokens, serverUsageCount } from '@/lib/mcp-cost'
-import { completeMcpDesktopOAuth } from '@/lib/mcp-dashboard-oauth'
 import { type McpImportEntry, parseMcpImport } from '@/lib/mcp-import'
-import { NEEDS_AUTH_RE, PROBE_TTL_MS, probeCache, probeKey, serverFingerprint } from '@/lib/mcp-probe-cache'
-import { getServers, isServerShape, type McpServers, normalizeEntry } from '@/lib/mcp-servers'
-import { countEnabledTools, isToolEnabled, toggleToolInServer } from '@/lib/mcp-tool-filter'
+import { isToolEnabled } from '@/lib/mcp-tool-filter'
 import { cn } from '@/lib/utils'
 import { notify, notifyError } from '@/store/notifications'
-import { $activeGatewayProfile, normalizeProfileKey } from '@/store/profile'
-import { $activeSessionId } from '@/store/session'
 
-import { hermesConfigCacheWriter, useHermesConfigRecord } from '../../hooks/use-config-record'
-import { useOnProfileSwitch } from '../../hooks/use-on-profile-switch'
-import { useProfileSwitchLatch } from '../../hooks/use-profile-switch-latch'
-import { DetailPane, ICON_BUTTON, MASTER_DETAIL_WIDE_COLS } from '../../master-detail'
+import { ICON_BUTTON, MASTER_DETAIL_WIDE_COLS } from '../../master-detail'
 import { PanelAddButton, PanelEmpty } from '../../overlays/panel'
 import { prettyName } from '../../settings/helpers'
 import { useDeepLinkHighlight } from '../../settings/use-deep-link-highlight'
 
-// The editor always speaks the ecosystem's mcp.json document format — names
-// are the JSON keys, transport is inferred from `command` vs `url` — so any
-// README's "add this to your mcp.json" snippet pastes verbatim. Storage stays
-// the config.yaml `mcp_servers` map (CLI/TUI untouched).
-const STARTER_ENTRY = { command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', '/path/to/dir'] }
-
-const pretty = (value: unknown) => JSON.stringify(value, null, 2)
-const wrapDoc = (entries: McpServers) => pretty({ mcpServers: entries })
-
-/** Accepts `{"mcpServers": {...}}` (ecosystem), a bare name→config map, or throws. */
-function parseServersDoc(raw: string): McpServers {
-  const parsed = JSON.parse(raw) as unknown
-
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('Expected a JSON object')
-  }
-
-  const doc = parsed as Record<string, unknown>
-
-  if (isServerShape(doc)) {
-    throw new Error('Wrap the server in {"mcpServers": {"name": …}} so it has a name')
-  }
-
-  const wrapper = doc.mcpServers ?? doc.mcp_servers
-
-  const map =
-    wrapper && typeof wrapper === 'object' && !Array.isArray(wrapper) ? (wrapper as McpServers) : (doc as McpServers)
-
-  return Object.fromEntries(Object.entries(map).map(([name, entry]) => [name, normalizeEntry(entry)]))
-}
-
-// The runtime gate is `enabled: false` — the same flag `hermes mcp` and the
-// agent's MCP loader read.
-const serverEnabled = (server: Record<string, unknown>) => server.enabled !== false
-
-// Shared cache for the Nous-approved catalog — feeds both description enrichment
-// and the Catalog install view; invalidated after an install.
-const MCP_CATALOG_KEY = ['mcp-catalog'] as const
-
-type Probe = McpTestResult | 'probing'
-
-// Per-server cost/usage overlay inputs: `tokens` is the approximate per-call
-// schema cost from the probe (null = no estimate — older backend or no probe
-// yet), `uses` is the 30-day analytics call count (null = analytics
-// unavailable, so usage is simply omitted).
-interface ServerCost {
-  tokens: null | number
-  uses: null | number
-}
-
-// 30-day per-tool call counts for the MCP fleet — same shape and TTL rules as
-// the Toolsets tab's toolCallsCache (skills/index.tsx), but a 30-day window
-// keyed by the Capabilities scope profile. Purely cosmetic: a failed analytics
-// fetch caches nothing and the overlay omits usage.
-const MCP_USAGE_TTL_MS = 10 * 60_000
-const mcpUsageCache = new Map<string, { at: number; value: Record<string, number> }>()
-
-async function loadMcpUsage(scopeKey: string, scopeProfile: ProfileScope): Promise<null | Record<string, number>> {
-  const cached = mcpUsageCache.get(scopeKey)
-
-  if (cached && Date.now() - cached.at < MCP_USAGE_TTL_MS) {
-    return cached.value
-  }
-
-  try {
-    const analytics = await getUsageAnalytics(30, scopeProfile)
-    const value = Object.fromEntries((analytics.tools ?? []).map(entry => [entry.tool, entry.count]))
-    mcpUsageCache.set(scopeKey, { at: Date.now(), value })
-
-    return value
-  } catch {
-    // Analytics unavailable — degrade to "no usage shown", never an error UI.
-    return null
-  }
-}
-
-type ServerStatus = 'off' | 'probing' | 'ok' | 'needs-auth' | 'error' | 'unknown'
-
-function statusOf(server: Record<string, unknown>, probe: Probe | undefined): ServerStatus {
-  if (!serverEnabled(server)) {
-    return 'off'
-  }
-
-  if (probe === 'probing') {
-    return 'probing'
-  }
-
-  if (!probe) {
-    return 'unknown'
-  }
-
-  if (probe.ok) {
-    return 'ok'
-  }
-
-  return NEEDS_AUTH_RE.test(probe.error ?? '') ? 'needs-auth' : 'error'
-}
-
-const STATUS_DOT: Record<ServerStatus, string> = {
-  ok: 'bg-emerald-500',
-  error: 'bg-red-500',
-  'needs-auth': 'bg-amber-500',
-  probing: 'animate-pulse bg-foreground/40',
-  off: 'bg-foreground/20',
-  unknown: 'bg-foreground/20'
-}
-
-// "12 tools enabled" / "25 tools, 1 prompts, 103 resources enabled" — only
-// the capabilities the server actually has. When a `server` config is passed,
-// the tool count reflects the per-tool include/exclude filter (what's actually
-// registered), not the raw discovered count. The optional `cost` appends the
-// overlay — "…, ~4.2k tok, 3 uses/30d" — with each half omitted when unknown.
-function capabilitySummary(
-  m: Translations['settings']['mcp'],
-  probe: McpTestResult,
-  server?: Record<string, unknown>,
-  cost?: ServerCost
-): string {
-  const toolCount = server
-    ? countEnabledTools(
-        server,
-        probe.tools.map(tool => tool.name)
-      )
-    : probe.tools.length
-
-  const parts = [m.capabilitySummary(toolCount, probe.prompts ?? 0, probe.resources ?? 0)]
-
-  if (cost && cost.tokens !== null && cost.tokens > 0) {
-    parts.push(m.costTokens(compactNumber(cost.tokens)))
-  }
-
-  if (cost && cost.uses !== null) {
-    parts.push(m.usage30d(compactNumber(cost.uses)))
-  }
-
-  return parts.join(', ')
-}
-
-function statusLine(
-  m: Translations['settings']['mcp'],
-  status: ServerStatus,
-  probe: Probe | undefined,
-  server?: Record<string, unknown>,
-  cost?: ServerCost
-): string {
-  switch (status) {
-    case 'ok':
-      return capabilitySummary(m, probe as McpTestResult, server, cost)
-
-    case 'probing':
-      return m.statusConnecting
-
-    case 'needs-auth':
-      return m.statusNeedsAuth
-
-    case 'error':
-      return m.statusError
-
-    case 'off':
-      return m.statusOff
-
-    default:
-      return ''
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Cursor → server-block mapping. A tolerant character walker (not JSON.parse —
-// it must work mid-edit) that finds each server's key+object range inside the
-// mcpServers container, so the editor cursor selects a server and the block
-// can be highlighted.
-// ---------------------------------------------------------------------------
-
-interface ServerBlock {
-  from: number
-  name: string
-  to: number
-}
-
-function scanServerBlocks(text: string): ServerBlock[] {
-  const skipString = (index: number): number => {
-    let i = index + 1
-
-    while (i < text.length) {
-      if (text[i] === '\\') {
-        i += 2
-      } else if (text[i] === '"') {
-        return i + 1
-      } else {
-        i++
-      }
-    }
-
-    return i
-  }
-
-  // Container: the object after "mcpServers"/"mcp_servers", else the doc root.
-  let start = -1
-  const wrapper = /"mcpServers"|"mcp_servers"/.exec(text)
-
-  if (wrapper) {
-    let i = wrapper.index + wrapper[0].length
-
-    while (i < text.length && text[i] !== '{') {
-      i++
-    }
-
-    start = i
-  } else {
-    start = text.indexOf('{')
-  }
-
-  if (start < 0 || text[start] !== '{') {
-    return []
-  }
-
-  const blocks: ServerBlock[] = []
-  let i = start + 1
-
-  while (i < text.length) {
-    const ch = text[i]
-
-    if (ch === '}') {
-      break
-    }
-
-    if (ch !== '"') {
-      i++
-
-      continue
-    }
-
-    const keyStart = i
-    const keyEnd = skipString(i)
-    const name = text.slice(keyStart + 1, keyEnd - 1)
-    i = keyEnd
-
-    while (i < text.length && text[i] !== ':') {
-      i++
-    }
-
-    i++
-
-    while (i < text.length && /\s/.test(text[i])) {
-      i++
-    }
-
-    if (text[i] === '{') {
-      let depth = 0
-      let j = i
-
-      while (j < text.length) {
-        const c = text[j]
-
-        if (c === '"') {
-          j = skipString(j)
-
-          continue
-        }
-
-        if (c === '{') {
-          depth++
-        } else if (c === '}') {
-          depth--
-
-          if (depth === 0) {
-            j++
-
-            break
-          }
-        }
-
-        j++
-      }
-
-      blocks.push({ from: keyStart, name, to: j })
-      i = j
-    } else {
-      // Non-object value — skip to the next sibling.
-      while (i < text.length && text[i] !== ',' && text[i] !== '}') {
-        if (text[i] === '"') {
-          i = skipString(i)
-
-          continue
-        }
-
-        i++
-      }
-    }
-  }
-
-  return blocks
-}
+import { parseServersDoc, serverEnabled } from './mcp-doc'
+import { McpEditorPane } from './mcp-editor'
+import {
+  capabilitySummary,
+  type Probe,
+  type ServerCost,
+  type ServerStatus,
+  STATUS_DOT,
+  statusLine,
+  statusOf
+} from './mcp-status'
+import { useMcpServers } from './use-mcp-servers'
 
 export function McpTab({ gateway, profile }: { gateway: HermesGateway | null; profile?: ProfileScope }) {
   const { t } = useI18n()
   const m = t.settings.mcp
-  const activeSessionId = useStore($activeSessionId)
+  const mcp = useMcpServers({ gateway, profile })
 
-  // The profile this tab configures: the Capabilities profile-scope selector's
-  // choice (`profile`) when set, otherwise the app-wide active profile. Every
-  // fetch/save below is scoped to it, and it keys the config/catalog/probe
-  // caches so switching the selector refetches and never shows another
-  // profile's servers (AGENTS.md scope-in-key). When no override is passed this
-  // resolves to $activeGatewayProfile, so behavior is identical to before.
-  const appProfile = useStore($activeGatewayProfile)
-  const scopeProfileKey = profile != null ? profileScopeKey(profile) : normalizeProfileKey(appProfile)
-
-  // Shared config cache (see use-config-record): revisiting the tab paints the
-  // cached record instantly; mutations write through `setConfig` and stay
-  // visible to the other settings surfaces.
   const {
-    data: config,
-    isLoading: configLoading,
-    isError: configFailed,
-    error: configError,
-    refetch: refetchConfig,
-    dataUpdatedAt: configUpdatedAt,
-    errorUpdatedAt: configErroredAt
-  } = useHermesConfigRecord(profile)
-
-  const setConfig = hermesConfigCacheWriter(profile)
-
-  // True from a profile switch until the config query resettles for the new
-  // profile. Until then `config` (and thus `servers`) still holds profile A's
-  // data, so any persist would write A's server list into B — block mutations.
-  const { arm: armProfileLatch, pending: profilePending } = useProfileSwitchLatch({
-    dataUpdatedAt: configUpdatedAt,
-    errorUpdatedAt: configErroredAt
-  })
-
-  const [saving, setSaving] = useState(false)
-  const [probes, setProbes] = useState<Record<string, Probe>>({})
-  const probesRef = useRef(probes)
-  probesRef.current = probes
-
-  // 30-day per-tool call counts (registry names). null = analytics unavailable
-  // or not loaded yet — the cost overlay then omits usage entirely.
-  const [toolCalls30d, setToolCalls30d] = useState<null | Record<string, number>>(null)
-
-  // Blocks the browser until an OAuth flow lands a token; also reset on profile
-  // switch, so declared up here alongside the other per-profile view state.
-  const [authing, setAuthing] = useState<null | string>(null)
-
-  // Master document draft. `docVersion` remounts the editor when the draft is
-  // regenerated programmatically (list-side mutations); `dirty` guards user
-  // edits from being clobbered by those regenerations.
-  const [draft, setDraft] = useState('')
-  const [dirty, setDirty] = useState(false)
-  const [docVersion, setDocVersion] = useState(0)
-  const [logSource, setLogSource] = useState<'stdio' | 'agent'>('stdio')
-
-  // Selection IS the editor cursor: whichever server block contains it is the
-  // configured server on the left. Cursor outside every block → the list.
-  const editorApi = useRef<CodeEditorApi | null>(null)
-  const [cursor, setCursor] = useState(0)
-  const blocks = useMemo(() => scanServerBlocks(draft), [draft])
-
-  const activeBlock = useMemo(
-    () => blocks.find(block => cursor >= block.from && cursor <= block.to) ?? null,
-    [blocks, cursor]
-  )
-
-  const selected = activeBlock?.name ?? null
-
-  const focusServer = (name: string) => {
-    const block = blocks.find(b => b.name === name)
-
-    if (block) {
-      // Land just inside the key so the block claims the cursor.
-      editorApi.current?.setCursor(block.from + 1)
-      setCursor(block.from + 1)
-    }
-  }
-
-  const servers = useMemo(() => getServers(config ?? null), [config])
-
-  // Config/document order, not alphabetical — the list mirrors mcp.json.
-  const names = useMemo(() => Object.keys(servers), [servers])
-
-  // Key by the SCOPED profile — installed/enabled badges are per-profile, so
-  // sharing one cache across profiles would flash the previous profile's state
-  // on switch. When no selector override is set this is the active profile,
-  // identical to before.
-  const catalogQuery = useQuery({
-    queryKey: [...MCP_CATALOG_KEY, scopeProfileKey],
-    queryFn: () => getMcpCatalog(profile ?? undefined),
-    staleTime: 5 * 60_000
-  })
-
-  const catalog = useMemo(() => catalogQuery.data?.entries ?? [], [catalogQuery.data])
-
-  // The catalog SECTION of the unified list only offers entries that aren't
-  // already configured — installed servers appear once, in the fleet list
-  // above, with live status. Match by catalog `installed` flag or a config
-  // entry under the same name (covers a just-saved doc the catalog refetch
-  // hasn't caught up with yet).
-  const availableCatalog = useMemo(
-    () => catalog.filter((entry: McpCatalogEntry) => !entry.installed && !(entry.name in servers)),
-    [catalog, servers]
-  )
-
-  const descriptionFor = (serverName: string, server: Record<string, unknown>): null | string => {
-    const lower = serverName.toLowerCase()
-
-    const match = catalog.find(
-      entry =>
-        entry.name.toLowerCase() === lower ||
-        (entry.url && entry.url === server.url) ||
-        (entry.command && entry.command === server.command)
-    )
-
-    return match?.description ?? null
-  }
-
-  const resetDraft = (entries: McpServers) => {
-    setDraft(wrapDoc(entries))
-    setDirty(false)
-    setDocVersion(version => version + 1)
-  }
-
-  // Mirror a list-side mutation into a dirty draft without losing the user's
-  // other edits. Unparseable drafts are left alone — save resolves the race.
-  const patchDraft = (mutate: (doc: McpServers) => McpServers) => {
-    try {
-      setDraft(wrapDoc(mutate(parseServersDoc(draft))))
-      setDocVersion(version => version + 1)
-    } catch {
-      // Draft is mid-edit / invalid JSON; the user's text wins until save.
-    }
-  }
-
-  // Seed the editor draft from config exactly once, the first time it lands.
-  // Background refetches thereafter update the list but must not clobber an
-  // in-progress edit — the draft is the user's until they save or reset.
-  const draftSeeded = useRef(false)
-
-  // eslint-disable-next-line no-restricted-syntax -- legitimate non-atom ref write (see eslint rule comment)
-  useEffect(() => {
-    // profilePending: config still holds the PREVIOUS profile's record right
-    // after a switch — seeding from it would latch the wrong profile's doc.
-    if (!config || profilePending) {
-      return
-    }
-
-    if (!draftSeeded.current) {
-      draftSeeded.current = true
-      resetDraft(getServers(config))
-
-      return
-    }
-
-    if (dirty || names.length === 0) {
-      return
-    }
-
-    // Heal the early-boot race: the first config snapshot can land before the
-    // backend has mcp_servers assembled, seeding (and latching) an empty doc
-    // while later refetches fill the list — saving would then wipe the real
-    // servers. A PRISTINE empty draft reseeds when servers arrive; any user
-    // edit (dirty) still always wins.
-    try {
-      if (Object.keys(parseServersDoc(draft)).length === 0) {
-        resetDraft(servers)
-      }
-    } catch {
-      // Mid-edit / invalid JSON — the user's text wins.
-    }
-  }, [config, dirty, draft, names, profilePending, servers])
-
-  // Bumped on every profile switch. Async probe/auth completions capture the
-  // epoch at call time and bail if it changed, so a slow profile-A request can't
-  // write its result into profile B's state after the user switched.
-  const profileEpoch = useRef(0)
-
-  // Scoped Skills tabs remount when their owner changes; stop the old native
-  // OAuth waiter even when no app-wide profile-switch event is emitted.
-  useEffect(
-    () => () => {
-      profileEpoch.current += 1
-    },
-    [scopeProfileKey]
-  )
-
-  // A profile switch invalidates the config query (see store/profile.ts), which
-  // refetches the new backend's mcp.json. Reset ALL per-profile view state — the
-  // draft (incl. a dirty one, so profile A's edits can't be saved into B), its
-  // seed latch, probes, and cursor — so everything reseeds for the new profile.
-  // The probe cache is already profile-keyed, so this just forces a re-probe.
-  useOnProfileSwitch(() => {
-    profileEpoch.current += 1
-    draftSeeded.current = false
-    setProbes({})
-    setToolCalls30d(null)
-    setCursor(0)
-    setAuthing(null)
-    setDirty(false)
-    setDraft('')
-    setDocVersion(version => version + 1)
-    // Mark stale until the config query replaces profile A's data — guards
-    // sidebar mutations from persisting A's server list into B mid-refetch.
-    // The latch releases on a fresh success OR a fresh failure, so a failed
-    // refetch surfaces the retry UI instead of leaving mutations no-op forever.
-    armProfileLatch()
-  })
+    availableCatalog,
+    blocks,
+    config,
+    configError,
+    configFailed,
+    configLoading,
+    draft,
+    names,
+    selected,
+    servers
+  } = mcp
 
   useDeepLinkHighlight({
     block: 'nearest',
     elementId: serverName => `mcp-server-${serverName}`,
-    onResolve: focusServer,
+    onResolve: mcp.focusServer,
     param: 'server',
     ready: serverName => blocks.some(block => block.name === serverName)
   })
-
-  const runProbe = async (serverName: string) => {
-    const epoch = profileEpoch.current
-    const key = probeKey(serverName, servers[serverName], scopeProfileKey)
-    setProbes(current => ({ ...current, [serverName]: 'probing' }))
-
-    try {
-      const result = await testMcpServer(serverName, profile ?? undefined)
-
-      // Drop the result if the profile changed mid-probe — it belongs to A.
-      if (profileEpoch.current !== epoch) {
-        return
-      }
-
-      probeCache.set(key, { at: Date.now(), result })
-      setProbes(current => ({ ...current, [serverName]: result }))
-    } catch (err) {
-      if (profileEpoch.current !== epoch) {
-        return
-      }
-
-      const result = { ok: false, error: err instanceof Error ? err.message : String(err), tools: [] }
-      probeCache.set(key, { at: Date.now(), result })
-      setProbes(current => ({ ...current, [serverName]: result }))
-    }
-  }
-
-  // First-class OAuth: opens the system browser, blocks until the flow lands a
-  // token (verified on disk — a friendly tools/list is not proof), then the
-  // auth result doubles as the probe (it carries the tool list).
-  const authenticate = async (serverName: string) => {
-    const epoch = profileEpoch.current
-    setAuthing(serverName)
-    setProbes(current => ({ ...current, [serverName]: 'probing' }))
-
-    try {
-      const flow = await completeMcpDesktopOAuth({
-        serverName,
-        profile,
-        cancelled: () => profileEpoch.current !== epoch
-      })
-
-      const result: McpTestResult = { ok: true, tools: flow.tools ?? [] }
-
-      // Bail if the user switched profiles mid-flow — this result is profile A's.
-      if (profileEpoch.current !== epoch) {
-        return
-      }
-
-      setProbes(current => ({ ...current, [serverName]: result }))
-      // Cache under the POST-auth fingerprint (auth: oauth) on success — that's
-      // the config the mount effect will read back, so it hits this entry.
-      const probedConfig = result.ok ? { ...servers[serverName], auth: 'oauth' } : servers[serverName]
-      probeCache.set(probeKey(serverName, probedConfig, scopeProfileKey), { at: Date.now(), result })
-
-      if (result.ok) {
-        // The endpoint persisted `auth: oauth` — mirror it locally.
-        const nextServers = { ...servers, [serverName]: { ...servers[serverName], auth: 'oauth' } }
-        setConfig(current => (current ? { ...current, mcp_servers: nextServers } : current))
-
-        // Mirror `auth: oauth` into the editor too. If we only reset a clean
-        // draft, a dirty draft keeps the pre-auth text and the next Save would
-        // drop the freshly-persisted auth field — so patch the dirty draft in
-        // place instead of clobbering the user's other edits.
-        if (dirty) {
-          patchDraft(doc => (doc[serverName] ? { ...doc, [serverName]: { ...doc[serverName], auth: 'oauth' } } : doc))
-        } else {
-          resetDraft(nextServers)
-        }
-
-        notify({
-          kind: 'success',
-          title: m.authenticatedTitle,
-          message: m.authenticatedMessage(serverName, result.tools.length)
-        })
-        void silentReload()
-      } else if (result.error) {
-        notifyError(new Error(result.error), serverName)
-      }
-    } catch (err) {
-      if (profileEpoch.current !== epoch) {
-        return
-      }
-
-      setProbes(current => ({
-        ...current,
-        [serverName]: { ok: false, error: err instanceof Error ? err.message : String(err), tools: [] }
-      }))
-      notifyError(err, serverName)
-    } finally {
-      if (profileEpoch.current === epoch) {
-        setAuthing(null)
-      }
-    }
-  }
-
-  // It should just know: probe enabled servers as config arrives — but through
-  // the cache, so revisiting the page doesn't respawn/reconnect the fleet.
-  useEffect(() => {
-    for (const [serverName, server] of Object.entries(servers)) {
-      if (!serverEnabled(server) || probesRef.current[serverName] !== undefined) {
-        continue
-      }
-
-      const cached = probeCache.get(probeKey(serverName, server, scopeProfileKey))
-
-      if (cached && Date.now() - cached.at < PROBE_TTL_MS) {
-        setProbes(current => ({ ...current, [serverName]: cached.result }))
-      } else {
-        void runProbe(serverName)
-      }
-    }
-    // Re-run only when the server set changes; runProbe is recreated every
-    // render and adding it would re-probe the fleet on every keystroke.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [servers])
-
-  // Cosmetic 30-day usage counts for the cost overlay — cached module-wide per
-  // scope profile, epoch-guarded like the probes so a slow profile-A fetch
-  // can't paint into profile B.
-  useEffect(() => {
-    const epoch = profileEpoch.current
-
-    void loadMcpUsage(scopeProfileKey, profile ?? appProfile ?? null).then(value => {
-      if (profileEpoch.current === epoch) {
-        setToolCalls30d(value)
-      }
-    })
-  }, [scopeProfileKey, profile, appProfile])
-
-  // Overlay inputs for one server: token estimate from its (successful) probe,
-  // 30-day uses from analytics. Both halves degrade to null independently.
-  const costFor = (serverName: string, server: Record<string, unknown>): ServerCost => {
-    const probe = probes[serverName]
-
-    return {
-      tokens: probe && probe !== 'probing' && probe.ok ? estimateServerTokens(server, probe.tools) : null,
-      uses: toolCalls30d ? serverUsageCount(serverName, toolCalls30d) : null
-    }
-  }
-
-  // Config writes reach live sessions immediately — no manual "Reload MCP".
-  const silentReload = async () => {
-    if (!gateway) {
-      return
-    }
-
-    try {
-      await gateway.request('reload.mcp', { confirm: true, session_id: activeSessionId ?? undefined })
-    } catch (err) {
-      notifyError(err, m.reloadFailed)
-    }
-  }
-
-  // Whole-map replace (NOT saveHermesConfig, which deep-merges and so can never
-  // delete a server, drop `enabled: false`, or remove a nested field). Only
-  // after the replace lands do we write the cache through + reload live sessions.
-  // Returns false when the profile switched mid-save: the write hit profile A's
-  // backend (correct), but the client-side cache/editor now belong to B, so the
-  // caller must skip its post-await writes.
-  const persist = async (nextServers: McpServers): Promise<boolean> => {
-    const epoch = profileEpoch.current
-    await saveMcpServers(nextServers, profile ?? undefined)
-
-    if (profileEpoch.current !== epoch) {
-      return false
-    }
-
-    setConfig(current => ({ ...current, mcp_servers: nextServers }))
-    void silentReload()
-
-    return true
-  }
-
-  // A catalog install wrote a new server into config.yaml on the backend —
-  // refresh the catalog (installed state) and the config, then RECONCILE THE
-  // EDITOR DRAFT with the fresh servers. Without this a dirty draft (or even a
-  // clean one the seed never refreshes) would omit the new server, and the next
-  // whole-map Save would silently drop it.
-  const onCatalogInstalled = async () => {
-    void catalogQuery.refetch()
-    const { data } = await refetchConfig()
-    const nextServers = getServers(data ?? null)
-
-    if (dirty) {
-      // Keep the user's in-progress edits (doc wins), add any server the install
-      // introduced that the draft doesn't have yet.
-      patchDraft(doc => ({ ...nextServers, ...doc }))
-    } else {
-      resetDraft(nextServers)
-    }
-
-    void silentReload()
-  }
-
-  const withEnabled = (server: Record<string, unknown>, enabled: boolean) => {
-    const next = { ...server }
-
-    if (enabled) {
-      delete next.enabled
-    } else {
-      next.enabled = false
-    }
-
-    return next
-  }
-
-  const setServerEnabled = async (serverName: string, enabled: boolean) => {
-    if (profilePending) {
-      return
-    }
-
-    const next = withEnabled(servers[serverName], enabled)
-
-    try {
-      if (!(await persist({ ...servers, [serverName]: next }))) {
-        return
-      }
-
-      if (dirty) {
-        patchDraft(doc => (doc[serverName] ? { ...doc, [serverName]: withEnabled(doc[serverName], enabled) } : doc))
-      } else {
-        resetDraft({ ...servers, [serverName]: next })
-      }
-
-      if (enabled) {
-        void runProbe(serverName)
-      }
-    } catch (err) {
-      notifyError(err, m.saveFailed)
-    }
-  }
-
-  // Per-tool gating writes the server's `tools.include`/`tools.exclude` and
-  // persists like any other config change (immediate reload of live sessions).
-  // The probe still lists every discovered tool; the filter decides which ones
-  // the agent actually registers.
-  const toggleTool = async (serverName: string, toolName: string) => {
-    const base = servers[serverName]
-
-    if (!base || profilePending) {
-      return
-    }
-
-    const next = toggleToolInServer(base, toolName)
-
-    try {
-      if (!(await persist({ ...servers, [serverName]: next }))) {
-        return
-      }
-
-      if (dirty) {
-        patchDraft(doc =>
-          doc[serverName] ? { ...doc, [serverName]: toggleToolInServer(doc[serverName], toolName) } : doc
-        )
-      } else {
-        resetDraft({ ...servers, [serverName]: next })
-      }
-    } catch (err) {
-      notifyError(err, m.saveFailed)
-    }
-  }
-
-  const removeServer = async (serverName: string) => {
-    if (profilePending) {
-      return
-    }
-
-    setSaving(true)
-
-    try {
-      const next = { ...servers }
-      delete next[serverName]
-
-      if (!(await persist(next))) {
-        return
-      }
-
-      if (dirty) {
-        patchDraft(doc => {
-          const patched = { ...doc }
-          delete patched[serverName]
-
-          return patched
-        })
-      } else {
-        resetDraft(next)
-      }
-
-      setCursor(0)
-    } catch (err) {
-      notifyError(err, m.removeFailed)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  // "+" seeds a starter entry into the document (unique key) and marks it
-  // dirty — naming happens in the editor, like every other mcp.json.
-  const addServer = () => {
-    if (profilePending) {
-      return
-    }
-
-    let base: McpServers
-
-    try {
-      base = parseServersDoc(draft)
-    } catch {
-      base = { ...servers }
-    }
-
-    let key = 'my-server'
-
-    for (let i = 2; key in base; i++) {
-      key = `my-server-${i}`
-    }
-
-    const nextDraft = wrapDoc({ ...base, [key]: STARTER_ENTRY })
-    setDraft(nextDraft)
-    setDirty(true)
-    setDocVersion(version => version + 1)
-
-    // Focus the fresh block once the editor remounts with the new doc.
-    const from = nextDraft.indexOf(`"${key}"`)
-
-    if (from >= 0) {
-      requestAnimationFrame(() => {
-        editorApi.current?.setCursor(from + 1)
-        setCursor(from + 1)
-      })
-    }
-  }
-
-  // Paste-anything import: merge parsed entries into the draft exactly like
-  // addServer seeds its starter — dirty draft, unique keys, focus the first
-  // new block. Saving stays an explicit step, so the user can fix placeholder
-  // env values (YOUR_KEY, …) in the editor first.
-  const importServers = (entries: McpImportEntry[]) => {
-    if (profilePending || entries.length === 0) {
-      return
-    }
-
-    let base: McpServers
-
-    try {
-      base = parseServersDoc(draft)
-    } catch {
-      base = { ...servers }
-    }
-
-    let firstKey: null | string = null
-
-    for (const entry of entries) {
-      let key = entry.name
-
-      for (let i = 2; key in base; i++) {
-        key = `${entry.name}-${i}`
-      }
-
-      base = { ...base, [key]: entry.config }
-      firstKey ??= key
-    }
-
-    const nextDraft = wrapDoc(base)
-    setDraft(nextDraft)
-    setDirty(true)
-    setDocVersion(version => version + 1)
-
-    if (firstKey) {
-      const from = nextDraft.indexOf(`"${firstKey}"`)
-
-      if (from >= 0) {
-        requestAnimationFrame(() => {
-          editorApi.current?.setCursor(from + 1)
-          setCursor(from + 1)
-        })
-      }
-    }
-  }
-
-  const saveDoc = async () => {
-    if (profilePending) {
-      return
-    }
-
-    let entries: McpServers
-
-    try {
-      entries = parseServersDoc(draft)
-    } catch (err) {
-      notifyError(err, m.invalidJson)
-
-      return
-    }
-
-    setSaving(true)
-
-    const prevServers = servers
-
-    try {
-      if (!(await persist(entries))) {
-        return
-      }
-
-      resetDraft(entries)
-      // Keep only probes for servers that survived AND kept the same config;
-      // removed OR edited entries drop their probe so the mount effect re-probes
-      // the new shape (the cache also misses on the changed fingerprint).
-      setProbes(current =>
-        Object.fromEntries(
-          Object.entries(current).filter(
-            ([name]) =>
-              name in entries && serverFingerprint(entries[name]) === serverFingerprint(prevServers[name] ?? {})
-          )
-        )
-      )
-      notify({ kind: 'success', title: m.savedTitle, message: m.savedMessage('mcp.json') })
-    } catch (err) {
-      notifyError(err, m.saveFailed)
-    } finally {
-      setSaving(false)
-    }
-  }
 
   // Cached data paints instantly; a spinner only ever shows on the first-ever
   // load, and a failed load gets a real retry — never a silent blank pane.
@@ -999,7 +76,7 @@ export function McpTab({ gateway, profile }: { gateway: HermesGateway | null; pr
         <ErrorBanner className="max-w-sm">
           <span className="flex flex-col gap-2">
             {configError instanceof Error ? configError.message : m.failedLoad}
-            <Button className="self-start" onClick={() => void refetchConfig()} size="xs" variant="text">
+            <Button className="self-start" onClick={mcp.refetchConfig} size="xs" variant="text">
               {m.reload}
             </Button>
           </span>
@@ -1036,20 +113,20 @@ export function McpTab({ gateway, profile }: { gateway: HermesGateway | null; pr
       <aside className="flex min-h-0 flex-col overflow-hidden border-r border-(--ui-stroke-quaternary)">
         {selected && activeEntry ? (
           <ServerConfig
-            authing={authing === selected}
-            cost={costFor(selected, activeEntry)}
-            description={descriptionFor(selected, activeEntry)}
+            authing={mcp.authing === selected}
+            cost={mcp.costFor(selected, activeEntry)}
+            description={mcp.descriptionFor(selected, activeEntry)}
             entry={activeEntry}
             name={selected}
-            onAuthenticate={() => void authenticate(selected)}
-            onBack={() => setCursor(0)}
-            onProbe={() => void runProbe(selected)}
-            onRemove={() => void removeServer(selected)}
-            onToggle={checked => void setServerEnabled(selected, checked)}
-            onToggleTool={toolName => void toggleTool(selected, toolName)}
-            probe={probes[selected]}
+            onAuthenticate={() => void mcp.authenticate(selected)}
+            onBack={() => mcp.setCursor(0)}
+            onProbe={() => void mcp.runProbe(selected)}
+            onRemove={() => void mcp.removeServer(selected)}
+            onToggle={checked => void mcp.setServerEnabled(selected, checked)}
+            onToggleTool={toolName => void mcp.toggleTool(selected, toolName)}
+            probe={mcp.probes[selected]}
             saved={savedEntry !== undefined}
-            saving={saving}
+            saving={mcp.saving}
           />
         ) : (
           <div className="flex min-h-0 flex-1 flex-col p-2">
@@ -1064,12 +141,12 @@ export function McpTab({ gateway, profile }: { gateway: HermesGateway | null; pr
                   Skills/Tools views. */}
               <div className="mb-1 flex h-6 shrink-0 items-center pl-2 pr-1">
                 <span className="flex-1 text-[0.72rem] font-medium text-(--ui-text-tertiary)">{m.tabServers}</span>
-                <McpImportButton disabled={profilePending} onImport={importServers} />
+                <McpImportButton disabled={mcp.profilePending} onImport={mcp.importServers} />
               </div>
               {names.length === 0 ? (
                 <PanelEmpty
                   action={
-                    <Button onClick={addServer} size="sm">
+                    <Button onClick={mcp.addServer} size="sm">
                       {m.newServer}
                     </Button>
                   }
@@ -1081,22 +158,22 @@ export function McpTab({ gateway, profile }: { gateway: HermesGateway | null; pr
                 <>
                   {names.map(serverName => {
                     const server = servers[serverName]
-                    const status = statusOf(server, probes[serverName])
-                    const cost = costFor(serverName, server)
+                    const status = statusOf(server, mcp.probes[serverName])
+                    const cost = mcp.costFor(serverName, server)
 
                     return (
                       <McpRow
                         active={false}
-                        busy={saving}
+                        busy={mcp.saving}
                         enabled={serverEnabled(server)}
                         key={serverName}
                         name={serverName}
-                        onProbe={() => void runProbe(serverName)}
-                        onRemove={() => void removeServer(serverName)}
-                        onSelect={() => focusServer(serverName)}
-                        onToggle={checked => void setServerEnabled(serverName, checked)}
+                        onProbe={() => void mcp.runProbe(serverName)}
+                        onRemove={() => void mcp.removeServer(serverName)}
+                        onSelect={() => mcp.focusServer(serverName)}
+                        onToggle={checked => void mcp.setServerEnabled(serverName, checked)}
                         status={status}
-                        statusText={statusLine(m, status, probes[serverName], server, cost)}
+                        statusText={statusLine(m, status, mcp.probes[serverName], server, cost)}
                         unused={
                           serverEnabled(server) &&
                           status === 'ok' &&
@@ -1107,18 +184,18 @@ export function McpTab({ gateway, profile }: { gateway: HermesGateway | null; pr
                       />
                     )
                   })}
-                  <PanelAddButton label={m.newServer} onClick={addServer} />
+                  <PanelAddButton label={m.newServer} onClick={mcp.addServer} />
                 </>
               )}
-              {(catalogQuery.isLoading || availableCatalog.length > 0) && (
+              {(mcp.catalogLoading || availableCatalog.length > 0) && (
                 <>
                   <div className="mb-1 mt-3 flex h-6 shrink-0 items-center border-t border-(--ui-stroke-quaternary) pl-2 pr-1 pt-2">
                     <span className="text-[0.72rem] font-medium text-(--ui-text-tertiary)">{m.tabCatalog}</span>
                   </div>
                   <McpCatalog
                     entries={availableCatalog}
-                    loading={catalogQuery.isLoading}
-                    onInstalled={onCatalogInstalled}
+                    loading={mcp.catalogLoading}
+                    onInstalled={mcp.onCatalogInstalled}
                     profile={profile}
                   />
                 </>
@@ -1129,66 +206,11 @@ export function McpTab({ gateway, profile }: { gateway: HermesGateway | null; pr
       </aside>
 
       {/* RIGHT: the mcp.json editor, logs hard-pinned below. */}
-      <main className="flex min-h-0 flex-col overflow-hidden">
-        <JsonDocumentEditor
-          apiRef={editorApi}
-          disabled={saving}
-          filePath="mcp.json"
-          header={
-            <>
-              mcp.json
-              {dirty && <span aria-hidden className="size-1.5 rounded-full bg-current/60" />}
-            </>
-          }
-          highlight={activeBlock ? { from: activeBlock.from, to: activeBlock.to } : null}
-          initialValue={draft}
-          onChange={next => {
-            setDraft(next)
-            setDirty(true)
-          }}
-          onCursorChange={setCursor}
-          onFormatJsonError={error => notifyError(new Error(error), m.invalidJson)}
-          onSave={() => void saveDoc()}
-          remountKey={docVersion}
-          trailing={
-            <Button disabled={saving || !dirty} onClick={() => void saveDoc()} size="xs">
-              {saving ? t.common.saving : t.common.save}
-            </Button>
-          }
-        />
-        <DetailPane
-          actions={
-            <span className="flex items-center gap-1.5">
-              {(['stdio', 'agent'] as const).map(kind => (
-                <TextTab
-                  active={logSource === kind}
-                  className="h-5 px-0.5 text-[0.65rem]"
-                  key={kind}
-                  onClick={() => setLogSource(kind)}
-                >
-                  {kind}
-                </TextTab>
-              ))}
-            </span>
-          }
-          defaultHeight={176}
-          id="mcp-logs"
-          title={
-            <span className="text-[0.68rem] font-normal text-muted-foreground/60">
-              {selected && savedEntry ? selected : m.allServers}
-            </span>
-          }
-        >
-          <McpLogs emptyLabel={m.noOutput} server={selected && savedEntry ? selected : null} source={logSource} />
-        </DetailPane>
-      </main>
+      <McpEditorPane controller={mcp} />
     </div>
   )
 }
 
-// ---------------------------------------------------------------------------
-// Left column: one server's config (mirrors the block under the cursor).
-// ---------------------------------------------------------------------------
 
 function ServerConfig({
   authing,
@@ -1667,73 +689,8 @@ function McpCatalog({
   )
 }
 
-const LOG_POLL_MS = 2000
-
 // Cadence for polling a background (git-bootstrap) catalog install to completion.
 const CATALOG_INSTALL_POLL_MS = 1500
-
-const STDIO_MARKER_RE = /^===== \[.*\] starting MCP server '(.+)' =====$/
-
-// Keep only the stdio-log sections belonging to one server. The shared file
-// has no per-line tags — sections start at that server's session marker and
-// run until the next marker (any server's).
-function filterStdioSections(lines: string[], server: string): string[] {
-  const out: string[] = []
-  let inSection = false
-
-  for (const line of lines) {
-    const marker = STDIO_MARKER_RE.exec(line.trim())
-
-    if (marker) {
-      inSection = marker[1] === server
-    }
-
-    if (inSection) {
-      out.push(line)
-    }
-  }
-
-  return out
-}
-
-// The MCP output channel — Cursor's "MCP Logs" equivalent, pinned under the
-// editor. Scope follows the cursor-selected server (all servers otherwise);
-// source controls live in the pane header. Body is the app's tool-output
-// surface: CodeCardBody typography + the floating hover-reveal copy button.
-function McpLogs({
-  emptyLabel,
-  server,
-  source
-}: {
-  emptyLabel: string
-  server: null | string
-  source: 'stdio' | 'agent'
-}) {
-  const [lines, setLines] = useState<null | string[]>(null)
-  // A profile switch reroutes getLogs to the new backend; keying the effect on
-  // the active profile tears down the old poll (stop suppresses a late
-  // publish) so profile A's logs never flash in B.
-  const activeProfile = useStore($activeGatewayProfile)
-
-  useEffect(() => {
-    setLines(null)
-
-    return startCompletionPoll({
-      delayMs: LOG_POLL_MS,
-      poll: async () => {
-        const response =
-          source === 'stdio'
-            ? await getLogs({ file: 'mcp', lines: 500 })
-            : await getLogs({ file: 'agent', lines: 300, search: server ?? 'mcp' })
-
-        return source === 'stdio' && server ? filterStdioSections(response.lines, server) : response.lines
-      },
-      publish: setLines
-    })
-  }, [server, source, activeProfile])
-
-  return <LogTail emptyLabel={emptyLabel} lines={lines} />
-}
 
 // ---------------------------------------------------------------------------
 // Avatars + list rows
