@@ -331,3 +331,13 @@ def test_default_resolver_ignores_the_media_host_override():
 
 def test_default_resolver_is_none_on_a_misconfigured_scheme():
     assert _resolve_with_env(TOOL_GATEWAY_SCHEME="ftp") is None
+
+
+def test_delete_account_url_encodes_the_id_and_returns_the_typed_result():
+    transport = FakeTransport(FakeResponse(200, {"connectionId": "ca/1", "status": "removed"}))
+
+    removed = make_client(transport).delete_account("ca/1")
+
+    assert transport.requests[0]["method"] == "DELETE"
+    assert transport.requests[0]["url"].endswith("v1/connectors/accounts/ca%2F1")
+    assert removed == {"connectionId": "ca/1", "status": "removed"}
