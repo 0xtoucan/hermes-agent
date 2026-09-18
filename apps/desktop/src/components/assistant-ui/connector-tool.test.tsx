@@ -182,7 +182,7 @@ describe('ConnectorTool operation card', () => {
     expect(openExternal).not.toHaveBeenCalled()
     expect(request).toHaveBeenCalledWith(
       'connectors.connect',
-      { connectors: ['gmail'], reconnect: true, session_id: SESSION_ID },
+      { connectors: ['gmail'], owner: { session_id: SESSION_ID, type: 'session' }, reconnect: true },
       expect.any(Number),
       undefined
     )
@@ -217,8 +217,8 @@ describe('ConnectorTool operation card', () => {
     await waitFor(() => {
       expect(request).toHaveBeenCalledWith('connection.respond', {
         op_id: 'operation-1',
-        result: { settled_by: 'continue' },
-        session_id: SESSION_ID
+        owner: { session_id: SESSION_ID, type: 'session' },
+        result: { settled_by: 'continue' }
       })
     })
   })

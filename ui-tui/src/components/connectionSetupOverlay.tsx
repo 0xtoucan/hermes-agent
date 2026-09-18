@@ -237,7 +237,7 @@ export function ConnectionSetupOverlay({ cols, t }: ConnectionSetupOverlayProps)
 
     setSubmitting(true)
     void gw
-      .request('connection.respond', { op_id: operation.opId, result, session_id: sid })
+      .request('connection.respond', { op_id: operation.opId, owner: { session_id: sid, type: 'session' }, result })
       .catch(() => setSubmitting(false))
   }
 

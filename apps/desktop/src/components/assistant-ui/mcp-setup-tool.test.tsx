@@ -129,8 +129,8 @@ describe('the MCP setup card', () => {
     await waitFor(() => expect(rpc).toHaveBeenCalledTimes(1))
     expect(rpc).toHaveBeenCalledWith('connection.respond', {
       op_id: 'operation-1',
-      result: { targets: [{ env: { LINEAR_TEAM: 'workspace' }, name: 'linear', status: 'approved' }] },
-      session_id: SESSION_ID
+      owner: { session_id: SESSION_ID, type: 'session' },
+      result: { targets: [{ env: { LINEAR_TEAM: 'workspace' }, name: 'linear', status: 'approved' }] }
     })
   })
 
