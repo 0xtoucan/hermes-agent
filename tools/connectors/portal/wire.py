@@ -1,4 +1,4 @@
-"""Typed wire shapes for connector tool listings from the portal."""
+"""Typed wire shapes for connector metadata from the portal."""
 
 from __future__ import annotations
 
@@ -7,10 +7,12 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-class ConnectorTool(BaseModel):
-    """One connector tool made available by the portal."""
-
+class _PortalWire(BaseModel):
     model_config = ConfigDict(extra="ignore", populate_by_name=True, strict=True)
+
+
+class ConnectorTool(_PortalWire):
+    """One connector tool made available by the portal."""
 
     slug: str
     name: str
@@ -34,12 +36,71 @@ class ConnectorTool(BaseModel):
         return [category.lower() for category in value]
 
 
-class ConnectorToolsListing(BaseModel):
+class ConnectorToolsListing(_PortalWire):
     """The complete list for one connector at a portal toolkit version."""
-
-    model_config = ConfigDict(extra="ignore", populate_by_name=True, strict=True)
 
     connector: str
     toolkit_version: str = Field(alias="toolkitVersion")
     etag: str
     tools: list[ConnectorTool]
+
+
+class ConnectorCatalogRow(_PortalWire):
+    slug: str
+    name: str
+    description: str
+    category: str
+    logo_url: str | None = Field(default=None, alias="logoUrl")
+
+
+class ConnectorCatalogResponse(_PortalWire):
+    connectors: list[ConnectorCatalogRow]
+
+
+class PolicyTags(_PortalWire):
+    enable: list[str] | None = None
+    disable: list[str] | None = None
+
+
+class UnrestrictedPolicyBody(_PortalWire):
+    mode: Literal["unrestricted"]
+
+
+class DenyAllPolicyBody(_PortalWire):
+    mode: Literal["deny-all"]
+
+
+class PolicyToolRule(_PortalWire):
+    disable: list[str] = Field(default_factory=list)
+
+
+class AllowPolicyBody(_PortalWire):
+    mode: Literal["allow"]
+    connectors: list[str]
+    tools: dict[str, PolicyToolRule] = Field(default_factory=dict)
+    tags: PolicyTags | None = None
+
+
+class DenyPolicyBody(_PortalWire):
+    mode: Literal["deny"]
+    disabled_connectors: list[str] = Field(alias="disabledConnectors")
+    tools: dict[str, PolicyToolRule] = Field(default_factory=dict)
+    tags: PolicyTags | None = None
+
+
+PolicyBody = UnrestrictedPolicyBody | DenyAllPolicyBody | AllowPolicyBody | DenyPolicyBody
+
+
+class ConnectorPolicyLayer(_PortalWire):
+    kind: Literal["org", "role", "member"]
+    id: str | None = None
+    body: PolicyBody = Field(discriminator="mode")
+    revision: str
+
+
+class ConnectorPolicyResponse(_PortalWire):
+    layers: list[ConnectorPolicyLayer]
+
+
+class ConnectorPolicyWriteResponse(_PortalWire):
+    revision: str

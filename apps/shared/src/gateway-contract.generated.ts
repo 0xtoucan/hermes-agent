@@ -978,6 +978,92 @@ export interface ConnectorToolRow {
   deprecated: boolean
 }
 export type ConnectorToolFacet = 'read' | 'write' | 'destructive' | 'unclassified'
+export interface ConnectorsCatalogResult {
+  connectors: ConnectorCatalogRow[]
+}
+export interface ConnectorCatalogRow {
+  slug: string
+  name: string
+  description: string
+  category: string
+  logo_url?: string | null
+}
+export interface ConnectorAccountsParams {
+  profile?: string | null
+  connector?: string | null
+}
+export interface ConnectorAccountsResult {
+  accounts: ConnectorAccountRow[]
+}
+export interface ConnectorAccountRow {
+  connection_id: string
+  connector: string
+  status: ConnectorAccountStatus
+  status_reason?: string | null
+  label: string
+  alias?: string | null
+  active: boolean
+  created_at: string
+  updated_at: string
+}
+export type ConnectorAccountStatus = 'pending' | 'active' | 'failed' | 'expired' | 'revoked' | 'inactive'
+export interface ConnectorAccountsRemoveParams {
+  profile?: string | null
+  connection_id: string
+}
+export interface ConnectorAccountsRemoveResult {
+  connection_id: string
+  status: 'removed'
+}
+export interface ConnectorPolicyGetResult {
+  layers: ConnectorPolicyLayer[]
+}
+export interface ConnectorPolicyLayer {
+  kind: ConnectorPolicyLayerKind
+  revision: string
+  body: ConnectorPolicyUnrestrictedBody | ConnectorPolicyDenyAllBody | ConnectorPolicyAllowBody | ConnectorPolicyDenyBody
+}
+export type ConnectorPolicyLayerKind = 'org' | 'role' | 'member'
+export interface ConnectorPolicyUnrestrictedBody {
+  mode: 'unrestricted'
+}
+export interface ConnectorPolicyDenyAllBody {
+  mode: 'deny-all'
+}
+export interface ConnectorPolicyAllowBody {
+  mode: 'allow'
+  connectors: string[]
+  tools: Record<string, string[]>
+  tags?: ConnectorPolicyTags | null
+}
+export interface ConnectorPolicyTags {
+  enable?: string[] | null
+  disable?: string[] | null
+}
+export interface ConnectorPolicyDenyBody {
+  mode: 'deny'
+  disabled_connectors: string[]
+  tools: Record<string, string[]>
+  tags?: ConnectorPolicyTags | null
+}
+export interface ConnectorPolicySetParams {
+  profile?: string | null
+  change: ToolsChange | ConnectorChange
+  expected_revision?: string | null
+}
+export interface ToolsChange {
+  type: 'tools'
+  connector: string
+  disabled_tools: string[]
+}
+export interface ConnectorChange {
+  type: 'connector'
+  connector: string
+  enabled: boolean
+}
+export interface ConnectorPolicySetResult {
+  revision: string
+}
 export interface GroupsCapabilitiesParams {
   profile?: string | null
 }
@@ -3553,6 +3639,7 @@ export interface McpCatalogResult {
 export interface McpCatalogEntry {
   name: string
   description: string
+  connector?: string | null
   installed: boolean
   enabled: boolean
   requires: string[]
@@ -4291,6 +4378,12 @@ export interface RpcMethods {
   'config.show': { params: ConfigShowParams; result: ConfigShowResult }
   /** Per-target outcomes from the card, and an optional Continue. */
   'connection.respond': { params: ConnectionRespondParams; result: ConnectionRespondResult }
+  /** The scoped member's hosted connector accounts, optionally filtered by connector slug. */
+  'connectors.accounts': { params: ConnectorAccountsParams; result: ConnectorAccountsResult }
+  /** Remove one hosted connector account owned by the scoped member. */
+  'connectors.accounts.remove': { params: ConnectorAccountsRemoveParams; result: ConnectorAccountsRemoveResult }
+  /** The hosted connector catalog available to the scoped member. */
+  'connectors.catalog': { params: ProfileParams; result: ConnectorsCatalogResult }
   /** Start (or re-initiate) authorization for named connectors on the session's connection operation. */
   'connectors.connect': { params: ConnectorsConnectParams; result: ConnectorsConnectResult }
   /** Connector catalog + connection state for one owned session (``available=False`` when the toolset is off). */
@@ -4299,6 +4392,10 @@ export interface RpcMethods {
   'connectors.operation.status': { params: ConnectionOperationParams; result: ConnectionOperationStatus }
   /** The browser leg came back (hermes://connections/done): read the accounts now, not at the next tick. */
   'connectors.operation.wake': { params: ConnectionOperationParams; result: ConnectionWakeResult }
+  /** Policy layers for the scoped member, from organization to member scope. */
+  'connectors.policy.get': { params: ProfileParams; result: ConnectorPolicyGetResult }
+  /** Apply one scoped member connector or tool-list policy change. */
+  'connectors.policy.set': { params: ConnectorPolicySetParams; result: ConnectorPolicySetResult }
   /** The scoped profile's cached or current tool list for one connector. */
   'connectors.tools': { params: ConnectorToolsParams; result: ConnectorToolsResult }
   /** List/add/remove/pause/resume cron jobs in the (optionally profile-scoped) cron store. */
@@ -4703,10 +4800,15 @@ export const RPC_METHODS = [
   'config.set',
   'config.show',
   'connection.respond',
+  'connectors.accounts',
+  'connectors.accounts.remove',
+  'connectors.catalog',
   'connectors.connect',
   'connectors.list',
   'connectors.operation.status',
   'connectors.operation.wake',
+  'connectors.policy.get',
+  'connectors.policy.set',
   'connectors.tools',
   'cron.manage',
   'delegation.pause',

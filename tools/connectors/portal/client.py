@@ -1,4 +1,4 @@
-"""HTTP client for the portal connector-tool listing route."""
+"""HTTP client for portal connector metadata routes."""
 
 from __future__ import annotations
 
@@ -16,8 +16,13 @@ from tools.connectors.gateway.errors import (
     ToolGatewayError,
     parse_gateway_error,
 )
-from tools.connectors.portal.errors import PortalToolsUnavailable
-from tools.connectors.portal.wire import ConnectorToolsListing
+from tools.connectors.portal.errors import PortalConnectorUnavailable, PortalToolsUnavailable
+from tools.connectors.portal.wire import (
+    ConnectorCatalogResponse,
+    ConnectorPolicyResponse,
+    ConnectorPolicyWriteResponse,
+    ConnectorToolsListing,
+)
 from tools.managed_gateway_auth import read_nous_access_token
 
 
@@ -32,6 +37,7 @@ class Transport(Protocol):
         url: str,
         *,
         headers: dict[str, str] | None = None,
+        json: dict[str, Any] | None = None,
         timeout: float | None = None,
     ) -> Any: ...
 
@@ -60,7 +66,7 @@ def _default_header_provider(_url: str) -> dict[str, str]:
 
 
 class PortalConnectorClient:
-    """Fetch one connector's typed tools, without retries or response-body logging."""
+    """Fetch connector metadata without retries or response-body logging."""
 
     def __init__(
         self,
@@ -83,39 +89,71 @@ class PortalConnectorClient:
 
     def tools(self, slug: str, *, if_none_match: str | None = None) -> ConnectorToolsListing | NotModified:
         validate_slug(slug)
-        url = f"{self.origin()}/api/v1/connectors/{slug}/tools"
-        headers = {"Accept": "application/json", **self._header_provider(url)}
-        if not isinstance(headers.get("Authorization"), str) or not headers["Authorization"].strip():
-            raise GatewayAuthError("portal authorization required", code="NO_TOKEN", status=401)
-        if if_none_match:
-            headers["If-None-Match"] = if_none_match
+        headers = {"If-None-Match": if_none_match} if if_none_match else None
         try:
-            response = self._transport.request("GET", url, headers=headers, timeout=DEFAULT_TIMEOUT_SECONDS)
-        except Exception as exc:
-            raise PortalToolsUnavailable("portal tools unavailable", code="TRANSPORT_ERROR", retryable=True) from exc
-        status = int(getattr(response, "status_code", 0))
+            response, status = self._request("GET", f"/api/v1/connectors/{slug}/tools", headers=headers)
+        except ToolGatewayError as exc:
+            if type(exc) is not ToolGatewayError:
+                raise
+            raise PortalToolsUnavailable(
+                "portal tools unavailable",
+                code=exc.code,
+                status=exc.status,
+                request_id=exc.request_id,
+                retryable=exc.retryable,
+            ) from exc
         if status == 304:
             return NotModified()
-        if not 200 <= status < 300:
+        listing = self._parse(ConnectorToolsListing, response, status, PortalToolsUnavailable, "portal tools unavailable")
+        etag = getattr(response, "headers", {}).get("etag")
+        return listing.model_copy(update={"etag": etag}) if isinstance(etag, str) and etag else listing
+
+    def catalog(self) -> ConnectorCatalogResponse:
+        response, status = self._request("GET", "/api/v1/connectors/catalog")
+        return self._parse(ConnectorCatalogResponse, response, status, PortalConnectorUnavailable, "portal catalog unavailable")
+
+    def policy(self) -> ConnectorPolicyResponse:
+        response, status = self._request("GET", "/api/v1/connectors/policy")
+        return self._parse(ConnectorPolicyResponse, response, status, PortalConnectorUnavailable, "portal policy unavailable")
+
+    def set_policy(self, body: dict[str, Any]) -> ConnectorPolicyWriteResponse:
+        response, status = self._request("PUT", "/api/v1/connectors/policy", body)
+        return self._parse(ConnectorPolicyWriteResponse, response, status, PortalConnectorUnavailable, "portal policy unavailable")
+
+    def _request(
+        self,
+        method: str,
+        path: str,
+        body: dict[str, Any] | None = None,
+        *,
+        headers: dict[str, str] | None = None,
+    ) -> tuple[Any, int]:
+        url = f"{self.origin()}{path}"
+        headers = {"Accept": "application/json", **(headers or {}), **self._header_provider(url)}
+        if not isinstance(headers.get("Authorization"), str) or not headers["Authorization"].strip():
+            raise GatewayAuthError("portal authorization required", code="NO_TOKEN", status=401)
+        try:
+            request_args = {"headers": headers, "timeout": DEFAULT_TIMEOUT_SECONDS}
+            if body is not None:
+                request_args["json"] = body
+            response = self._transport.request(method, url, **request_args)
+        except Exception as exc:
+            raise PortalConnectorUnavailable("portal connector metadata unavailable", code="TRANSPORT_ERROR", retryable=True) from exc
+        status = int(getattr(response, "status_code", 0))
+        if not 200 <= status < 300 and status != 304:
             error = parse_gateway_error(status, _safe_json(response), getattr(response, "headers", None))
-            if type(error) is ToolGatewayError:
-                raise PortalToolsUnavailable(
-                    "portal tools unavailable",
-                    code=error.code,
-                    status=error.status,
-                    request_id=error.request_id,
-                    retryable=error.retryable,
-                ) from error
             raise error
+        return response, status
+
+    @staticmethod
+    def _parse(model, response: Any, status: int, error_type, message: str):
         try:
             payload = response.json()
             if not isinstance(payload, Mapping):
                 raise ValueError("response must be an object")
-            listing = ConnectorToolsListing.model_validate(payload)
+            return model.model_validate(payload)
         except (AttributeError, TypeError, ValueError, ValidationError) as exc:
-            raise PortalToolsUnavailable("portal tools unavailable", code="INVALID_RESPONSE", status=status) from exc
-        etag = getattr(response, "headers", {}).get("etag")
-        return listing.model_copy(update={"etag": etag}) if isinstance(etag, str) and etag else listing
+            raise error_type(message, code="INVALID_RESPONSE", status=status) from exc
 
 
 def _safe_json(response: Any) -> Any:
