@@ -637,6 +637,24 @@
       }
     },
     {
+      "name": "connectors.tools",
+      "summary": "The scoped profile's cached or current tool list for one connector.",
+      "params": [
+        {
+          "name": "params",
+          "schema": {
+            "$ref": "#/components/schemas/ConnectorToolsParams"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/ConnectorToolsResult"
+        }
+      }
+    },
+    {
       "name": "cron.manage",
       "summary": "List/add/remove/pause/resume cron jobs in the (optionally profile-scoped) cron store.",
       "params": [
@@ -9042,6 +9060,151 @@
         },
         "title": "ConnectorRow",
         "type": "object"
+      },
+      "ConnectorToolFacet": {
+        "enum": [
+          "read",
+          "write",
+          "destructive",
+          "unclassified"
+        ],
+        "title": "ConnectorToolFacet",
+        "type": "string"
+      },
+      "ConnectorToolRow": {
+        "additionalProperties": false,
+        "properties": {
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "facet": {
+            "$ref": "#/components/schemas/ConnectorToolFacet"
+          },
+          "hints": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Hints",
+            "type": "array"
+          },
+          "categories": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Categories",
+            "type": "array"
+          },
+          "deprecated": {
+            "title": "Deprecated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "slug",
+          "name",
+          "description",
+          "facet",
+          "hints",
+          "categories",
+          "deprecated"
+        ],
+        "title": "ConnectorToolRow",
+        "type": "object"
+      },
+      "ConnectorToolsParams": {
+        "additionalProperties": false,
+        "properties": {
+          "profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Profile"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "refresh": {
+            "default": false,
+            "title": "Refresh",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "slug"
+        ],
+        "title": "ConnectorToolsParams",
+        "type": "object"
+      },
+      "ConnectorToolsResult": {
+        "additionalProperties": false,
+        "properties": {
+          "connector": {
+            "title": "Connector",
+            "type": "string"
+          },
+          "toolkit_version": {
+            "title": "Toolkit Version",
+            "type": "string"
+          },
+          "etag": {
+            "title": "Etag",
+            "type": "string"
+          },
+          "fetched_at": {
+            "title": "Fetched At",
+            "type": "number"
+          },
+          "source": {
+            "$ref": "#/components/schemas/ConnectorToolsSource"
+          },
+          "stale": {
+            "title": "Stale",
+            "type": "boolean"
+          },
+          "tools": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectorToolRow"
+            },
+            "title": "Tools",
+            "type": "array"
+          }
+        },
+        "required": [
+          "connector",
+          "toolkit_version",
+          "etag",
+          "fetched_at",
+          "source",
+          "stale",
+          "tools"
+        ],
+        "title": "ConnectorToolsResult",
+        "type": "object"
+      },
+      "ConnectorToolsSource": {
+        "enum": [
+          "cache",
+          "network",
+          "revalidated"
+        ],
+        "title": "ConnectorToolsSource",
+        "type": "string"
       },
       "ConnectorsConnectParams": {
         "additionalProperties": false,
