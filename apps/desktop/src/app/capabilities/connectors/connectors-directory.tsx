@@ -29,6 +29,8 @@ const RESIDENCY_VALUES = { all: null, hosted: 'hosted', local: 'local' } as cons
 export interface ConnectorsDirectoryProps {
   /** The page action, top right. The wiring slice owns what it opens. */
   addYourOwn?: ReactNode
+  /** The app whose write is in flight, so its verb can say so. */
+  busySlug?: null | string
   cards: ConnectorCardModel[]
   filter: ConnectorsFilter
   /** Only the hosted half failed. The servers on this Mac still render. */
@@ -47,6 +49,7 @@ export interface ConnectorsDirectoryProps {
 
 export function ConnectorsDirectory({
   addYourOwn,
+  busySlug = null,
   cards,
   filter,
   hostedFailed = false,
@@ -147,6 +150,7 @@ export function ConnectorsDirectory({
         <div className="grid min-h-0 gap-6 overflow-y-auto pb-4">
           {groups.map(group => (
             <Group
+              busySlug={busySlug}
               group={group}
               key={group.id}
               onAddServer={onAddServer}
@@ -184,6 +188,7 @@ export function ConnectorsDirectory({
 }
 
 function Group({
+  busySlug,
   group,
   onAddServer,
   onOpen,
@@ -192,6 +197,7 @@ function Group({
   profileSelector,
   selectedSlug
 }: {
+  busySlug: null | string
   group: ConnectorGroupModel
   onAddServer?: () => void
   onOpen: (card: ConnectorCardModel) => void
@@ -240,6 +246,7 @@ function Group({
       <div className="grid gap-3 sm:grid-cols-2">
         {shown.map(card => (
           <ConnectorRowCard
+            busy={busySlug === card.slug}
             card={card}
             key={`${card.residency}:${card.slug}`}
             onOpen={() => onOpen(card)}

@@ -56,6 +56,9 @@ function factText(copy: Translations['connectorsPage']['card'], fact: ConnectorF
 }
 
 export interface ConnectorRowCardProps {
+  /** True while this card's own write is in flight. The card paints nothing
+   *  before the backend answers, so the verb says it is busy instead. */
+  busy?: boolean
   card: ConnectorCardModel
   onOpen: () => void
   /** Local cards only. The switch is on the card, so the dialog is never needed
@@ -66,7 +69,14 @@ export interface ConnectorRowCardProps {
   selected?: boolean
 }
 
-export function ConnectorRowCard({ card, onOpen, onServerToggle, onVerb, selected = false }: ConnectorRowCardProps) {
+export function ConnectorRowCard({
+  busy = false,
+  card,
+  onOpen,
+  onServerToggle,
+  onVerb,
+  selected = false
+}: ConnectorRowCardProps) {
   const { t } = useI18n()
   const copy = t.connectorsPage.card
   const local = card.residency === 'local'
@@ -139,7 +149,12 @@ export function ConnectorRowCard({ card, onOpen, onServerToggle, onVerb, selecte
         ) : null}
 
         {card.verb && onVerb ? (
-          <Button onClick={onVerb} size="xs" variant={card.state === 'available' ? 'outline' : 'secondary'}>
+          <Button
+            disabled={busy}
+            onClick={onVerb}
+            size="xs"
+            variant={card.state === 'available' ? 'outline' : 'secondary'}
+          >
             {copy.verb[card.verb]}
           </Button>
         ) : !local && card.fact ? (

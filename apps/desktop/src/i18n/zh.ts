@@ -1890,7 +1890,6 @@ export const zh = defineLocale({
     tabSkills: '技能',
     tabToolsets: '工具集',
     configuringProfile: '正在配置：',
-    tabMcp: 'MCP',
     all: '全部',
     searchSkills: '搜索技能…',
     searchToolsets: '搜索工具集…',

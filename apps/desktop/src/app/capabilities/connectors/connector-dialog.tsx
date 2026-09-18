@@ -58,6 +58,10 @@ export interface ConnectorDialogProps {
   /** How many tools the organisation took away. Zero means no note. */
   orgDisabledCount?: number
   profileName?: string
+  /** True while `On for me` is being written. The switch is never optimistic —
+   *  the policy write can take the full connector deadline — so it says it is
+   *  busy instead of moving before the backend agreed. */
+  togglePending?: boolean
   /** The right column: `ToolsList`. */
   tools: ReactNode
 }
@@ -169,7 +173,8 @@ function HostedColumn({
   onDisconnect,
   onOpenAdmin,
   onToggleForMe,
-  orgDisabledCount = 0
+  orgDisabledCount = 0,
+  togglePending = false
 }: ColumnProps) {
   const { t } = useI18n()
   const copy = t.connectorsPage.dialog
@@ -204,7 +209,7 @@ function HostedColumn({
             <Switch
               aria-label={copy.onForMe}
               checked={card.state !== 'off' || card.offBy !== 'me'}
-              disabled={card.offBy === 'org'}
+              disabled={card.offBy === 'org' || togglePending}
               onCheckedChange={onToggleForMe}
               size="xs"
             />

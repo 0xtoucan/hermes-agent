@@ -163,14 +163,22 @@ export const en: Translations = {
       clearSearch: 'Clear the search',
       hostedFailedTitle: 'Could not reach your Nous apps.',
       hostedFailedBody: 'The servers on this Mac are unaffected and still running. Nothing was turned off.',
-      retry: 'Retry'
+      retry: 'Retry',
+      signedOutNote: 'Connections stay on this Mac until you sign in.',
+      signIn: 'Sign in',
+      writeFailed: 'That change was not saved.'
     },
 
     dialog: {
       actsAs: (account: string) => `Hermes acts as ${account}`,
       connectedOn: (date: string) => `Connected ${date}`,
       disconnect: 'Disconnect',
+      disconnectTitle: (name: string) => `Disconnect ${name}?`,
+      disconnectBody: 'Hermes stops acting as this account. You can connect again at any time.',
+      menuRefreshTools: 'Refresh tools',
       moreActions: 'More actions',
+      removeServerTitle: (name: string) => `Remove ${name}?`,
+      removeServerBody: 'The entry leaves mcp.json on this Mac. Nothing else is deleted.',
       onForMe: 'On for me',
       onForMeHint: 'Your sign-in stays either way.',
       orgNote: (count: number) => `Your organisation turned ${count} tools off.`,
@@ -1911,7 +1919,6 @@ export const en: Translations = {
     tabSkills: 'Skills',
     tabToolsets: 'Tools',
     configuringProfile: 'Configuring:',
-    tabMcp: 'MCP',
     all: 'All',
     searchSkills: 'Search skills...',
     searchToolsets: 'Search tools...',

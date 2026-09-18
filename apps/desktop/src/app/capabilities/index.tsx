@@ -16,7 +16,7 @@ import { PageSearchShell } from '../page-search-shell'
 import type { SetStatusbarItemGroup } from '../shell/statusbar-controls'
 
 import { CapabilityTabs, type CapabilityView } from './capability-tabs'
-import { McpTab } from './mcp/mcp-tab'
+import { ConnectorsTab } from './connectors/connectors-tab'
 import { PluginActions, PluginsTab } from './plugins/plugins-tab'
 import { CapabilityScopeSelector, useCapabilityScope } from './scope-selector'
 import { SKILLS_QUERY_KEY, skillSearchTerms, useSkillsQuery } from './skills/skills-data'
@@ -28,7 +28,7 @@ import { ToolsetsTab } from './toolsets/toolsets-tab'
 
 // Skills Hub browsing lives inside the Skills tab. Legacy `?tab=hub`
 // links fall back to 'skills' via useRouteEnumParam.
-const CAPABILITY_MODES = ['skills', 'toolsets', 'mcp', 'plugins'] as const
+const CAPABILITY_MODES = ['skills', 'toolsets', 'connectors', 'plugins'] as const
 
 type CapabilityMode = (typeof CAPABILITY_MODES)[number]
 
@@ -68,9 +68,10 @@ export function CapabilitiesView({
   const routeTab = useRouteEnumParam('tab', CAPABILITY_MODES, 'skills')
   const localTab = useState<CapabilityMode>('skills')
   const [mode, setMode] = embedded ? localTab : routeTab
-  // $gateway only feeds the MCP tab — gate the subscription so Skills/Toolsets
-  // tabs don't re-render on connect/disconnect/reconnect.
-  const gateway = useStoreSelector($gateway, g => (mode === 'mcp' ? g : null))
+  // $gateway only feeds the Connectors tab's local servers — gate the
+  // subscription so Skills/Toolsets tabs don't re-render on
+  // connect/disconnect/reconnect.
+  const gateway = useStoreSelector($gateway, g => (mode === 'connectors' ? g : null))
 
   const [query, setQuery] = useState('')
 
@@ -139,8 +140,13 @@ export function CapabilitiesView({
     // ACTIVE gateway's socket — for a scope pinned to a different backend that
     // RPC would hot-reload the wrong machine's MCP servers, so it is withheld
     // (config edits still apply on that backend's next session).
-    mcp: () => (
-      <McpTab gateway={scope.crossBackend ? null : gateway} key={`mcp-${scope.key}`} profile={scope.profile} />
+    connectors: () => (
+      <ConnectorsTab
+        gateway={scope.crossBackend ? null : gateway}
+        key={`connectors-${scope.key}`}
+        profile={scope.profile}
+        scopeLabel={scope.label}
+      />
     ),
     // Agent plugins for the scoped profile (selector in the section header),
     // app-level desktop plugins, and the native catalog underneath.
@@ -176,9 +182,10 @@ export function CapabilitiesView({
       activeTab={mode}
       onSearchChange={setQuery}
       onTabChange={id => setMode(id as CapabilityMode)}
-      // MCP manages a handful of entries with the editor right there —
-      // searching it is noise.
-      searchHidden={mode === 'mcp'}
+      // The Connectors directory owns its own search field: the query is one
+      // part of a filter record it also fills from the pills and the two
+      // selects, and its placeholder counts the apps on screen.
+      searchHidden={mode === 'connectors'}
       searchHints={searchHints}
       searchPlaceholder={
         mode === 'plugins'
@@ -191,13 +198,13 @@ export function CapabilitiesView({
       tabs={[
         { id: 'skills', label: t.skills.tabSkills, meta: skills?.length ?? null },
         { id: 'toolsets', label: t.skills.tabToolsets, meta: toolsets ? visibleToolsetCount(toolsets) : null },
-        { id: 'mcp', label: t.skills.tabMcp },
+        { id: 'connectors', label: t.connectorsPage.title },
         { id: 'plugins', label: t.skills.tabPlugins }
       ]}
     >
       {/* One shared column: the scope selector sits above whichever tab is
-          active, so Skills / Tools / MCP all read and write the SAME selected
-          profile. */}
+          active, so Skills / Tools / Connectors all read and write the SAME
+          selected profile. */}
       <div className="flex h-full flex-col">
         <CapabilityScopeSelector agentLabel={mode === 'plugins'} scope={scope} />
         {(mode === 'skills' || mode === 'plugins') && (

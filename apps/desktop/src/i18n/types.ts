@@ -212,12 +212,20 @@ export interface Translations {
       hostedFailedTitle: string
       hostedFailedBody: string
       retry: string
+      signedOutNote: string
+      signIn: string
+      writeFailed: string
     }
     dialog: {
       actsAs: (account: string) => string
       connectedOn: (date: string) => string
       disconnect: string
+      disconnectTitle: (name: string) => string
+      disconnectBody: string
+      menuRefreshTools: string
       moreActions: string
+      removeServerTitle: (name: string) => string
+      removeServerBody: string
       onForMe: string
       onForMeHint: string
       orgNote: (count: number) => string
@@ -1690,7 +1698,6 @@ export interface Translations {
     tabSkills: string
     tabToolsets: string
     configuringProfile: string
-    tabMcp: string
     all: string
     searchSkills: string
     searchToolsets: string
