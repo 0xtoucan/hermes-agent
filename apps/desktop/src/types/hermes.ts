@@ -1630,6 +1630,7 @@ export interface McpServerTestResponse {
 export interface McpCatalogEntry {
   name: string
   description: string
+  connector?: string | null
   source: string
   transport: string
   auth_type: string

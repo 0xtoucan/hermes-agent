@@ -53,6 +53,7 @@ export const skillsViewRoutesConnections = Boolean(SkillsView && SkillsView.supp
  *  through the same toggle handlers, so they share one entry type. */
 export interface CapabilityEntry {
   auth?: string
+  connector?: string | null
   description?: string
   enabled?: boolean
   fromCatalog?: boolean

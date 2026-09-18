@@ -339,6 +339,7 @@ method("learning.edit", params=LearningEditParams, result=LearningMutationResult
 class McpCatalogEntry(Result):
     name: str
     description: str
+    connector: str | None = None
     installed: bool
     enabled: bool
     requires: list[str]
