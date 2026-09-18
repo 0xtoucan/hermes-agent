@@ -709,6 +709,40 @@ class TestSessionLifecycle:
         assert row["input_tokens"] == 10_000
         assert row["output_tokens"] == 2_000
 
+    def test_get_session_model_usage_spans_compression_lineage_and_keeps_task(self, db):
+        """Aux calls bill to the id a turn STARTED with while compression mints a child id
+        mid-turn (#112848): reading the child must still see the parent's rows, and the
+        ``task`` column must survive so display can fold aux work into its model line."""
+        db.create_session(session_id="root", source="cli", model="deepseek-v4-pro")
+        db.update_token_counts(
+            "root", input_tokens=40_000, output_tokens=8_000, model="deepseek-v4-pro",
+            billing_provider="deepseek", billing_mode="api_key", api_call_count=2,
+        )
+        db.record_auxiliary_usage(
+            "root", "compression", model="deepseek-v4-pro", billing_provider="deepseek",
+            input_tokens=6_000, output_tokens=500,
+        )
+        db.create_session(session_id="child", source="cli", model="deepseek-v4-pro", parent_session_id="root")
+        db.update_token_counts(
+            "child", input_tokens=1_000, output_tokens=100, model="deepseek-v4-pro",
+            billing_provider="deepseek", billing_mode="api_key", api_call_count=1,
+        )
+
+        rows = db.get_session_model_usage("child")
+
+        by_task = {row["task"]: row for row in rows}
+        assert set(by_task) == {"", "compression"}
+        assert by_task[""]["input_tokens"] == 41_000  # root + child main-loop rows summed
+        assert by_task[""]["api_call_count"] == 3
+        assert by_task["compression"]["input_tokens"] == 6_000
+
+        from hermes_state_usage import fold_model_usage_routes
+        report = fold_model_usage_routes(rows)
+        assert len(report["routes"]) == 1  # aux row folds into the model's line, not a duplicate
+        assert report["routes"][0]["tasks"] == ["compression"]
+        assert report["routes"][0]["input"] == 47_000
+        assert report["totals"]["calls"] == 4
+
     def test_first_accounted_route_replaces_all_route_fields_atomically(self, db):
         db.create_session(session_id="route", source="cli", model="primary")
         db.update_session_billing_route(

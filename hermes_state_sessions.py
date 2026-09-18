@@ -796,18 +796,33 @@ class SessionSessionsMixin:
         if not session_id:
             return []
         self.flush_token_counts()
+        # Compression mints child session ids mid-turn while the aux calls of that turn bill to
+        # the id it STARTED with, so a single-id read drops rows (#112848); walk the lineage
+        # like auxiliary_usage_by_task and cut at an explicit /branch copy, which owns its spend.
+        chain = self._session_lineage_root_to_tip(session_id)
+        for i in range(len(chain) - 1, -1, -1):
+            if self._is_explicit_branch_session(chain[i]):
+                chain = chain[i:]
+                break
         return [
             dict(row)
             for row in self._read_all(
-                """SELECT model, billing_provider, billing_base_url,
-                          billing_mode, api_call_count, input_tokens,
-                          output_tokens, cache_read_tokens, cache_write_tokens,
-                          reasoning_tokens, estimated_cost_usd, actual_cost_usd,
-                          cost_status, cost_source, first_seen, last_seen
-                   FROM session_model_usage
-                   WHERE session_id = ?
-                   ORDER BY last_seen DESC, model, billing_provider""",
-                (session_id,),
+                f"""SELECT model, billing_provider, billing_base_url, billing_mode, task,
+                           COALESCE(SUM(api_call_count), 0) AS api_call_count,
+                           COALESCE(SUM(input_tokens), 0) AS input_tokens,
+                           COALESCE(SUM(output_tokens), 0) AS output_tokens,
+                           COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
+                           COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens,
+                           COALESCE(SUM(reasoning_tokens), 0) AS reasoning_tokens,
+                           COALESCE(SUM(estimated_cost_usd), 0) AS estimated_cost_usd,
+                           COALESCE(SUM(actual_cost_usd), 0) AS actual_cost_usd,
+                           MAX(cost_status) AS cost_status, MAX(cost_source) AS cost_source,
+                           MIN(first_seen) AS first_seen, MAX(last_seen) AS last_seen
+                    FROM session_model_usage
+                    WHERE session_id IN ({','.join('?' * len(chain))})
+                    GROUP BY model, billing_provider, billing_base_url, billing_mode, task
+                    ORDER BY last_seen DESC, model, billing_provider""",
+                chain,
             )
         ]
 
