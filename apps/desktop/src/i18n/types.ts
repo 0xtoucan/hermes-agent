@@ -125,6 +125,172 @@ export interface Translations {
     disclaimer: string
     execution: string
   }
+  connectorsPage: {
+    title: string
+    searchPlaceholder: (count: number) => string
+    inventory: (hosted: number, local: number) => string
+    addYourOwn: string
+    accountNote: string
+    filterWhere: string
+    filterCategory: string
+    whereAll: string
+    whereHosted: string
+    whereLocal: string
+    categoryAll: string
+    uncategorised: string
+    pill: {
+      all: string
+      attention: string
+      available: string
+      connected: string
+      local: string
+      off: string
+    }
+    group: {
+      connected: string
+      connectedNote: string
+      local: string
+      localConfiguring: string
+      localAddServer: string
+      available: string
+      availableShowAll: (count: number) => string
+      availableShowFewer: string
+      off: string
+      offNote: string
+    }
+    card: {
+      hosted: string
+      inCatalog: string
+      hostedTwin: string
+      open: (name: string) => string
+      turnServerOn: (name: string) => string
+      turnServerOff: (name: string) => string
+      state: {
+        accessExpired: string
+        available: string
+        connected: string
+        connecting: string
+        couldNotConnect: string
+        offByYourOrganisation: string
+        offForYou: string
+        serverConnecting: string
+        serverError: string
+        serverNeedsAuth: string
+        serverOff: string
+        serverOn: string
+        serverOnUnused: string
+      }
+      fact: {
+        tools: (count: number) => string
+        toolsOff: (count: number) => string
+        toolsOn: (count: number) => string
+        toolsSomeOn: (total: number, on: number) => string
+      }
+      verb: {
+        authenticate: string
+        connect: string
+        openLogs: string
+        reconnect: string
+        stopWaiting: string
+        tryAgain: string
+        turnBackOn: string
+      }
+      reason: {
+        finishSignIn: string
+        reconnect: string
+        serverError: string
+        serverNeedsAuth: string
+      }
+    }
+    page: {
+      loading: string
+      emptyTitle: string
+      emptyBody: string
+      noMatchTitle: string
+      noMatchBody: string
+      clearSearch: string
+      hostedFailedTitle: string
+      hostedFailedBody: string
+      retry: string
+    }
+    dialog: {
+      actsAs: (account: string) => string
+      connectedOn: (date: string) => string
+      disconnect: string
+      moreActions: string
+      onForMe: string
+      onForMeHint: string
+      orgNote: (count: number) => string
+      orgLink: string
+      residencyHosted: string
+      whereItLives: string
+      localUrlBody: string
+      localProgramBody: string
+      configuring: (profile: string) => string
+      whatItCosts: string
+      tokensPerCall: string
+      usesPerMonth: string
+      advanced: string
+      advancedHint: string
+      serverSwitch: (name: string) => string
+      transportProgram: string
+      transportUrl: string
+    }
+    tools: {
+      title: string
+      searchPlaceholder: string
+      searchCountPlaceholder: (count: number) => string
+      freshnessJustNow: string
+      freshnessHours: (hours: number) => string
+      freshnessDays: (days: number) => string
+      refresh: string
+      categorySelect: (count: number) => string
+      showDeprecated: (count: number) => string
+      hideDeprecated: (count: number) => string
+      quickReadOnly: string
+      quickNoDestructive: string
+      quickEverythingOn: string
+      lockedHint: string
+      turnToolOn: (tool: string) => string
+      turnToolOff: (tool: string) => string
+      showDetails: (tool: string) => string
+      hideDetails: (tool: string) => string
+      noMatch: string
+      loading: string
+      unavailableTitle: string
+      unavailableBody: string
+      retry: string
+      goneTitle: (name: string) => string
+      goneBody: string
+      remove: string
+      signedOutTitle: string
+      signedOutBody: string
+      signIn: string
+      conflictTitle: string
+      conflictBody: (theyOff: number, theyOn: number) => string
+      conflictReload: string
+      conflictSave: string
+      footerDirty: (off: number, backOn: number) => string
+      discard: string
+      save: string
+      saving: string
+    }
+    /** Keyed by `VocabularyKey` in `app/capabilities/connectors/hint-vocabulary.ts`. */
+    vocabulary: Record<
+      | 'facetDestructive'
+      | 'facetRead'
+      | 'facetUnclassified'
+      | 'facetWrite'
+      | 'hintCreate'
+      | 'hintDelete'
+      | 'hintDestructive'
+      | 'hintIdempotent'
+      | 'hintOpenWorld'
+      | 'hintReadOnly'
+      | 'hintUpdate',
+      { label: string; long: string }
+    >
+  }
   sessionImport: {
     title: string
     subtitle: string
