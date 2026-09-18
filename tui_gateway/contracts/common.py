@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Annotated, Literal
+
 from pydantic import Field
 
 from .base import JsonValue, Params, Payload, Result, WireEnum
@@ -204,6 +206,18 @@ class ProfileParams(Params):
     profile: str | None = None
 
 
+class SessionOwner(Params):
+    type: Literal["session"]
+    session_id: str = Field(min_length=1)
+
+
+class AccountOwner(Params):
+    type: Literal["account"]
+
+
+ConnectorOwner = Annotated[SessionOwner | AccountOwner, Field(discriminator="type")]
+
+
 class OkResult(Result):
     ok: bool = True
 
@@ -221,7 +235,8 @@ class EmptyPayload(Payload):
 
 
 __all__ = [
-    "TERMINAL_SUBAGENT_STATUSES", "EmptyPayload", "EmptyResult", "McpServerStatus", "MessageReaction", "OkResult", "OpenModel", "PendingApproval",
-    "ProfileParams", "ProjectRef", "SessionLiveInfo", "SessionParams", "StatusResult", "StoredSessionRow",
+    "TERMINAL_SUBAGENT_STATUSES", "AccountOwner", "ConnectorOwner", "EmptyPayload", "EmptyResult", "McpServerStatus",
+    "MessageReaction", "OkResult", "OpenModel", "PendingApproval",
+    "ProfileParams", "ProjectRef", "SessionLiveInfo", "SessionOwner", "SessionParams", "StatusResult", "StoredSessionRow",
     "SubagentStatus", "TranscriptMessage", "Usage",
 ]
