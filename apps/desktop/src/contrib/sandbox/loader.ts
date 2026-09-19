@@ -176,6 +176,9 @@ export async function loadSandboxedPlugin(
       styleText: collectHostStyleText()
     })
 
+    let named = { ...record, name: pluginId, description: undefined as string | undefined }
+    let booted = false
+
     const { manifest, realm } = await awaitManifest(
       hooks =>
         new SandboxRealm({
@@ -185,17 +188,25 @@ export async function loadSandboxedPlugin(
           pluginId,
           srcdoc,
           onError: message => {
-            hooks.onError(message)
             console.error(`[plugins] ${pluginId} (sandbox)`, message)
+
+            if (booted) {
+              // Post-boot failure (boundary violation, guest crash): the realm
+              // is gone; the inventory row must say so instead of "loaded".
+              publishPlugin({ ...named, status: 'error', error: message })
+            } else {
+              hooks.onError(message)
+            }
           },
           onManifest: hooks.onManifest
         }),
       options.bootTimeoutMs ?? 15_000
     )
 
+    booted = true
     realms.set(pluginId, realm)
 
-    const named = { ...record, name: manifest.name ?? pluginId, description: manifest.description }
+    named = { ...record, name: manifest.name ?? pluginId, description: manifest.description }
     console.info(
       `[plugins] ${pluginId} loaded in a sandboxed realm (catalog tier); capabilities: ${[...granted].join(', ')}`
     )

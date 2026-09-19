@@ -149,24 +149,57 @@ describe('SandboxRealm bridge', () => {
     realm.dispose()
   })
 
-  it('ignores messages that do not come from its own frame window', () => {
-    const { frame, realm } = realmWith(['ui', 'gateway:request'])
+  it('ignores messages whose source is a DIFFERENT window, even with a valid frame and origin', async () => {
+    const realm = new SandboxRealm({ granted: new Set(['gateway:request']), name: 'p', pluginId: 'p', srcdoc: '' })
+    realm.activate(() => {})
+    const own = document.querySelector('iframe')!
+    const other = document.createElement('iframe')
+    document.body.appendChild(other)
 
+    // Well-formed call, sandbox origin, but spoken by another document.
     window.dispatchEvent(
       new MessageEvent('message', {
-        data: {
-          args: ['session.list', {}],
-          callId: 9,
-          hermes: 'hermes-plugin-sandbox',
-          method: 'request',
-          type: 'call'
-        }
+        data: { args: ['session.list', {}], callId: 9, hermes: 'hermes-plugin-sandbox', method: 'request', type: 'call' },
+        origin: 'null',
+        source: other.contentWindow
       })
     )
+    await flush()
 
+    expect(other.contentWindow).not.toBe(own.contentWindow)
     expect(hostRequest).not.toHaveBeenCalled()
-    expect(frame.replies()).toEqual([])
+    expect(own.isConnected).toBe(true) // a stranger's message is noise, not a violation
     realm.dispose()
+  })
+
+  it('drops the bridge when its own frame speaks from a real origin (it left its srcdoc)', async () => {
+    const onError = vi.fn()
+    const realm = new SandboxRealm({
+      granted: new Set(['gateway:request']),
+      name: 'p',
+      onError,
+      pluginId: 'p',
+      srcdoc: ''
+    })
+    realm.activate(() => {})
+    const own = document.querySelector('iframe')!
+    const data = { args: ['session.list', {}], callId: 1, hermes: 'hermes-plugin-sandbox', method: 'request', type: 'call' }
+
+    // Control: the same window with the sandbox's opaque origin is the plugin.
+    window.dispatchEvent(new MessageEvent('message', { data, origin: 'null', source: own.contentWindow }))
+    await flush()
+    expect(hostRequest).toHaveBeenCalledTimes(1)
+
+    // The navigated frame keeps the WindowProxy but gains an origin: refuse + dispose.
+    window.dispatchEvent(
+      new MessageEvent('message', { data: { ...data, callId: 2 }, origin: 'https://attacker.example', source: own.contentWindow })
+    )
+    await flush()
+
+    expect(hostRequest).toHaveBeenCalledTimes(1)
+    expect(own.isConnected).toBe(false)
+    expect(onError).toHaveBeenCalledWith(expect.stringContaining('https://attacker.example'))
+    expect(notify.mock.calls.at(-1)?.[0]).toMatchObject({ kind: 'error', title: 'Plugin "p" disabled' })
   })
 
   it('registers a contribution whose render is a host placeholder, and dispose tears it all down', async () => {

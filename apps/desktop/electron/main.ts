@@ -464,7 +464,7 @@ import {
   WindowConnectionRouteRegistry
 } from './window-connection-route'
 import { registerWindowControlIpc, windowControlState } from './window-controls'
-import { createWindowOpenHandler } from './window-open-policy'
+import { createWindowOpenHandler, describeDeniedUrl, shouldDenyFrameNavigation } from './window-open-policy'
 import { installWindowRendererLifecycle } from './window-renderer-lifecycle'
 import { createWindowRevealController } from './window-reveal'
 import {
@@ -13365,6 +13365,15 @@ function wireCommonWindowHandlers(win, { zoom = true }: { zoom?: boolean } = {})
 
     event.preventDefault()
     openExternalUrl(url)
+  })
+  // A srcdoc sandbox (plugin realm, artifact preview) navigating ITSELF is
+  // network egress the CSP cannot stop; `will-navigate` only sees the main
+  // frame. A frame that is already gone reads as srcdoc so the check fails closed.
+  win.webContents.on('will-frame-navigate', event => {
+    if (shouldDenyFrameNavigation({ ...event, frameUrl: event.frame?.url ?? 'about:srcdoc' })) {
+      event.preventDefault()
+      rememberLog(`[frame-navigate] denied: ${describeDeniedUrl(event.url)}`)
+    }
   })
 }
 
