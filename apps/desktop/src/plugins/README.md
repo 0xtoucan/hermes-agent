@@ -36,7 +36,10 @@ the guest, one frame per plugin. Grants come from `desktop_capabilities:` in
 the package's `plugin.yaml` (default `ui`, `storage`, `events`, `rest`; the
 full vocabulary is `../contrib/sandbox/capabilities.ts`). A call outside the
 grant is refused with a toast naming the plugin and the capability; host DOM
-access is never bridged. Not carried across the bridge on day one: `ctx.socket`
+access is never bridged. `ctx.rest` keeps the SDK's contract (the plugin's own
+`/api/plugins/<id>/` namespace); reaching any other `/api/` route is the
+sandbox-only `ctx.restAny`, behind `rest:any`. Not carried across the bridge on
+day one: `ctx.socket`
 (resolves to a no-op), `ctx.i18n`, `when()` predicates, the SDK's UI component
 library (a plugin imports it, but only a small set of plain fallbacks render;
 the rest throw a readable error when used), and host calls made from inside

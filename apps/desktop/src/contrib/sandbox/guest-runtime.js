@@ -110,7 +110,7 @@
   }
 
   // ── slot rendering: every contribution's React tree lives in THIS document,
-  // positioned over the host's placeholder rect (host-sandbox-slot.tsx).
+  // positioned over the host's placeholder rect (slot.tsx, SandboxSlot).
   const renders = new Map() // slotId -> () => ReactNode
   const mounted = new Map() // slotId -> { el, root, observer }
   const slotsEl = document.getElementById('slots')
@@ -304,9 +304,12 @@
       },
       onDispose: fn => void disposers.push(fn),
       onEvent: subscribeEvent,
-      // Own namespace by default; an absolute `/api/...` path asks for the
-      // `rest:any` capability on the host side.
-      rest: (path, opts) => call(String(path).startsWith('/api/') ? 'restAny' : 'rest', [path, opts ?? {}]),
+      // Exactly the SDK's contract: `ctx.rest` never leaves the plugin's own
+      // namespace (`/api/plugins/<id>/...`, resolved by the host's pluginRest).
+      // Reaching any other `/api/` route is a different door with its own
+      // capability (`rest:any`), never an implicit reroute.
+      rest: (path, opts) => call('rest', [path, opts ?? {}]),
+      restAny: (path, opts) => call('restAny', [path, opts ?? {}]),
       socket: () => () => {},
       os: {
         notify: input => fire('osNotify', [input]),

@@ -316,7 +316,10 @@ describe('trust tiers', () => {
     expect(loadSandboxedPlugin).not.toHaveBeenCalled()
     expect(readFileText).not.toHaveBeenCalledWith(`${root}/corrupt/plugin.js`)
     expect(readFileText).not.toHaveBeenCalledWith(`${root}/nameless/plugin.js`)
-    expect($pluginRecords.get().corrupt).toMatchObject({ status: 'error', error: expect.stringContaining('unreadable') })
+    expect($pluginRecords.get().corrupt).toMatchObject({
+      status: 'error',
+      error: expect.stringContaining('unreadable')
+    })
     expect($pluginRecords.get().nameless).toMatchObject({
       status: 'error',
       error: expect.stringContaining('names no package')

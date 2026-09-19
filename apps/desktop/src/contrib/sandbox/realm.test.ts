@@ -3,8 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { $pluginRecords } from '@/contrib/plugins-store'
 import { registry } from '@/contrib/registry'
 
-import { DEFAULT_CAPABILITIES, GATEWAY_METHOD_ALLOWLIST, gatewayMethodAllowed, resolveCapabilities } from './capabilities'
-import { buildFrameDocument, SANDBOX_CSP } from './frame-document'
+import {
+  DEFAULT_CAPABILITIES,
+  GATEWAY_METHOD_ALLOWLIST,
+  gatewayMethodAllowed,
+  resolveCapabilities
+} from './capabilities'
+import { buildFrameDocument } from './frame-document'
 import { loadSandboxedPlugin, unloadSandboxedPlugin } from './loader'
 import type { GuestMessage, HostMessage } from './protocol'
 import { MAX_CHIP_HEIGHT, MAX_CHIP_WIDTH, type SandboxFrame, SandboxRealm } from './realm'
@@ -186,7 +191,13 @@ describe('SandboxRealm bridge', () => {
     // Well-formed call, sandbox origin, but spoken by another document.
     window.dispatchEvent(
       new MessageEvent('message', {
-        data: { args: ['session.list', {}], callId: 9, hermes: 'hermes-plugin-sandbox', method: 'request', type: 'call' },
+        data: {
+          args: ['session.list', {}],
+          callId: 9,
+          hermes: 'hermes-plugin-sandbox',
+          method: 'request',
+          type: 'call'
+        },
         origin: 'null',
         source: other.contentWindow
       })
@@ -210,7 +221,13 @@ describe('SandboxRealm bridge', () => {
     })
     realm.activate(() => {})
     const own = document.querySelector('iframe')!
-    const data = { args: ['session.list', {}], callId: 1, hermes: 'hermes-plugin-sandbox', method: 'request', type: 'call' }
+    const data = {
+      args: ['session.list', {}],
+      callId: 1,
+      hermes: 'hermes-plugin-sandbox',
+      method: 'request',
+      type: 'call'
+    }
 
     // Control: the same window with the sandbox's opaque origin is the plugin.
     window.dispatchEvent(new MessageEvent('message', { data, origin: 'null', source: own.contentWindow }))
@@ -219,7 +236,11 @@ describe('SandboxRealm bridge', () => {
 
     // The navigated frame keeps the WindowProxy but gains an origin: refuse + dispose.
     window.dispatchEvent(
-      new MessageEvent('message', { data: { ...data, callId: 2 }, origin: 'https://attacker.example', source: own.contentWindow })
+      new MessageEvent('message', {
+        data: { ...data, callId: 2 },
+        origin: 'https://attacker.example',
+        source: own.contentWindow
+      })
     )
     await flush()
 
@@ -235,8 +256,19 @@ describe('SandboxRealm bridge', () => {
     ;(window as unknown as { hermesDesktop: unknown }).hermesDesktop = { openExternal, revealPath }
 
     try {
-      const { frame, realm } = realmWith(['os:open-external', 'os:reveal-path'], 'p', '/home/u/.hermes/desktop-plugins/p/plugin.js')
-      const urls = ['https://example.com/x', 'http://example.com/', 'file:///etc/passwd', 'javascript:alert(1)', 'hermes://x', 'not a url']
+      const { frame, realm } = realmWith(
+        ['os:open-external', 'os:reveal-path'],
+        'p',
+        '/home/u/.hermes/desktop-plugins/p/plugin.js'
+      )
+      const urls = [
+        'https://example.com/x',
+        'http://example.com/',
+        'file:///etc/passwd',
+        'javascript:alert(1)',
+        'hermes://x',
+        'not a url'
+      ]
       const paths = [
         '/home/u/.hermes/desktop-plugins/p/README.md',
         '/home/u/.hermes/desktop-plugins/p',
@@ -355,19 +387,30 @@ describe('overlay frame', () => {
 })
 
 describe('frame document', () => {
-  it('locks the frame down: no-network CSP, plugin source can never close the script tag', () => {
-    const html = buildFrameDocument({
-      pluginId: 'p',
-      pluginSource: 'export default { id: "p", register() {} } // </script><script>alert(1)</script>',
-      sdkExports: ['host'],
-      styleText: ''
-    })
+  it('locks the frame down: no-network CSP, plugin source can never break out of its script tag', () => {
+    const source = 'export default { id: "p", register() {} } // <!-- </script><script>alert(1)</script> -->'
+    const html = buildFrameDocument({ pluginId: 'p', pluginSource: source, sdkExports: ['host'], styleText: '' })
+    const csp = /http-equiv="Content-Security-Policy" content="([^"]*)"/.exec(html)?.[1] ?? ''
+    const directives = Object.fromEntries(
+      csp
+        .split(';')
+        .map(d => d.trim().split(/\s+/))
+        .map(([k, ...v]) => [k, v])
+    )
 
-    expect(html).toContain(`content="${SANDBOX_CSP}"`)
-    expect(SANDBOX_CSP.startsWith("default-src 'none'")).toBe(true)
-    expect(SANDBOX_CSP).not.toContain('connect-src')
-    // Exactly the two real script tags: the plugin's `</script>` is escaped.
+    // Nothing loads from anywhere: no fetch/XHR/WebSocket, no remote script, no frames.
+    expect(directives['default-src']).toEqual(["'none'"])
+    expect(directives['connect-src']).toBeUndefined()
+    expect(directives['frame-src']).toBeUndefined()
+    expect(directives['script-src']?.some(s => /^https?:|^\*$/.test(s))).toBe(false)
+    expect(html).not.toContain('allow-same-origin')
+
+    // Exactly the two real script tags: `</script>` AND `<!--` in the plugin
+    // source are escaped, and the escaped JSON still decodes to the source.
     expect(html.split('</script>')).toHaveLength(3)
+    expect(html).not.toContain('<!--')
+    const boot = /__HERMES_SANDBOX__ = (\{.*?\});\n<\/script>/s.exec(html)?.[1]
+    expect(JSON.parse(boot!).pluginSource).toBe(source)
   })
 
   it('builds an iframe with sandbox="allow-scripts" and nothing more; dispose removes it', () => {

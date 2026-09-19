@@ -72,7 +72,12 @@ function guestNotification(input: Record<string, unknown>): NotificationInput {
   const text = (value: unknown) => (typeof value === 'string' ? value : undefined)
   const kind = NOTIFICATION_KINDS.find(name => name === input.kind)
 
-  return { kind, message: str(input.message, 'notification message'), title: text(input.title), detail: text(input.detail) }
+  return {
+    kind,
+    message: str(input.message, 'notification message'),
+    title: text(input.title),
+    detail: text(input.detail)
+  }
 }
 
 const slotRender = (realm: SandboxRealm, slotId: string, fill: boolean) => () =>

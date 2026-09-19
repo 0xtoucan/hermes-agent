@@ -54,7 +54,11 @@ function __req(name) {
 }
 `
 
-const escapeScriptClose = (json: string) => json.replace(/<\//g, '<\\/')
+/** Inside a classic `<script>`, `</` can end the element and `<!--` flips the
+ *  tokenizer into the "script data escaped" state, where a later `</script>`
+ *  inside the JSON is honoured. Both are JS-neutral once escaped: `<\/` and
+ *  `\u003c!--` read back as the original characters. */
+const escapeScriptClose = (json: string) => json.replace(/<\//g, '<\\/').replace(/<!--/g, '\\u003c!--')
 
 export function buildFrameDocument(input: FrameDocumentInput): string {
   const boot = escapeScriptClose(

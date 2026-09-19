@@ -56,7 +56,14 @@ import { notifyError } from '@/store/notifications'
 
 import { trackGatewayEventDisposers } from './events'
 import { createPluginContext, type HermesPlugin } from './plugin'
-import { $pluginRecords, dropPlugin, pluginActive, type PluginKind, type PluginRecord, publishPlugin } from './plugins-store'
+import {
+  $pluginRecords,
+  dropPlugin,
+  pluginActive,
+  type PluginKind,
+  type PluginRecord,
+  publishPlugin
+} from './plugins-store'
 import { loadSandboxedPlugin, unloadSandboxedPlugin } from './sandbox/loader'
 
 /** Where a plugin source came from — the input to the pipeline choice above. */

@@ -29,9 +29,9 @@ describe('shouldDenyFrameNavigation (srcdoc sandbox egress)', () => {
   })
 
   it('leaves the main frame and ordinary remote embeds alone', () => {
-    expect(shouldDenyFrameNavigation({ frameUrl: 'file:///app/index.html', isMainFrame: true, url: 'https://x/' })).toBe(
-      false
-    )
+    expect(
+      shouldDenyFrameNavigation({ frameUrl: 'file:///app/index.html', isMainFrame: true, url: 'https://x/' })
+    ).toBe(false)
     expect(
       shouldDenyFrameNavigation({
         frameUrl: 'https://www.youtube.com/embed/a',
