@@ -6,7 +6,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Callable, ClassVar, Dict, List, Optional, cast
+from typing import Any, Callable, ClassVar, Dict, List, Optional
 
 from tools.connectors.contract import RESOLVED_STATES, Actor, LegState, SettleReason, allowed
 from tools.operations import Owner
@@ -69,7 +69,9 @@ class ConnectionOperation:
 
     legs: List[Leg]
     session_key: str = ""
-    owner: Optional[Owner] = None
+    # Resolved at construction from the calling thread's profile; ``__post_init__`` rebinds it to the
+    # session key because a default factory cannot read a sibling field.
+    owner: Owner = field(default_factory=lambda: Owner.current(""))
     # The model's id for the call that opened the operation; the card binds to that tool row only.
     tool_call_id: Optional[str] = None
     op_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
@@ -88,9 +90,8 @@ class ConnectionOperation:
     def __post_init__(self) -> None:
         if not self.deadline_at:
             self.deadline_at = self.created_at + OPERATION_DEADLINE_SECONDS
-        if self.owner is None:
-            self.owner = Owner.current(self.session_key)
-        self.owner = cast(Owner, self.owner)
+        if self.owner.key == "":
+            self.owner = Owner(self.owner.profile, self.session_key)
 
     def leg(self, name: str) -> Optional[Leg]:
         return next((leg for leg in self.legs if leg.name == name), None)

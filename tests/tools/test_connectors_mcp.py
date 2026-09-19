@@ -21,7 +21,7 @@ from hermes_cli.mcp_catalog import AuthSpec, EnvVarSpec
 
 import tools.connectors.tool  # registers the tool
 from tools.connectors.contract import Actor, SettleReason, LegState
-from tools.connectors import live
+from tools.operations import Owner, operations
 from tools.connectors.legs import mcp
 from tools.connectors import operation as op
 from tools.connectors.legs.mcp import apply_answer
@@ -92,9 +92,9 @@ def backend():
 
 @pytest.fixture(autouse=True)
 def _clean_live():
-    live.reset_for_tests()
+    operations.reset_for_tests()
     yield
-    live.reset_for_tests()
+    operations.reset_for_tests()
 
 
 @pytest.fixture(autouse=True)
@@ -152,7 +152,7 @@ def _answering(answer, *, session_id="s1", delay=0.01):
         seen.append(payload)
 
         def respond():
-            operation = live.get(session_id, payload["op_id"])
+            operation = operations.get(Owner.current(session_id), payload["op_id"])
             if operation is not None:
                 apply_answer(operation, answer)
 
@@ -323,7 +323,7 @@ def test_off_desktop_authorize_returns_the_link_at_once_and_opens_no_operation(b
     assert leg["state"] == LegState.initiated.value
     assert leg["connect_url"] == "https://auth.example/paper/1"
     assert out["status"] == "initiated"
-    assert live.current("s1") is None
+    assert operations.current(Owner.current("s1")) == []
 
 
 def test_off_desktop_install_without_its_credentials_fails_and_names_them():
@@ -485,7 +485,7 @@ def test_a_desktop_session_with_no_callback_gets_the_link_at_once_and_opens_no_o
 
     assert out["status"] == "initiated"
     assert out["legs"][0]["connect_url"] == "https://auth.example/paper/1"
-    assert live.current("s1") is None
+    assert operations.current(Owner.current("s1")) == []
 
 
 def test_a_repeated_failure_is_reported_by_the_backend_watcher_not_the_user(changes):
@@ -718,4 +718,4 @@ def test_the_off_desktop_operation_emits_no_connection_update_frames(backend, ch
 
     assert out["legs"][0]["state"] == LegState.initiated.value
     assert changes == []
-    assert live.current("s1") is None
+    assert operations.current(Owner.current("s1")) == []

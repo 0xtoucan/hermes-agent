@@ -383,7 +383,7 @@ def test_wake_is_owner_only_and_names_a_live_operation(owned):
 def test_a_wake_makes_the_watch_loop_read_before_its_next_tick(owned):
     """The browser came back from the vendor's done page: read the account now, not a tick from now."""
     from tools.connectors.contract import SettleReason
-    from tools.connectors.run import Kind, run_operation
+    from tools.connectors.run import LegDriver, run_operation
 
     owner, _, _ = owned
     read = threading.Event()
@@ -391,7 +391,7 @@ def test_a_wake_makes_the_watch_loop_read_before_its_next_tick(owned):
 
     def run():
         run_operation([Leg("gmail", "connector", "connect")],
-                      Kind(prepare=lambda operation: None, observe=lambda operation: read.set(), note=""),
+                      LegDriver(prepare=lambda operation: None, observe=lambda operation: read.set(), note=""),
                       session_key=SID, tool_call_id=None, connection_callback=None,
                       tick_seconds=30.0, with_urls_in_result=False)
         finished.set()

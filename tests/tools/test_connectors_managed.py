@@ -19,7 +19,7 @@ import pytest
 
 import tools.connectors.tool  # registers the tool
 from tools.connectors import contract as c
-from tools.connectors import live
+from tools.operations import Owner, operations
 from tools.connectors.legs import managed
 from tools.connectors import operation as op_module
 from tools.connectors.gateway.errors import RateLimited
@@ -28,9 +28,9 @@ from tools.connectors.tool import MANAGE_CONNECTIONS_SCHEMA, manage_connections
 
 @pytest.fixture(autouse=True)
 def _clean_live():
-    live.reset_for_tests()
+    operations.reset_for_tests()
     yield
-    live.reset_for_tests()
+    operations.reset_for_tests()
 
 
 class GatewayFake:
@@ -185,7 +185,7 @@ def test_desktop_connect_mints_once_emits_the_card_and_returns_outcomes_without_
     assert out["status"] == "settled" and out["settled_by"] == "all_resolved"
     assert {t["state"] for t in out["legs"]} == {"connected"}
     assert "connect_url" not in json.dumps(out)
-    assert live.current("s1") is None  # closed on settle
+    assert operations.current(Owner.current("s1")) == []  # closed on settle
 
 
 def test_desktop_connect_url_stays_on_the_live_operation_for_the_panel():
@@ -193,7 +193,7 @@ def test_desktop_connect_url_stays_on_the_live_operation_for_the_panel():
     captured = {}
 
     def cb(payload):
-        captured["op"] = live.get("s1", payload["op_id"])
+        captured["op"] = operations.get(Owner.current("s1"), payload["op_id"])
         return None
 
     _run({"action": "connect", "connectors": ["gmail"]}, gw, callback=cb)
@@ -228,7 +228,7 @@ def test_respond_from_the_card_skips_a_leg_and_wakes_the_loop():
 
     def cb(payload):
         def answer():
-            operation = live.get("s1", payload["op_id"])
+            operation = operations.get(Owner.current("s1"), payload["op_id"])
             operation.transition("notion", c.LegState.skipped, c.Actor.user)
             done.set()
         threading.Timer(0.02, answer).start()
@@ -288,7 +288,7 @@ def test_off_desktop_connect_returns_links_and_does_not_block():
     assert out["legs"][0]["connect_url"].startswith("https://connect.example/gmail/")
     assert "op_id" in out
     assert gw.lists == 0 and gw.reads == []  # no watcher without a card
-    assert live.current("s1") is None
+    assert operations.current(Owner.current("s1")) == []
 
 
 def test_platform_not_callback_presence_decides_the_url():
@@ -307,11 +307,9 @@ def test_platform_not_callback_presence_decides_the_url():
 
 def test_second_connect_while_an_operation_is_open_is_refused():
     gw = GatewayFake()
-    operation = live.open_new([("gmail", "connector", "connect")], "s1") if hasattr(live, "open_new") else None
-    if operation is None:
-        from tools.connectors import operation as op
-        operation = op.ConnectionOperation([op.Leg("gmail", "connector", "connect")], session_key="s1")
-        live.open(operation)
+    from tools.connectors import operation as op
+    operation = op.ConnectionOperation([op.Leg("gmail", "connector", "connect")], session_key="s1")
+    operations.open(operation, exclusive=True)
     out = _run({"action": "connect", "connectors": ["notion"]}, gw, callback=_desktop_callback())
     assert "already open" in out["error"] and operation.op_id in out["error"]
     assert gw.mints == []
@@ -341,7 +339,7 @@ def test_continue_during_a_connected_read_keeps_the_settled_result():
 
     def settle_mid_read(connection_id, **kwargs):
         row = original(connection_id, **kwargs)
-        live_op = live.get("s1", op_id["v"])
+        live_op = operations.get(Owner.current("s1"), op_id["v"])
         live_op.settle(c.SettleReason.continue_)
         settled.set()
         return dict(row, status="active", active=True)
