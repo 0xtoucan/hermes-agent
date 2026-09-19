@@ -982,6 +982,31 @@ def _clear_backend_probe_cache() -> None:
 
 def _local_host_hints() -> list[str]:
     """Host OS / home / cwd block for a local terminal backend (tools run on this host)."""
+    return _host_hints(shell_hint=_WINDOWS_BASH_SHELL_HINT)
+
+
+_MXC_SANDBOX_HINT = (
+    "Sandbox: every `terminal`, file-tool, `search_files` and `execute_code` action runs inside a fresh Windows MXC "
+    "process container on this host. The container sees the real filesystem but may only READ the folders granted "
+    "in the sandbox policy and only WRITE inside the session's working directory (plus any read/write grants); "
+    "everything else is denied by the OS, and network access is off unless the policy allows it. A denied action "
+    "comes back with `Permission denied` plus a `[Sandbox]` note listing what is currently allowed. When that "
+    "happens, do not look for a way around it: tell the user which folder or capability you need and ask them to "
+    "grant it (Hermes desktop: Settings > Safety > Sandbox). Grants take effect on your next command.\n"
+    "Shell: the container runs busybox `sh` (POSIX, not bash): no arrays, `[[ ]]`, or process substitution; use "
+    "`.` to source files. Paths are native Windows paths with forward slashes (`C:/Users/x/project`); MSYS-style "
+    "`/c/...` paths do NOT work here, and `/tmp` is not writable; use `$TEMP` for scratch files. Native tools "
+    "(python, node, git, curl.exe) are on PATH and take `C:/...` paths."
+)
+
+
+def _mxc_backend_hints() -> list[str]:
+    """Host block for the Windows MXC sandbox backend: the machine is the real host (paths and
+    home are valid), but every action is contained by a per-command process container."""
+    return _host_hints(shell_hint=_MXC_SANDBOX_HINT)
+
+
+def _host_hints(*, shell_hint: str) -> list[str]:
     import platform
 
     host = (
@@ -1002,7 +1027,7 @@ def _local_host_hints() -> list[str]:
         "Use the 'User home directory' above to construct paths under C:\\Users\\<user>\\, never the hostname."
     )
     # Windows-local terminal runs bash, not PowerShell — without this the model issues PowerShell syntax.
-    return ["\n".join(host_lines), _WINDOWS_BASH_SHELL_HINT]
+    return ["\n".join(host_lines), shell_hint]
 
 
 def _remote_backend_hint(backend: str) -> str:
@@ -1050,7 +1075,10 @@ def build_environment_hints() -> str:
     WSL and embedder hints are appended."""
     backend = (_tenv_read("TERMINAL_ENV") or "local").strip().lower()
     is_remote_backend = backend in _REMOTE_TERMINAL_BACKENDS or _plugin_backend_is_remote(backend)
-    hints = [_remote_backend_hint(backend)] if is_remote_backend else _local_host_hints()
+    if backend == "mxc":
+        hints = _mxc_backend_hints()
+    else:
+        hints = [_remote_backend_hint(backend)] if is_remote_backend else _local_host_hints()
     hints += [WSL_ENVIRONMENT_HINT] if is_wsl() else []
     return "\n\n".join(h for h in (*hints, _embedder_environment_hint()) if h)
 

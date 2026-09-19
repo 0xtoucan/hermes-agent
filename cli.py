@@ -301,6 +301,8 @@ _TERMINAL_ENV_MAPPINGS = {
         "docker_snap_compat",
         "docker_persist_across_processes", "docker_shared_container_key", "docker_orphan_reaper",
         "sandbox_dir", "persistent_shell",
+        "mxc_wxc_exec_path", "mxc_shell_path", "mxc_readwrite_paths", "mxc_readonly_paths",
+        "mxc_network", "mxc_debug",
     )
 }
 _TERMINAL_ENV_MAPPINGS = {"env_type": "TERMINAL_ENV", **_TERMINAL_ENV_MAPPINGS, "sudo_password": "SUDO_PASSWORD"}
@@ -333,7 +335,8 @@ def _mirror_config_to_env(defaults, _file_has_terminal_config):
     # Local backend: cwd is always os.getcwd(). Non-local: a placeholder is popped so
     # terminal_tool uses its per-backend default; an explicit path is kept.
     effective_backend = terminal_config.get("env_type", "local")
-    if effective_backend == "local":
+    # Host-filesystem backends (local, and the Windows MXC sandbox) anchor "." to the launch dir.
+    if effective_backend in ("local", "mxc"):
         terminal_config["cwd"] = os.getcwd()
         defaults["terminal"]["cwd"] = terminal_config["cwd"]
     elif terminal_config.get("cwd") in _CWD_PLACEHOLDERS:
