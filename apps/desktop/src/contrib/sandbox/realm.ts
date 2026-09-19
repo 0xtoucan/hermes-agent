@@ -229,8 +229,16 @@ export class SandboxRealm {
   }
 
   /** A consent change (Allow / Revoke) applies to the NEXT call — no reload.
-   *  The per-capability refusal toast re-arms so a later refusal is reported. */
+   *  The per-capability refusal toast re-arms only when the set actually
+   *  moved: every grants write (another plugin's notice, an unrelated Allow)
+   *  reaches every realm, and a polling plugin must not re-toast on each. */
   setGranted(next: ReadonlySet<Capability>): void {
+    const current = this.grantedNow
+
+    if (next.size === current.size && [...next].every(capability => current.has(capability))) {
+      return
+    }
+
     this.grantedNow = next
     this.refused.clear()
   }

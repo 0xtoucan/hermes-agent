@@ -125,6 +125,13 @@ describe('request is not grant', () => {
     expect(refusal.message).not.toContain('desktop_capabilities') // it WAS declared — the user has not allowed it
     expect(refusal.action?.label).toBeTruthy()
 
+    // A grants write that does not move THIS plugin's set (another plugin's
+    // Allow) must not re-arm the toast for a plugin that keeps retrying.
+    allowCapabilities('someone-else', ['llm'])
+    call(frame, 2, 'request', ['prompt.submit', { text: 'hi' }])
+    await flush()
+    expect(notify.mock.calls.filter(c => c[0].kind === 'error')).toHaveLength(1)
+
     unloadSandboxedPlugin('asker')
   })
 
