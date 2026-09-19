@@ -18,9 +18,18 @@ def test_deadline_is_a_constant_not_a_config_key():
     assert not hasattr(op, "resolve_wait_timeout")
 
 
-def test_connection_operation_uses_the_current_session_owner():
+def test_connection_operation_owner_is_stamped_when_opened():
+    """Construction does not fix the profile: the tool thread builds the operation before it enters
+    the turn's override, so the table stamps the owner at open, from the opening thread."""
+    from tools.operations import operations
+
     operation = op.ConnectionOperation(_two(), session_key="session")
-    assert operation.owner == Owner.current("session")
+    assert operation.owner is None
+    operations.open(operation)
+    try:
+        assert operation.owner == Owner.current("session")
+    finally:
+        operations.close(operation)
 
 
 def test_transition_enforces_the_contract_and_names_the_actor():
