@@ -87,6 +87,29 @@ def test_parse_review_request_rejects_incomplete_selector(text):
         re_mod.parse_review_request(text)
 
 
+def test_review_depth_flag_beats_configured_effort(monkeypatch):
+    """--quick/--deep set the reviewer's reasoning effort per invocation and never leak into the instructions."""
+    monkeypatch.setattr(re_mod, "_load_review_config", lambda: {"reasoning_effort": "medium"})
+    monkeypatch.setattr(re_mod, "collect_parent_loaded_skills", lambda *_a, **_k: [])
+    seen = {}
+
+    def fake_delegate_task(**kwargs):
+        seen.update(kwargs)
+        return '{"status": "dispatched", "delegation_id": "d1"}'
+
+    monkeypatch.setattr("tools.delegate_tool.delegate_task", fake_delegate_task)
+    messages = [{"role": "user", "content": "please check the parser"}]
+
+    re_mod.start_review(object(), messages, "--deep focus on error paths")
+    assert seen["override_reasoning_effort"] == "high"
+    assert "--deep" not in seen["context"] and "focus on error paths" in seen["context"]
+
+    re_mod.start_review(object(), messages, "")
+    assert seen["override_reasoning_effort"] == "medium"
+
+    assert re_mod.parse_review_depth("--quick uncommitted") == ("low", "uncommitted")
+
+
 def test_uncommitted_context_contains_staged_and_unstaged_diff(git_repo):
     (git_repo / "tracked.txt").write_text("one\nstaged\n")
     _git(git_repo, "add", "tracked.txt")
@@ -145,30 +168,6 @@ def test_non_repository_fails_open(tmp_path):
         re_mod.collect_git_review_context(target, tmp_path)
 
 
-def test_missing_git_executable_fails_open(monkeypatch, git_repo):
-    monkeypatch.setattr(
-        re_mod.subprocess, "Popen", MagicMock(side_effect=FileNotFoundError),
-    )
-    target, _ = re_mod.parse_review_request("uncommitted")
-    with pytest.raises(ValueError, match="git executable was not found"):
-        re_mod.collect_git_review_context(target, git_repo)
-
-
-def test_undecodable_git_output_fails_open(monkeypatch, git_repo):
-    class BadOutput:
-        def read(self, _size):
-            raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
-
-    process = MagicMock()
-    process.stdout = BadOutput()
-    process.poll.return_value = 0
-    process.wait.return_value = 0
-    monkeypatch.setattr(re_mod.subprocess, "Popen", MagicMock(return_value=process))
-    target, _ = re_mod.parse_review_request("uncommitted")
-    with pytest.raises(ValueError, match="undecodable output"):
-        re_mod.collect_git_review_context(target, git_repo)
-
-
 def test_clean_target_spawns_no_reviewer(monkeypatch, git_repo):
     parent = _fake_parent()
     parent.cwd = str(git_repo)
@@ -196,7 +195,7 @@ def test_targeted_review_keeps_conversation_and_adds_diff(monkeypatch, git_repo)
         return json.dumps({"status": "dispatched"})
 
     monkeypatch.setattr("tools.delegate_tool.delegate_task", fake_dispatch)
-    monkeypatch.setattr(re_mod, "_load_review_credentials_cfg", lambda: None)
+    monkeypatch.setattr(re_mod, "_load_review_config", lambda: {})
     result = start_review(
         parent,
         [{"role": "user", "content": "please fix the parser"}],

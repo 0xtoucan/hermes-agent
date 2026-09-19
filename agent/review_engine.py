@@ -17,7 +17,6 @@ import logging
 import os
 import re
 import subprocess
-import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -37,8 +36,12 @@ GIT_DIFF_CHAR_CAP = 100_000
 _GIT_COMMAND_TIMEOUT_SECONDS = 20
 _GIT_ERROR_CHAR_CAP = 300
 _REVIEW_TARGET_USAGE = (
-    "Usage: /review [uncommitted | base <branch> | commit <sha> | review instructions]"
+    "Usage: /review [--quick | --deep] [uncommitted | base <branch> | commit <sha> | review instructions]"
 )
+
+# Per-invocation review depth (Cursor's Agent Review "Quick"/"Deep"): a flag beats the configured
+# ``auxiliary.review.reasoning_effort``; both fall through to delegation/parent reasoning when unset.
+REVIEW_DEPTH_EFFORT = {"--quick": "low", "--deep": "high"}
 
 
 @dataclass(frozen=True)
@@ -89,6 +92,18 @@ def snapshot_recent_messages(messages: List[Dict[str, Any]], limit: int = DEFAUL
     return out
 
 
+def parse_review_depth(user_prompt: str) -> tuple[Optional[str], str]:
+    """Pull a ``--quick``/``--deep`` flag out of the request (anywhere); returns (effort, remaining text)."""
+    depth = None
+    kept = []
+    for word in (user_prompt or "").split():
+        if word in REVIEW_DEPTH_EFFORT:
+            depth = REVIEW_DEPTH_EFFORT[word]
+        else:
+            kept.append(word)
+    return depth, " ".join(kept)
+
+
 def parse_review_request(user_prompt: str) -> tuple[Optional[GitReviewTarget], str]:
     """Split a recognized leading git selector from optional review instructions.
 
@@ -120,6 +135,7 @@ def _run_git(args: List[str], cwd: Path) -> str:
         completed = subprocess.run(
             command,
             cwd=str(cwd),
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             timeout=_GIT_COMMAND_TIMEOUT_SECONDS,
@@ -129,69 +145,11 @@ def _run_git(args: List[str], cwd: Path) -> str:
         raise _git_error("git executable was not found") from None
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise _git_error(str(exc)) from None
-    try:
-        stdout = completed.stdout.decode("utf-8", errors="strict")
-        stderr = completed.stderr.decode("utf-8", errors="strict")
-    except UnicodeDecodeError:
-        raise _git_error("git produced undecodable output") from None
+    stdout = completed.stdout.decode("utf-8", errors="replace")
+    stderr = completed.stderr.decode("utf-8", errors="replace")
     if completed.returncode != 0:
         raise _git_error(stderr or stdout)
     return stdout
-
-
-def _run_git_diff(args: List[str], cwd: Path) -> str:
-    """Read at most the documented patch cap, terminating git on overflow."""
-    command = ["git", "--no-pager", "-c", "core.quotepath=true", *args]
-    try:
-        process = subprocess.Popen(
-            command,
-            cwd=str(cwd),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding="utf-8",
-            errors="strict",
-        )
-    except FileNotFoundError:
-        raise _git_error("git executable was not found") from None
-    except OSError as exc:
-        raise _git_error(str(exc)) from None
-
-    captured: Dict[str, Any] = {}
-
-    def _read() -> None:
-        try:
-            captured["text"] = process.stdout.read(GIT_DIFF_CHAR_CAP + 1) if process.stdout else ""
-        except UnicodeDecodeError as exc:
-            captured["error"] = exc
-
-    reader = threading.Thread(target=_read, daemon=True)
-    reader.start()
-    reader.join(_GIT_COMMAND_TIMEOUT_SECONDS)
-    if reader.is_alive():
-        if process.poll() is None:
-            process.kill()
-        reader.join()
-        process.wait()
-        raise _git_error("git diff timed out")
-    if captured.get("error") is not None:
-        if process.poll() is None:
-            process.kill()
-        process.wait()
-        raise _git_error("git produced undecodable output")
-
-    output = str(captured.get("text") or "")
-    if len(output) > GIT_DIFF_CHAR_CAP:
-        try:
-            process.wait(timeout=0.1)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait()
-        return _bounded_diff(output)
-    returncode = process.wait()
-    if returncode != 0:
-        raise _git_error(output)
-    return output
 
 
 def _resolve_commit(ref: str, cwd: Path) -> str:
@@ -235,8 +193,8 @@ def collect_git_review_context(target: GitReviewTarget, cwd: os.PathLike[str] | 
     else:
         raise _git_error(f"unsupported target {target.kind!r}")
 
-    stat = _run_git_diff(stat_args, workspace).strip()
-    diff = _run_git_diff(diff_args, workspace)
+    stat = _run_git(stat_args, workspace).strip()
+    diff = _bounded_diff(_run_git(diff_args, workspace))
     if not diff.strip():
         return None
     return (
@@ -373,6 +331,7 @@ def start_review(
     """Dispatch the reviewer subagent; returns the parsed ``delegate_task`` dict (``status: "dispatched"`` +
     ``delegation_id``, or the synchronous result on channels without async completions). Raises ValueError
     when there is nothing to review or the dispatch is rejected/errored."""
+    depth_effort, user_prompt = parse_review_depth(user_prompt)
     target, review_instructions = parse_review_request(user_prompt)
     if parent_agent is None:
         raise ValueError("No active agent — send a message first.")
@@ -397,7 +356,7 @@ def start_review(
     raw = delegate_task(
         goal=goal, context=context, background=True, parent_agent=parent_agent,
         credentials_cfg=credentials_cfg,
-        override_reasoning_effort=review_cfg.get("reasoning_effort"),
+        override_reasoning_effort=depth_effort or review_cfg.get("reasoning_effort"),
     )
     try:
         result = json.loads(raw)

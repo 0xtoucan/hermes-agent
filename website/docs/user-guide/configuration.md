@@ -1435,7 +1435,8 @@ auxiliary:
     reasoning_effort: "none"   # disable thinking for image description
 ```
 
-For `/review`, resolution is `auxiliary.review.reasoning_effort`, then
+For `/review`, resolution is a `--quick`/`--deep` flag on the command (`low`/`high`),
+then `auxiliary.review.reasoning_effort`, then
 `delegation.reasoning_effort`, then the parent agent's reasoning level. This
 allows a reviewer to use a different effort from ordinary delegated workers.
 An empty or invalid review value falls through to the next setting.
