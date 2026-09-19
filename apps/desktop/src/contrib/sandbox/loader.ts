@@ -8,12 +8,20 @@
 
 import { type PluginContext } from '@/contrib/plugin'
 import { $pluginRecords, pluginActive, type PluginRecord, publishPlugin } from '@/contrib/plugins-store'
+import { TRANSLATIONS } from '@/i18n/catalog'
+import { $runtimeLocale } from '@/i18n/runtime'
 import * as sdk from '@/sdk'
 import { notifyError } from '@/store/notifications'
 
 import { resolveCapabilities } from './capabilities'
-import { buildFrameDocument, collectHostStyleText } from './frame-document'
-import type { GuestMessage } from './protocol'
+import {
+  buildFrameDocument,
+  collectHostFontFaces,
+  collectHostStyleText,
+  pluginWantsStreamdown,
+  styleSheetText
+} from './frame-document'
+import { FN_LEAF, type GuestMessage } from './protocol'
 import { type SandboxFrame, SandboxRealm } from './realm'
 
 export interface SandboxLoadOptions {
@@ -101,10 +109,126 @@ function bridgeTheme(realm: SandboxRealm): void {
   }
 }
 
+/** The catalog namespaces the SDK's own components read. The whole catalog is
+ *  ~180 KB per locale; a plugin's own strings travel with the plugin. */
+const BRIDGED_CATALOG_PATHS = ['common', 'errors.genericFailure', 'ui.search', 'ui.pagination'] as const
+
+export function serializeStrings(value: unknown): unknown {
+  if (typeof value === 'function') {
+    return FN_LEAF
+  }
+
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, serializeStrings(item)]))
+  }
+
+  return value
+}
+
+export function catalogSlice(catalog: Record<string, unknown>, paths: readonly string[] = BRIDGED_CATALOG_PATHS) {
+  const out: Record<string, unknown> = {}
+
+  for (const path of paths) {
+    const keys = path.split('.')
+    let source: unknown = catalog
+    let target = out
+
+    for (const [index, key] of keys.entries()) {
+      source = source && typeof source === 'object' ? (source as Record<string, unknown>)[key] : undefined
+
+      if (source === undefined) {
+        break
+      }
+
+      if (index === keys.length - 1) {
+        target[key] = serializeStrings(source)
+      } else {
+        target = (target[key] ??= {}) as Record<string, unknown>
+      }
+    }
+  }
+
+  return out
+}
+
+/** Active locale + the catalog slice, now and on every switch. */
+function bridgeLocale(realm: SandboxRealm): void {
+  const push = (locale: string) =>
+    realm.send({
+      locale,
+      strings: catalogSlice(TRANSLATIONS[locale as keyof typeof TRANSLATIONS] as unknown as Record<string, unknown>),
+      type: 'locale'
+    })
+
+  push($runtimeLocale.get())
+  realm.track($runtimeLocale.listen(push))
+}
+
+const fontFiles = new Map<string, Promise<ArrayBuffer | null>>()
+
+/** Host font files (codicon glyphs, the app's faces) as bytes: the frame's CSP
+ *  forbids the fetch a copied `@font-face` would make. Fetched once per URL. */
+function bridgeFonts(realm: SandboxRealm, faces = collectHostFontFaces()): void {
+  for (const face of faces) {
+    let pending = fontFiles.get(face.url)
+
+    if (!pending) {
+      pending = fetch(face.url)
+        .then(response => (response.ok ? response.arrayBuffer() : null))
+        .catch(() => null)
+      fontFiles.set(face.url, pending)
+    }
+
+    void pending.then(data => {
+      if (data) {
+        realm.send({ data, descriptors: face.descriptors, family: face.family, type: 'font' })
+      }
+    })
+  }
+}
+
+/** Host CSS that arrives after the frame was built — a lazily loaded page
+ *  chunk whose classes a plugin pane relies on — is mirrored as it lands. */
+function bridgeLateStyles(realm: SandboxRealm): void {
+  if (typeof MutationObserver !== 'function') {
+    return
+  }
+
+  const seen = new WeakSet<Node>(Array.from(document.styleSheets, sheet => sheet.ownerNode).filter(Boolean) as Node[])
+
+  const flush = () => {
+    let css = ''
+
+    for (const sheet of Array.from(document.styleSheets)) {
+      const owner = sheet.ownerNode
+
+      if (owner && !seen.has(owner)) {
+        seen.add(owner)
+        css += styleSheetText(sheet)
+      }
+    }
+
+    if (css) {
+      realm.send({ css, type: 'style' })
+    }
+  }
+
+  const observer = new MutationObserver(flush)
+  observer.observe(document.head, { childList: true, subtree: true })
+  document.addEventListener('load', flush, true)
+  realm.track(() => {
+    observer.disconnect()
+    document.removeEventListener('load', flush, true)
+  })
+}
+
 function bootstrap(realm: SandboxRealm, _ctx: PluginContext): void {
   realm.send({ type: 'storage', values: storageSnapshot(realm.pluginId) })
+  bridgeLocale(realm)
   bridgeHostState(realm)
   bridgeTheme(realm)
+  bridgeFonts(realm)
+  bridgeLateStyles(realm)
 }
 
 function awaitManifest(
@@ -189,6 +313,7 @@ export async function loadSandboxedPlugin(
       pluginId,
       pluginSource: source,
       sdkExports: Object.keys(sdk),
+      streamdown: pluginWantsStreamdown(source),
       styleText: collectHostStyleText()
     })
 

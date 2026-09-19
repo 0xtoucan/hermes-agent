@@ -10,6 +10,8 @@
  * steal focus from the composer effect.
  */
 
+import { atom } from 'nanostores'
+
 import { isElementInHiddenPane, queryAllVisible, queryVisible } from '@/components/pane-shell/pane-visibility'
 import { $hoveredTreeGroup } from '@/components/pane-shell/tree/store'
 
@@ -316,6 +318,48 @@ export const requestComposerInsertRefs = (
 
 export const onComposerInsertRefsRequest = (handler: (detail: InsertRefsDetail) => void) =>
   subscribe<InsertRefsDetail>(INSERT_REFS_EVENT, handler)
+
+// ── Live text + replace: the plugin-SDK door (`host.composer`) ─────────────
+// Plugins used to poke the editor DOM for these (prompt-enhancer rewriting the
+// draft, prompt-snippets reading it). Sandboxed plugins have no host DOM, so
+// the composer publishes its plain text here and accepts a replace request on
+// the same bus as inserts.
+
+const REPLACE_EVENT = 'hermes:composer-replace'
+
+interface ReplaceDetail {
+  target: ComposerTarget
+  text: string
+}
+
+/** Plain text of every mounted composer, keyed by target; the draft hook
+ *  publishes on each change and clears on unmount. */
+export const $composerLiveText = atom<Readonly<Record<string, string>>>({})
+
+export const publishComposerText = (target: ComposerTarget, text: string | null) => {
+  const current = $composerLiveText.get()
+
+  if (text === null) {
+    if (target in current) {
+      const { [target]: _gone, ...rest } = current
+      $composerLiveText.set(rest)
+    }
+  } else if (current[target] !== text) {
+    $composerLiveText.set({ ...current, [target]: text })
+  }
+}
+
+/** The draft text of a composer (`'active'` = the one the user last used). */
+export const readComposerText = (target: ComposerTarget | 'active' = 'active'): string =>
+  $composerLiveText.get()[resolve(target)] ?? ''
+
+/** Replace a composer's whole draft. Unlike {@link requestComposerInsert} an
+ *  empty string is meaningful (clear). */
+export const requestComposerReplace = (text: string, { target = 'active' }: { target?: ComposerTarget | 'active' } = {}) =>
+  dispatch<ReplaceDetail>(REPLACE_EVENT, { target: resolve(target), text })
+
+export const onComposerReplaceRequest = (handler: (detail: ReplaceDetail) => void) =>
+  subscribe<ReplaceDetail>(REPLACE_EVENT, handler)
 
 /** Submit a prompt through a composer as if the user typed + sent it. Lets
  * external panels (e.g. the review pane's "let the agent ship it" button) hand

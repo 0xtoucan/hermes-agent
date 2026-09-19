@@ -22,6 +22,12 @@ import { atom, computed, type ReadableAtom } from 'nanostores'
 import type { ReactNode } from 'react'
 
 import { capabilityScoped } from '@/api/client'
+import {
+  type ComposerInsertMode,
+  readComposerText,
+  requestComposerInsert,
+  requestComposerReplace
+} from '@/app/chat/composer/focus'
 import { PRIMARY_SESSION_VIEW } from '@/app/chat/session-view'
 import { openSession, type OpenSessionIntent } from '@/app/open-session'
 import { syncWorkspaceRoute } from '@/app/routes'
@@ -1533,7 +1539,20 @@ export const host = {
    *  components that take a `HermesGateway` prop directly (e.g. `McpTab`),
    *  which need the instance, not just a JSON-RPC door. Re-read per use — the
    *  active instance changes on a profile swap. */
-  getGateway: (): HermesGateway | null => $gateway.get()
+  getGateway: (): HermesGateway | null => $gateway.get(),
+
+  /** The composer draft, as an API. `getText` reads the active composer's
+   *  plain text; `insertText` appends (`mode` 'block' = own paragraph,
+   *  'inline' = same line, 'prefix' = leading, for slash commands);
+   *  `setText` replaces the whole draft ('' clears). This is THE door for
+   *  prompt tooling — reading or writing the editor DOM breaks under the
+   *  plugin sandbox (no host DOM) and drifts every time the editor changes.
+   *  Feature-detect on older desktops (`typeof host.composer === 'object'`). */
+  composer: {
+    getText: (): string => readComposerText('active'),
+    insertText: (text: string, mode: ComposerInsertMode = 'block'): void => requestComposerInsert(text, { mode }),
+    setText: (text: string): void => requestComposerReplace(text)
+  }
 }
 
 // -- react bridge -------------------------------------------------------------

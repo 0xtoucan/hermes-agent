@@ -17,8 +17,8 @@ import { admitPreviewExternalUrl } from '@/lib/preview-external'
 import * as sdk from '@/sdk'
 import type { NotificationInput, NotificationKind } from '@/store/notifications'
 
-import { type Capability, gatewayMethodAllowed } from './capabilities'
-import { isCallbackRef } from './protocol'
+import { type Capability, gatewayMethodAllowed, gatewayMethodCapability } from './capabilities'
+import { isCallbackRef, isRenderRef } from './protocol'
 import type { SandboxRealm } from './realm'
 import { SandboxSlot } from './slot'
 
@@ -28,9 +28,14 @@ export interface MethodEnv {
 }
 
 export interface SandboxMethod {
-  capability: Capability
+  /** The ONE capability the call needs — fixed, or derived from the call's
+   *  arguments (`request` charges the gateway method's own capability). */
+  capability: Capability | ((args: unknown[]) => Capability)
   run: (env: MethodEnv, args: unknown[]) => Promise<unknown> | unknown
 }
+
+export const methodCapability = (method: SandboxMethod, args: unknown[]): Capability =>
+  typeof method.capability === 'function' ? method.capability(args) : method.capability
 
 const str = (value: unknown, what: string): string => {
   if (typeof value !== 'string' || !value) {
@@ -52,6 +57,11 @@ function unmarshal(realm: SandboxRealm, value: unknown, depth = 0): unknown {
     return (...args: unknown[]) => realm.invoke(id, args)
   }
 
+  // A React node in the data (statusbar `label`): an inline guest slot.
+  if (isRenderRef(value)) {
+    return createElement(SandboxSlot, { fill: false, realm, renderId: value.__hermesRender })
+  }
+
   if (!value || typeof value !== 'object' || depth > 6) {
     return value
   }
@@ -62,6 +72,8 @@ function unmarshal(realm: SandboxRealm, value: unknown, depth = 0): unknown {
 
   return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, unmarshal(realm, item, depth + 1)]))
 }
+
+export const MAX_REQUEST_TIMEOUT_MS = 5 * 60_000
 
 const NOTIFICATION_KINDS: readonly NotificationKind[] = ['error', 'info', 'success', 'warning']
 
@@ -80,8 +92,11 @@ function guestNotification(input: Record<string, unknown>): NotificationInput {
   }
 }
 
-const slotRender = (realm: SandboxRealm, slotId: string, fill: boolean) => () =>
-  createElement(SandboxSlot, { fill, realm, slotId })
+/** A contribution's `render`, host side: every mount becomes a `SandboxSlot`
+ *  placeholder with its own slot id, carrying the render props (a transcript
+ *  directive's attrs, a route's params) to the guest's render function. */
+const slotRender = (realm: SandboxRealm, renderId: string, fill: boolean) => (props?: unknown) =>
+  createElement(SandboxSlot, { fill, props, realm, renderId })
 
 /** Areas whose items size themselves (bars); everything else fills its zone. */
 const INTRINSIC_AREA_PREFIXES = ['statusBar.', 'titleBar.', 'composer.']
@@ -151,6 +166,7 @@ export const METHODS: Record<string, SandboxMethod> = {
     run: (_env, [message, fallback]) =>
       void sdk.host.notifyError(new Error(String(message)), String(fallback ?? message))
   },
+  haptic: { capability: 'ui', run: (_env, [intent]) => void sdk.haptic(str(intent, 'haptic intent') as never) },
   paneVisibility: {
     capability: 'ui',
     run: ({ realm }, [paneId]) => {
@@ -212,6 +228,35 @@ export const METHODS: Record<string, SandboxMethod> = {
   },
   storageRemove: { capability: 'storage', run: ({ ctx }, [key]) => ctx.storage.remove(str(key, 'storage key')) },
 
+  // `ctx.socket`: the host owns the WebSocket (plugin namespace, resolved by
+  // pluginSocket) and relays frames; the guest only ever sees parsed data.
+  socketOpen: {
+    capability: 'events',
+    run: ({ ctx, realm }, [sockId, path]) => {
+      const id = Number(sockId)
+      realm.sockets.get(id)?.()
+      realm.sockets.set(
+        id,
+        ctx.socket(str(path, 'socket path'), data => realm.send({ data, sockId: id, type: 'socket' }))
+      )
+    }
+  },
+  socketClose: {
+    capability: 'events',
+    run: ({ realm }, [sockId]) => {
+      realm.sockets.get(Number(sockId))?.()
+      realm.sockets.delete(Number(sockId))
+    }
+  },
+
+  composerGetText: { capability: 'composer', run: () => sdk.host.composer.getText() },
+  composerInsertText: {
+    capability: 'composer',
+    run: (_env, [text, mode]) =>
+      sdk.host.composer.insertText(str(text, 'text'), (['block', 'inline', 'prefix'] as const).find(m => m === mode))
+  },
+  composerSetText: { capability: 'composer', run: (_env, [text]) => sdk.host.composer.setText(String(text ?? '')) },
+
   rest: {
     capability: 'rest',
     run: ({ ctx }, [path, opts]) => ctx.rest(str(path, 'path'), record(opts))
@@ -231,19 +276,40 @@ export const METHODS: Record<string, SandboxMethod> = {
     }
   },
   request: {
-    capability: 'gateway:request',
-    run: (_env, [method, params]) => {
+    capability: ([method]) => gatewayMethodCapability(String(method)),
+    run: (_env, [method, params, timeoutMs]) => {
       const name = str(method, 'method')
 
       if (!gatewayMethodAllowed(name)) {
         throw new Error(`gateway method "${name}" is not on the sandbox allowlist`)
       }
 
-      return sdk.host.request(name, record(params))
+      // A plugin may lengthen ONE call's deadline (an `llm.oneshot` runs past
+      // the 30s default), bounded so a frame cannot pin a request forever.
+      const timeout =
+        typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) && timeoutMs > 0
+          ? Math.min(timeoutMs, MAX_REQUEST_TIMEOUT_MS)
+          : undefined
+
+      if (timeout === undefined) {
+        return sdk.host.request(name, record(params))
+      }
+
+      const gateway = sdk.host.getGateway()
+
+      if (!gateway) {
+        throw new Error('Hermes gateway unavailable')
+      }
+
+      return gateway.request(name, record(params), timeout)
     }
   },
 
   osNotify: { capability: 'os:notify', run: ({ ctx }, [input]) => ctx.os.notify(record(input) as never) },
+  // Native dialogs: the user picks, so the plugin learns exactly one path the
+  // user chose to show it — a backend path it can only hand to `ctx.rest`.
+  osPickOpenPath: { capability: 'os:dialogs', run: ({ ctx }, [options]) => ctx.os.pickOpenPath(record(options)) },
+  osPickSavePath: { capability: 'os:dialogs', run: ({ ctx }, [options]) => ctx.os.pickSavePath(record(options)) },
   osWriteClipboard: { capability: 'os:clipboard', run: ({ ctx }, [text]) => ctx.os.writeClipboard(String(text)) },
   osOpenExternal: {
     capability: 'os:open-external',

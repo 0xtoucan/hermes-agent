@@ -31,7 +31,7 @@ import { createPluginContext, type PluginContext } from '@/contrib/plugin'
 import { notify } from '@/store/notifications'
 
 import { CAPABILITIES, type Capability } from './capabilities'
-import { METHODS } from './methods'
+import { methodCapability, METHODS } from './methods'
 import { type GuestMessage, type HostMessage, isGuestMessage, SANDBOX_PROTOCOL, type SlotRect } from './protocol'
 
 export interface SandboxFrame {
@@ -136,8 +136,17 @@ function visibleRect(el: HTMLElement): SlotRect {
     }
   }
 
-  return right > left && bottom > top ? { height: bottom - top, left, top, width: right - left } : EMPTY_RECT
+  // A placeholder with extent on ONE axis (the 1×0 chip the host has not
+  // sized yet) must reach the guest so it can measure and report the chip.
+  return right >= left && bottom >= top && (right > left || bottom > top)
+    ? { height: bottom - top, left, top, width: right - left }
+    : EMPTY_RECT
 }
+
+const isFiniteRect = (rect: unknown): rect is SlotRect =>
+  typeof rect === 'object' &&
+  rect !== null &&
+  (['left', 'top', 'width', 'height'] as const).every(key => Number.isFinite((rect as SlotRect)[key]))
 
 const sameRect = (a: SlotRect, b: SlotRect) =>
   a.left === b.left && a.top === b.top && a.width === b.width && a.height === b.height
@@ -154,9 +163,16 @@ export class SandboxRealm {
   private readonly options: SandboxRealmOptions
   private readonly onMessage: (event: MessageEvent) => void
   private ctx: null | PluginContext = null
+  /** The just-deactivated context, kept for the guest's `onDispose` calls
+   *  (a final `storage.set`, a goodbye toast) until it reports `deactivated`
+   *  or the grace timer runs out. */
+  private teardownCtx: null | PluginContext = null
+  private teardownTimer: null | number = null
   private disposers: (() => void)[] = []
   private readonly refused = new Set<Capability>()
   private readonly slots = new Map<string, { el: HTMLElement; fill: boolean; rect: SlotRect }>()
+  /** Rects of guest layers painted outside slots (dialogs, popovers). */
+  private overlayRects: SlotRect[] = []
   private rafId: null | number = null
   private nextInvokeId = 1
   private readonly invocations = new Map<number, { reject: (e: Error) => void; resolve: (v: unknown) => void }>()
@@ -165,6 +181,7 @@ export class SandboxRealm {
   /** Per-method scratch the method table may use (registrations, subscriptions…). */
   readonly registrations = new Map<string, () => void>()
   readonly eventSubs = new Map<number, () => void>()
+  readonly sockets = new Map<number, () => void>()
   readonly workspaces = new Map<string, () => void>()
 
   constructor(options: SandboxRealmOptions) {
@@ -223,6 +240,11 @@ export class SandboxRealm {
 
         return
 
+      case 'deactivated':
+        this.endTeardown()
+
+        return
+
       case 'error':
         this.options.onError?.(message.message)
 
@@ -245,11 +267,16 @@ export class SandboxRealm {
 
         return
 
+      case 'overlay':
+        this.overlayRects = Array.isArray(message.rects) ? message.rects.filter(isFiniteRect).slice(0, 32) : []
+        this.syncHitRegion()
+
+        return
+
       case 'ready':
         this.options.onReady?.()
 
         return
-
       case 'slot-size': {
         // A filling slot (pane, workspace) is sized by the host layout, never
         // by the guest; a bar chip may ask for at most a chip's worth of bar.
@@ -282,21 +309,25 @@ export class SandboxRealm {
       return
     }
 
-    if (!this.granted.has(method.capability)) {
-      this.refuse(method.capability, message.method)
-      reply(false, undefined, `capability "${method.capability}" not granted to plugin "${this.name}"`)
+    const capability = methodCapability(method, message.args)
+
+    if (!this.granted.has(capability)) {
+      this.refuse(capability, message.method)
+      reply(false, undefined, `capability "${capability}" not granted to plugin "${this.name}"`)
 
       return
     }
 
-    if (!this.ctx) {
+    const ctx = this.ctx ?? this.teardownCtx
+
+    if (!ctx) {
       reply(false, undefined, 'plugin is not active')
 
       return
     }
 
     try {
-      reply(true, await method.run({ ctx: this.ctx, realm: this }, message.args))
+      reply(true, await method.run({ ctx, realm: this }, message.args))
     } catch (error) {
       reply(false, undefined, error instanceof Error ? error.message : String(error))
     }
@@ -344,21 +375,43 @@ export class SandboxRealm {
     this.send({ type: 'activate' })
   }
 
+  /** Grace for a guest's `onDispose` host calls after `deactivate`. */
+  static readonly TEARDOWN_GRACE_MS = 1000
+
   deactivate(): void {
+    this.endTeardown()
+
     if (this.ctx) {
       this.send({ type: 'deactivate' })
+      // Host-side registrations are gone NOW (the tracked disposers below);
+      // the context object itself stays answerable for the guest's own
+      // disposers, which are already in flight on the other side.
+      this.teardownCtx = this.ctx
+      this.teardownTimer = window.setTimeout(() => this.endTeardown(), SandboxRealm.TEARDOWN_GRACE_MS)
     }
 
     this.disposers.splice(0).forEach(dispose => dispose())
     this.registrations.clear()
     this.eventSubs.clear()
+    this.sockets.clear()
     this.workspaces.clear()
     this.refused.clear()
+    this.overlayRects = []
     this.ctx = null
+  }
+
+  private endTeardown(): void {
+    if (this.teardownTimer !== null) {
+      window.clearTimeout(this.teardownTimer)
+      this.teardownTimer = null
+    }
+
+    this.teardownCtx = null
   }
 
   dispose(): void {
     this.deactivate()
+    this.endTeardown()
     this.disposed = true
     window.removeEventListener('message', this.onMessage)
     this.stopRectLoop()
@@ -370,10 +423,10 @@ export class SandboxRealm {
 
   /** Mount a contribution's placeholder: the guest renders the contribution
    *  over this element's rect until the returned disposer runs. */
-  mountSlot(slotId: string, el: HTMLElement, fill: boolean): () => void {
+  mountSlot(slotId: string, renderId: string, el: HTMLElement, fill: boolean, props?: unknown): () => void {
     const rect = visibleRect(el)
     this.slots.set(slotId, { el, fill, rect })
-    this.send({ fill, rect, slotId, type: 'slot-mount' })
+    this.send({ fill, props, rect, renderId, slotId, type: 'slot-mount' })
     this.syncHitRegion()
     this.startRectLoop()
 
@@ -422,9 +475,18 @@ export class SandboxRealm {
     }
   }
 
-  /** Hit-test only where a slot is: clip-path clips pointer events too. */
+  /** Hit-test only where a slot is: clip-path clips pointer events too. A
+   *  guest layer outside its slots (a Dialog over the whole window, a Popover
+   *  hanging off a chip) adds its own rect for as long as it is open. */
   private syncHitRegion(): void {
-    const rects = [...this.slots.values()].map(slot => slot.rect).filter(rect => rect.width > 0 && rect.height > 0)
+    // Either axis: a 1×0 placeholder still needs the frame LAID OUT (a hidden
+    // frame never runs the guest's ResizeObserver, so the chip could never
+    // report the size that would give the placeholder its height).
+    const rects = [...this.slots.values()]
+      .map(slot => slot.rect)
+      .concat(this.overlayRects)
+      .filter(rect => rect.width > 0 || rect.height > 0)
+
     const element = this.frame.element
     const style = element.style
 
@@ -437,6 +499,16 @@ export class SandboxRealm {
     element.removeAttribute('inert')
     style.visibility = ''
     style.pointerEvents = 'auto'
-    style.clipPath = `path('${rects.map(r => `M${r.left} ${r.top}h${r.width}v${r.height}h${-r.width}Z`).join('')}')`
+    // At least 1×1 per rect: a zero-area clip reads as "off screen" to the
+    // renderer, which then throttles the frame's layout — and with it the
+    // measurement that would give a 1×0 placeholder its size.
+    style.clipPath = `path('${rects
+      .map(r => {
+        const w = Math.max(1, r.width)
+        const h = Math.max(1, r.height)
+
+        return `M${r.left} ${r.top}h${w}v${h}h${-w}Z`
+      })
+      .join('')}')`
   }
 }

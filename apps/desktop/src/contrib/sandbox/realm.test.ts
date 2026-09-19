@@ -212,6 +212,7 @@ describe('SandboxRealm bridge', () => {
 
   it('drops the bridge when its own frame speaks from a real origin (it left its srcdoc)', async () => {
     const onError = vi.fn()
+
     const realm = new SandboxRealm({
       granted: new Set(['gateway:request']),
       name: 'p',
@@ -219,8 +220,10 @@ describe('SandboxRealm bridge', () => {
       pluginId: 'p',
       srcdoc: ''
     })
+
     realm.activate(() => {})
     const own = document.querySelector('iframe')!
+
     const data = {
       args: ['session.list', {}],
       callId: 1,
@@ -252,7 +255,9 @@ describe('SandboxRealm bridge', () => {
 
   it('admits only http(s) for os.openExternal and only own-folder paths for os.revealPath', async () => {
     const openExternal = vi.fn(async (_url: string) => undefined)
+
     const revealPath = vi.fn(async (_path: string) => true)
+
     ;(window as unknown as { hermesDesktop: unknown }).hermesDesktop = { openExternal, revealPath }
 
     try {
@@ -261,6 +266,7 @@ describe('SandboxRealm bridge', () => {
         'p',
         '/home/u/.hermes/desktop-plugins/p/plugin.js'
       )
+
       const urls = [
         'https://example.com/x',
         'http://example.com/',
@@ -269,6 +275,7 @@ describe('SandboxRealm bridge', () => {
         'hermes://x',
         'not a url'
       ]
+
       const paths = [
         '/home/u/.hermes/desktop-plugins/p/README.md',
         '/home/u/.hermes/desktop-plugins/p',
@@ -297,6 +304,7 @@ describe('SandboxRealm bridge', () => {
 
   it('refuses os.revealPath outright when the realm has no install file', async () => {
     const revealPath = vi.fn(async () => true)
+
     ;(window as unknown as { hermesDesktop: unknown }).hermesDesktop = { revealPath }
 
     try {
@@ -349,7 +357,7 @@ describe('overlay frame', () => {
     const chip = document.createElement('div')
     document.body.appendChild(chip)
     box(chip, 80, 20)
-    const unmount = realm.mountSlot('chip', chip, false)
+    const unmount = realm.mountSlot('chip', 'chip', chip, false)
 
     expect(frame.hasAttribute('inert')).toBe(false)
     expect(frame.style.visibility).toBe('')
@@ -360,7 +368,7 @@ describe('overlay frame', () => {
     const hidden = document.createElement('div')
     document.body.appendChild(hidden)
     box(hidden, 0, 0)
-    realm.mountSlot('gone', hidden, false)
+    realm.mountSlot('gone', 'gone', hidden, false)
     unmount()
 
     expect(frame.hasAttribute('inert')).toBe(true)
@@ -374,8 +382,8 @@ describe('overlay frame', () => {
     const chip = document.createElement('div')
     const pane = document.createElement('div')
     document.body.append(chip, pane)
-    realm.mountSlot('chip', chip, false)
-    realm.mountSlot('pane', pane, true)
+    realm.mountSlot('chip', 'chip', chip, false)
+    realm.mountSlot('pane', 'pane', pane, true)
 
     realm.handle({ height: 9000, slotId: 'chip', type: 'slot-size', width: 5000 })
     realm.handle({ height: 9000, slotId: 'pane', type: 'slot-size', width: 5000 })
@@ -391,6 +399,7 @@ describe('frame document', () => {
     const source = 'export default { id: "p", register() {} } // <!-- </script><script>alert(1)</script> -->'
     const html = buildFrameDocument({ pluginId: 'p', pluginSource: source, sdkExports: ['host'], styleText: '' })
     const csp = /http-equiv="Content-Security-Policy" content="([^"]*)"/.exec(html)?.[1] ?? ''
+
     const directives = Object.fromEntries(
       csp
         .split(';')
@@ -405,10 +414,16 @@ describe('frame document', () => {
     expect(directives['script-src']?.some(s => /^https?:|^\*$/.test(s))).toBe(false)
     expect(html).not.toContain('allow-same-origin')
 
-    // Exactly the two real script tags: `</script>` AND `<!--` in the plugin
-    // source are escaped, and the escaped JSON still decodes to the source.
-    expect(html.split('</script>')).toHaveLength(3)
+    // Exactly the three real script tags (vendor, guest SDK, runtime):
+    // `</script>` AND `<!--` in the plugin source are escaped, and the escaped
+    // JSON still decodes to the source. With the Markdown chunk: one more.
+    expect(html.split('</script>')).toHaveLength(4)
     expect(html).not.toContain('<!--')
+    expect(
+      buildFrameDocument({ pluginId: 'p', pluginSource: source, sdkExports: [], streamdown: true, styleText: '' }).split(
+        '</script>'
+      )
+    ).toHaveLength(5)
     const boot = /__HERMES_SANDBOX__ = (\{.*?\});\n<\/script>/s.exec(html)?.[1]
     expect(JSON.parse(boot!).pluginSource).toBe(source)
   })
@@ -445,12 +460,14 @@ describe('loadSandboxedPlugin', () => {
     expect($pluginRecords.get().slow).toMatchObject({ status: 'error', error: expect.stringContaining('boot') })
 
     const errored: FakeFrame[] = []
+
     const load = loadSandboxedPlugin('export default {}', 'broken', {
       bootTimeoutMs: 0,
       createFrame: frameFactory(errored),
       packageName: 'broken',
       packageOrigin: { repo: 'r' }
     })
+
     await flush()
     errored[0].realm.handle({ message: 'SyntaxError: nope', type: 'error' })
 

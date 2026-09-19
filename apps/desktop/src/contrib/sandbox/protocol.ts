@@ -17,9 +17,14 @@ export interface SlotRect {
 /** Guest -> host. */
 export type GuestMessage =
   | { type: 'call'; callId: number; method: string; args: unknown[] }
+  /** The guest ran every `onDispose` after `deactivate`; teardown calls are done. */
+  | { type: 'deactivated' }
   | { type: 'error'; message: string }
   | { type: 'invoke-result'; invokeId: number; ok: boolean; result?: unknown; error?: string }
   | { type: 'manifest'; id: string; name?: string; description?: string; defaultEnabled?: boolean }
+  /** Body-level layers (dialogs, popovers, menus) the guest painted OUTSIDE its
+   *  slots: the host widens the frame's hit/paint region to these rects. */
+  | { type: 'overlay'; rects: SlotRect[] }
   | { type: 'ready' }
   | { type: 'slot-size'; slotId: string; width: number; height: number }
 
@@ -28,15 +33,31 @@ export type HostMessage =
   | { type: 'activate' }
   | { type: 'deactivate' }
   | { type: 'event'; subId: number; event: unknown }
+  /** A host font file, so `Codicon` and the app's faces render in the frame
+   *  (the CSP forbids the guest fetching them). */
+  | { type: 'font'; family: string; descriptors: Record<string, string>; data: ArrayBuffer }
   | { type: 'invoke'; invokeId: number; callbackId: number; args: unknown[] }
+  /** Active app locale + the catalog slice the SDK's own components read. */
+  | { type: 'locale'; locale: string; strings: Record<string, unknown> }
   | { type: 'pane-visibility'; paneId: string; visible: boolean }
   | { type: 'reply'; callId: number; ok: boolean; result?: unknown; error?: string }
-  | { type: 'slot-mount'; slotId: string; rect: SlotRect; fill: boolean }
+  /** `renderId` names the plugin's render function; `slotId` is this mount
+   *  (one render can be mounted many times — a transcript directive per
+   *  message — each with its own `props`). */
+  | { type: 'slot-mount'; slotId: string; renderId: string; rect: SlotRect; fill: boolean; props?: unknown }
   | { type: 'slot-rect'; slotId: string; rect: SlotRect }
   | { type: 'slot-unmount'; slotId: string }
+  /** A relayed `ctx.socket` frame. */
+  | { type: 'socket'; sockId: number; data: unknown }
   | { type: 'state'; values: Record<string, unknown> }
   | { type: 'storage'; values: Record<string, unknown> }
+  /** Host stylesheet text that appeared after boot (a lazily loaded chunk). */
+  | { type: 'style'; css: string }
   | { type: 'theme'; className: string; style: string }
+
+/** Marks a function leaf in the bridged catalog slice (`locale.strings`);
+ *  the guest rebuilds it as `() => key`. */
+export const FN_LEAF = '\u0000fn'
 
 /** A function the guest handed over inside a data contribution. */
 export interface CallbackRef {
@@ -45,6 +66,14 @@ export interface CallbackRef {
 
 export const isCallbackRef = (value: unknown): value is CallbackRef =>
   typeof value === 'object' && value !== null && typeof (value as CallbackRef).__hermesCallback === 'number'
+
+/** A React element the guest kept: the host mounts an inline slot for it. */
+export interface RenderRef {
+  __hermesRender: string
+}
+
+export const isRenderRef = (value: unknown): value is RenderRef =>
+  typeof value === 'object' && value !== null && typeof (value as RenderRef).__hermesRender === 'string'
 
 export function isGuestMessage(value: unknown): value is GuestMessage {
   return (

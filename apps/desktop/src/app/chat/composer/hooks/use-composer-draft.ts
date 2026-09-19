@@ -41,6 +41,8 @@ import {
   onComposerFocusRequest,
   onComposerInsertRefsRequest,
   onComposerInsertRequest,
+  onComposerReplaceRequest,
+  publishComposerText,
   releaseActiveComposer
 } from '../focus'
 import { type InlineRefInput, insertInlineRefsIntoEditor } from '../inline-refs'
@@ -156,6 +158,7 @@ export function useComposerDraft({
   const paintDraft = useCallback(
     (next: string, focus = true) => {
       draftRef.current = next
+      publishComposerText(target, next)
       setComposerText(next)
 
       const editor = editorRef.current
@@ -237,7 +240,13 @@ export function useComposerDraft({
   // resolving to a dead tile and every routed focus/insert request is dropped.
   // (Heal-to-visible in focus.ts covers the keep-alive-tab case where the pane
   // stays mounted behind the front tab; this covers true unmounts.)
-  useEffect(() => () => releaseActiveComposer(target), [target])
+  useEffect(
+    () => () => {
+      releaseActiveComposer(target)
+      publishComposerText(target, null)
+    },
+    [target]
+  )
 
   useEffect(() => {
     if (inputDisabled) {
@@ -266,9 +275,17 @@ export function useComposerDraft({
       }
     })
 
+    // `host.composer.setText`: the whole draft, verbatim (an empty string clears).
+    const offReplace = onComposerReplaceRequest(({ target: requested, text }) => {
+      if (requested === target) {
+        paintDraft(text)
+      }
+    })
+
     return () => {
       offFocus()
       offInsert()
+      offReplace()
     }
   }, [appendExternalText, focusInput, inputDisabled, paintDraft, target])
 
@@ -348,6 +365,7 @@ export function useComposerDraft({
     const sync = () => {
       const text = composerRuntime.getState().text
       draftRef.current = text
+      publishComposerText(target, text)
       // Composer suggestion pills for THIS session's draft (debounced +
       // change-gated in the bus — this is just a timer reset).
       sampleComposerDraft(sessionIdRef.current ?? null, text)
@@ -387,7 +405,7 @@ export function useComposerDraft({
       unsubscribe()
       window.clearTimeout(draftPersistTimerRef.current)
     }
-  }, [composerRuntime, queueEditRef])
+  }, [composerRuntime, queueEditRef, target])
 
   const insertText = (text: string) => {
     const base = draftRef.current

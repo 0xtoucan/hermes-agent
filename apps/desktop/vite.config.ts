@@ -20,6 +20,8 @@ import path from 'path'
 
 import tailwindcss from '@tailwindcss/vite'
 
+import { buildGuestSdk, GUEST_SDK_ID, isGuestSdkEntry } from './vite-sandbox-guest-sdk.ts'
+
 // `hgui` symlinks a worktree's node_modules to the main checkout. Vite realpaths
 // those before enforcing server.fs.allow, so codicon/font assets resolve outside
 // the worktree root and 404. Whitelist the real node_modules locations.
@@ -143,9 +145,31 @@ const sandboxVendor = () => ({
     }
 
     const [name, query] = id.slice(SANDBOX_VENDOR_PREFIX.length).split('?')
+
+    const guestEntry = /^guest-sdk-(\w+)\.js$/.exec(name)?.[1]
+
+    if (guestEntry && isGuestSdkEntry(guestEntry)) {
+      return `${GUEST_SDK_ID}${guestEntry}`
+    }
+
     const file = sandboxVendorFiles[name]
 
     return file ? `${file}${query ? `?${query}` : ''}` : null
+  },
+  async load(id: string) {
+    if (!id.startsWith(GUEST_SDK_ID)) {
+      return null
+    }
+
+    const entry = id.slice(GUEST_SDK_ID.length)
+
+    if (!isGuestSdkEntry(entry)) {
+      return null
+    }
+
+    const bundle = await buildGuestSdk(entry)
+
+    return `export const css = ${JSON.stringify(bundle.css)};\nexport const js = ${JSON.stringify(bundle.js)};\n`
   }
 })
 
