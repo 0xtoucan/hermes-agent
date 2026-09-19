@@ -170,7 +170,7 @@ def test_non_repository_fails_open(tmp_path):
 
 def test_clean_target_spawns_no_reviewer(monkeypatch, git_repo):
     parent = _fake_parent()
-    parent.cwd = str(git_repo)
+    monkeypatch.setattr("agent.runtime_cwd.resolve_agent_cwd", lambda: git_repo)
     called = False
 
     def should_not_dispatch(*args, **kwargs):
@@ -187,7 +187,7 @@ def test_clean_target_spawns_no_reviewer(monkeypatch, git_repo):
 def test_targeted_review_keeps_conversation_and_adds_diff(monkeypatch, git_repo):
     (git_repo / "tracked.txt").write_text("one\nchanged\n")
     parent = _fake_parent()
-    parent.cwd = str(git_repo)
+    monkeypatch.setattr("agent.runtime_cwd.resolve_agent_cwd", lambda: git_repo)
     captured = {}
 
     def fake_dispatch(**kwargs):

@@ -124,7 +124,8 @@ def parse_review_request(user_prompt: str) -> tuple[Optional[GitReviewTarget], s
 
 
 def _git_error(detail: str) -> ValueError:
-    cleaned = " ".join((detail or "git command failed").split())
+    first_line = (detail or "").strip().splitlines()[:1]
+    cleaned = " ".join((first_line[0] if first_line else "git command failed").split())
     return ValueError(f"Unable to prepare git review: {cleaned[:_GIT_ERROR_CHAR_CAP]}")
 
 
@@ -204,25 +205,19 @@ def collect_git_review_context(target: GitReviewTarget, cwd: os.PathLike[str] | 
     )
 
 
-def _review_workspace(
-    parent_agent, selected_cwd: Optional[os.PathLike[str] | str] = None,
-) -> Path:
-    hints = getattr(parent_agent, "_subdirectory_hints", None)
-    candidates = (
-        selected_cwd,
-        getattr(hints, "working_dir", None),
-        getattr(parent_agent, "terminal_cwd", None),
-        getattr(parent_agent, "cwd", None),
-        os.getenv("TERMINAL_CWD"),
-        os.getcwd(),
-    )
-    for candidate in candidates:
-        if not isinstance(candidate, (str, os.PathLike)):
-            continue
-        path = Path(candidate).expanduser().resolve()
+def _review_workspace(selected_cwd: Optional[os.PathLike[str] | str] = None) -> Path:
+    """The TUI/Desktop session cwd when given, else the agent's working directory — the same resolver the
+    terminal tool uses (scope-aware TERMINAL_CWD, then launch dir), so the reviewed diff is the tree the
+    agent actually edited."""
+    if selected_cwd:
+        path = Path(selected_cwd).expanduser()
         if path.is_dir():
-            return path
-    raise _git_error("working directory is unavailable")
+            return path.resolve()
+    from agent.runtime_cwd import resolve_agent_cwd
+    path = resolve_agent_cwd().resolve()
+    if not path.is_dir():
+        raise _git_error("working directory is unavailable")
+    return path
 
 
 def collect_parent_loaded_skills(parent_agent, messages: List[Dict[str, Any]], limit: int = 8) -> List[str]:
@@ -340,7 +335,7 @@ def start_review(
         raise ValueError("Nothing to review yet — the conversation is empty.")
     git_context = ""
     if target is not None:
-        git_context = collect_git_review_context(target, _review_workspace(parent_agent, cwd)) or ""
+        git_context = collect_git_review_context(target, _review_workspace(cwd)) or ""
         if not git_context:
             raise ValueError("Nothing to review — the selected git diff is clean.")
     goal, context = build_review_task(
