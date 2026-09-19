@@ -162,9 +162,8 @@ def test_resolve_settings_reads_config_first_then_env_bridge(monkeypatch):
     assert env_only.policy.readonly_paths == ("C:/ro",) and env_only.policy.network is True
 
 
+@pytest.mark.windows_only
 def test_status_reports_missing_launcher_in_plain_language(monkeypatch):
-    if not mxc_host._IS_WINDOWS:
-        pytest.skip("platform verdict covered by the linux_only test")
     monkeypatch.setattr(mxc_host, "find_wxc_exec", lambda configured=None: None)
     record = mxc_host.status(settings=mxc_host.resolve_settings({}))
     assert record["available"] is False and record["wxc_exec_path"] is None
