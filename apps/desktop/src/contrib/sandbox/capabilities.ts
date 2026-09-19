@@ -1,5 +1,5 @@
 /**
- * The capability vocabulary for sandboxed (catalog-tier) desktop plugins.
+ * The capability vocabulary for sandboxed (remote-tier) desktop plugins.
  * A plugin declares `desktop_capabilities:` in its plugin.yaml; absent, it
  * gets DEFAULT_CAPABILITIES. Every bridge method (sandbox/host-bridge.ts)
  * names the ONE capability it needs; the host refuses the call — and toasts

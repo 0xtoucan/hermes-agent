@@ -19,25 +19,34 @@
  * before it is evaluated, and the tier picks the pipeline:
  *
  *  - `bundled` (in-repo `src/plugins/*`) and `local` (files the user or the
- *    agent wrote under `<hermes home>/desktop-plugins/<name>/` or a
- *    `plugins/<name>/desktop/` half with NO catalog provenance) take THIS
- *    pipeline: ESM in the renderer realm with FULL app authority — the React
- *    singleton, the whole SDK (`host.request`, `ctx.rest`, storage,
- *    `navigate`). Isolation here is *error* isolation only (ContribBoundary,
- *    isolated listeners): a plugin can't crash the app, but it can do
- *    anything the app can. Acceptable because a disk file the user placed
- *    can already run code; `integrity` proves bytes, it does NOT sandbox.
- *  - `catalog` (the desktop half of a package installed from the plugin
- *    catalog — the `.hermes-package.json` marker carries `catalogName`) is a
- *    REMOTE source and never enters this realm. It goes to
- *    `sandbox/loader.ts`: a per-plugin `<iframe sandbox="allow-scripts">`
- *    (opaque origin, `default-src 'none'` CSP, its own React copy) behind a
- *    postMessage bridge that answers only the capability-gated SDK subset in
+ *    agent wrote under `<hermes home>/desktop-plugins/<name>/`, or a
+ *    `plugins/<name>/desktop/` half whose package folder was copied in BY
+ *    HAND — no catalog sidecar, no git remote) take THIS pipeline: ESM in the
+ *    renderer realm with FULL app authority — the React singleton, the whole
+ *    SDK (`host.request`, `ctx.rest`, storage, `navigate`). Isolation here is
+ *    *error* isolation only (ContribBoundary, isolated listeners): a plugin
+ *    can't crash the app, but it can do anything the app can. Acceptable
+ *    because a disk file the user placed can already run code; `integrity`
+ *    proves bytes, it does NOT sandbox.
+ *  - `remote` (the desktop half of a package that was INSTALLED — from the
+ *    plugin catalog, `hermes plugins install <git-url>`, or the agent-callable
+ *    `plugins.install` RPC; the `.hermes-package.json` marker carries any
+ *    provenance at all: `catalogName`, `repo`, or a sidecar that could not
+ *    be read) never enters this realm. It goes to `sandbox/loader.ts`: a
+ *    per-plugin `<iframe sandbox="allow-scripts">` (opaque origin,
+ *    `default-src 'none'` CSP, its own React copy) behind a postMessage
+ *    bridge that answers only the capability-gated SDK subset in
  *    `sandbox/methods.ts`; grants come from the manifest's
  *    `desktop_capabilities` (default: ui, storage, events, rest).
  *
- * Widening a tier (e.g. treating a git-URL install as `catalog`) is a policy
- * change made in `pluginTrust`, in one place.
+ * The rule is "not hand-copied ⇒ sandboxed": anything that arrived through
+ * an installer is a remote source whatever it was fetched from, so a marker
+ * with `repo` but no `catalogName` (git-URL install) is `remote`, not `local`.
+ * A marker file that exists but cannot be parsed REFUSES the load
+ * (`readPackageMarker`) rather than degrading to `local`.
+ *
+ * Narrowing or widening a tier is a policy change made in `pluginTrust`, in
+ * one place.
  */
 
 import { atom } from 'nanostores'
@@ -47,21 +56,25 @@ import { notifyError } from '@/store/notifications'
 
 import { trackGatewayEventDisposers } from './events'
 import { createPluginContext, type HermesPlugin } from './plugin'
-import { $pluginRecords, dropPlugin, pluginActive, type PluginKind, publishPlugin } from './plugins-store'
+import { $pluginRecords, dropPlugin, pluginActive, type PluginKind, type PluginRecord, publishPlugin } from './plugins-store'
 import { loadSandboxedPlugin, unloadSandboxedPlugin } from './sandbox/loader'
 
 /** Where a plugin source came from — the input to the pipeline choice above. */
-export type PluginTrust = 'bundled' | 'catalog' | 'local'
+export type PluginTrust = 'bundled' | 'local' | 'remote'
 
-/** Classify a disk source. Catalog provenance is the marker's `catalogName`,
- *  written by Electron from the install sidecar (`.hermes-catalog.json`). */
+/** Classify a disk source. `packageOrigin` exists only when the marker
+ *  Electron wrote (electron/desktop-plugins-root.ts) carried provenance —
+ *  catalog sidecar, git remote, or an unreadable sidecar — i.e. the package
+ *  was installed rather than copied in by hand. */
 export function pluginTrust(options: Pick<LoadOptions, 'packageOrigin'>): PluginTrust {
-  return options.packageOrigin?.catalogName ? 'catalog' : 'local'
+  const origin = options.packageOrigin
+
+  return origin && (origin.catalogName || origin.repo || origin.sidecarUnreadable) ? 'remote' : 'local'
 }
 
 interface LoadOptions {
   /** Declared `desktop_capabilities` (plugin.yaml) — consulted for the
-   *  `catalog` tier only; the renderer-realm tiers have full authority. */
+   *  `remote` tier only; the renderer-realm tiers have full authority. */
   capabilities?: readonly unknown[]
   /** Root-level default-enable CAP: `false` ships the plugin opt-in (inventory
    *  row, off until the user toggles) even if the plugin says otherwise. The
@@ -137,14 +150,14 @@ export function unloadRuntimePlugin(id: string): void {
 }
 
 /** Evaluate + register one runtime plugin. Returns its id, or null on failure.
- *  Catalog-tier sources are handed to the sandbox loader and never reach the
+ *  Remote-tier sources are handed to the sandbox loader and never reach the
  *  blob import below. */
 export async function loadRuntimePlugin(
   source: string,
   origin: string,
   options: LoadOptions = {}
 ): Promise<null | string> {
-  if (pluginTrust(options) === 'catalog') {
+  if (pluginTrust(options) === 'remote') {
     return loadSandboxedPlugin(source, origin, options)
   }
 
@@ -299,38 +312,66 @@ const PACKAGE_MARKER = '.hermes-package.json'
 interface PackageMarker {
   /** `desktop_capabilities` from the package's plugin.yaml, when declared. */
   capabilities?: string[]
-  origin?: { catalogName?: string; repo?: string; sha?: string }
+  origin?: PackageOrigin
   package: string
 }
 
+/** Marker provenance as the renderer keeps it (plugins-store `packageOrigin`). */
+type PackageOrigin = NonNullable<PluginRecord['packageOrigin']>
+
+/** A marker file that exists but cannot be trusted. The folder is NOT loaded:
+ *  the alternative — "no marker" — would hand an installed package full
+ *  renderer authority and auto-enable it. */
+class PackageMarkerError extends Error {}
+
+/** `null` = no marker (a hand-written standalone plugin). Throws
+ *  `PackageMarkerError` when the marker exists but is unreadable or lacks its
+ *  package name — fail closed, never degrade to the marker-less tier. */
 async function readPackageMarker(desktop: Window['hermesDesktop'], folder: string): Promise<null | PackageMarker> {
-  try {
-    const { entries } = await desktop.readDir(folder)
-    const marker = entries.find(entry => entry.name === PACKAGE_MARKER && !entry.isDirectory)
+  const { entries } = await desktop.readDir(folder)
+  const marker = entries.find(entry => entry.name === PACKAGE_MARKER && !entry.isDirectory)
 
-    if (!marker) {
-      return null
-    }
-
-    const parsed = JSON.parse((await desktop.readFileText(marker.path)).text) as {
-      catalogName?: string
-      desktopCapabilities?: unknown
-      package?: string
-      repo?: string
-      sha?: string
-    }
-
-    if (!parsed.package) {
-      return null
-    }
-
-    return {
-      capabilities: Array.isArray(parsed.desktopCapabilities) ? parsed.desktopCapabilities.map(String) : undefined,
-      origin: parsed.repo ? { catalogName: parsed.catalogName, repo: parsed.repo, sha: parsed.sha } : undefined,
-      package: parsed.package
-    }
-  } catch {
+  if (!marker) {
     return null
+  }
+
+  let parsed: {
+    catalogName?: string
+    desktopCapabilities?: unknown
+    package?: string
+    repo?: string
+    sha?: string
+    sidecarUnreadable?: boolean
+  }
+
+  try {
+    parsed = JSON.parse((await desktop.readFileText(marker.path)).text)
+  } catch (error) {
+    throw new PackageMarkerError(
+      `${PACKAGE_MARKER} is unreadable (${error instanceof Error ? error.message : String(error)}) — the plugin was not loaded`
+    )
+  }
+
+  if (typeof parsed !== 'object' || parsed === null || typeof parsed.package !== 'string' || !parsed.package) {
+    throw new PackageMarkerError(`${PACKAGE_MARKER} names no package — the plugin was not loaded`)
+  }
+
+  // Any provenance at all (or a sidecar we could not read) means "installed":
+  // the origin object exists and `pluginTrust` sandboxes it. Never gate this
+  // on `repo` alone — a catalog entry can carry a name without a repo.
+  const hasOrigin = Boolean(parsed.catalogName || parsed.repo || parsed.sidecarUnreadable)
+
+  return {
+    capabilities: Array.isArray(parsed.desktopCapabilities) ? parsed.desktopCapabilities.map(String) : undefined,
+    origin: hasOrigin
+      ? {
+          catalogName: parsed.catalogName,
+          repo: parsed.repo,
+          sha: parsed.sha,
+          ...(parsed.sidecarUnreadable ? { sidecarUnreadable: true } : {})
+        }
+      : undefined,
+    package: parsed.package
   }
 }
 
@@ -366,6 +407,23 @@ function dropOriginRecord(origin: string, except: DiskPlugin): void {
   }
 
   dropPlugin(origin)
+}
+
+/** Entry file -> folder name of markers refused this session: toast once,
+ *  not every poll, and drop the error row when the folder goes away. */
+const refusedMarkers = new Map<string, string>()
+
+/** Fail closed on a bad marker: an error inventory row names the folder and
+ *  the reason; nothing is evaluated. A later scan re-reads the marker, so a
+ *  fixed file loads on the next tick. */
+function refuseMarkedFolder(origin: string, file: string, reason: string): void {
+  publishPlugin({ id: origin, name: origin, kind: 'disk', file, status: 'error', error: reason })
+
+  if (!refusedMarkers.has(file)) {
+    refusedMarkers.set(file, origin)
+    console.error(`[plugins] ${origin}: ${reason}`)
+    notifyError(new Error(reason), `Plugin "${origin}" refused`)
+  }
 }
 
 /** A plugin source that could not be read in FULL. Evaluating a truncated
@@ -532,7 +590,17 @@ async function scanDiskPlugins(): Promise<void> {
           continue
         }
 
-        const marker = await readPackageMarker(desktop, dir.path)
+        let marker: null | PackageMarker
+
+        try {
+          marker = await readPackageMarker(desktop, dir.path)
+        } catch (error) {
+          if (error instanceof PackageMarkerError) {
+            refuseMarkedFolder(dir.name, file, error.message)
+          }
+
+          continue // Unreadable marker: refused (above) or folder changed mid-read; next tick reconciles.
+        }
 
         const record: DiskPlugin = {
           capabilities: marker?.capabilities,
@@ -560,6 +628,13 @@ async function scanDiskPlugins(): Promise<void> {
           // Unwatchable — the poll still reconciles new folders; edits need a
           // manual "Reload desktop plugins".
         }
+      }
+    }
+
+    for (const [file, origin] of refusedMarkers) {
+      if (!seen.has(file)) {
+        refusedMarkers.delete(file)
+        dropPlugin(origin)
       }
     }
 

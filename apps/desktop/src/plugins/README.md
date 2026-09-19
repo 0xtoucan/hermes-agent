@@ -23,10 +23,14 @@ the pipeline:
 | Tier | Source | Realm | Authority |
 |---|---|---|---|
 | `bundled` | this tree | renderer | full SDK |
-| `local` | `desktop-plugins/<name>/plugin.js`, or a `plugins/<name>/desktop/` half with no catalog provenance | renderer | full SDK (error isolation only — a disk file the user placed can already run code) |
-| `catalog` | a package installed from the plugin catalog (`.hermes-package.json` carries `catalogName`) | per-plugin `<iframe sandbox="allow-scripts">`, opaque origin, `default-src 'none'` CSP, its own React copy | the capability-gated subset in `../contrib/sandbox/methods.ts` |
+| `local` | `desktop-plugins/<name>/plugin.js`, or a `plugins/<name>/desktop/` half whose package folder was copied in by hand (no catalog sidecar, no git remote) | renderer | full SDK (error isolation only — a disk file the user placed can already run code) |
+| `remote` | the desktop half of any INSTALLED package — plugin catalog, `hermes plugins install <git-url>`, the agent-callable `plugins.install` RPC; its `.hermes-package.json` carries `catalogName`, `repo`, or `sidecarUnreadable` | per-plugin `<iframe sandbox="allow-scripts">`, opaque origin, `default-src 'none'` CSP, its own React copy | the capability-gated subset in `../contrib/sandbox/methods.ts` |
 
-Catalog plugins render their contributions INSIDE the frame: the host mounts a
+The rule is "not hand-copied ⇒ sandboxed". A marker file that exists but
+cannot be parsed refuses the load (error row + toast) instead of falling back
+to `local`.
+
+Remote-tier plugins render their contributions INSIDE the frame: the host mounts a
 placeholder (`SandboxSlot`) in the contribution's area and streams its rect to
 the guest, one frame per plugin. Grants come from `desktop_capabilities:` in
 the package's `plugin.yaml` (default `ui`, `storage`, `events`, `rest`; the

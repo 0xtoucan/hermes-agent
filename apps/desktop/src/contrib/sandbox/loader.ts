@@ -1,5 +1,5 @@
 /**
- * `loadSandboxedPlugin` — the catalog-tier twin of `loadRuntimePlugin`
+ * `loadSandboxedPlugin` — the remote-tier twin of `loadRuntimePlugin`
  * (contrib/runtime-loader.ts). Same inputs, same inventory contract
  * (publishPlugin + activate/deactivate handles, bundled-shadow rule), but the
  * source is never evaluated in this realm: it goes into a `SandboxRealm`
@@ -129,7 +129,7 @@ function awaitManifest(
   })
 }
 
-/** Load one catalog-tier plugin into a sandbox frame. Returns its trusted id
+/** Load one remote-tier plugin into a sandbox frame. Returns its trusted id
  *  (the install folder), or null on failure — same contract as
  *  `loadRuntimePlugin`, so the disk door treats both tiers alike. */
 export async function loadSandboxedPlugin(
@@ -209,7 +209,7 @@ export async function loadSandboxedPlugin(
 
     named = { ...record, name: manifest.name ?? pluginId, description: manifest.description }
     console.info(
-      `[plugins] ${pluginId} loaded in a sandboxed realm (catalog tier); capabilities: ${[...granted].join(', ')}`
+      `[plugins] ${pluginId} loaded in a sandboxed realm (remote tier); capabilities: ${[...granted].join(', ')}`
     )
 
     const activate = () => {

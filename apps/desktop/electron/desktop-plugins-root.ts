@@ -36,40 +36,63 @@ export interface DesktopHalfMarker {
   repo?: string
   sha?: string
   catalogName?: string
+  /** The catalog sidecar exists but could not be parsed. Provenance is
+   *  unknown, but the package was INSTALLED: the renderer sandboxes it. */
+  sidecarUnreadable?: boolean
   /** `desktop_capabilities` declared in the package's plugin.yaml — the
-   *  renderer's sandbox grant list for catalog-tier halves. */
+   *  renderer's sandbox grant list for remote-tier halves. */
   desktopCapabilities?: string[]
 }
 
+type PackageOrigin = Pick<DesktopHalfMarker, 'catalogName' | 'repo' | 'sha' | 'sidecarUnreadable'>
+
 /** Provenance of an installed agent package: catalog sidecar first, then the
- *  git remote. Undefined for a folder that was copied in by hand. */
-async function packageOrigin(packageDir: string): Promise<Pick<DesktopHalfMarker, 'catalogName' | 'repo' | 'sha'>> {
-  try {
-    const sidecar = JSON.parse(await fs.promises.readFile(path.join(packageDir, '.hermes-catalog.json'), 'utf8')) as {
-      catalog_name?: string
-      repo?: string
-      sha?: string
-    }
-
-    if (sidecar.repo) {
-      return { catalogName: sidecar.catalog_name, repo: sidecar.repo, sha: sidecar.sha }
-    }
-  } catch {
-    // No sidecar — not a catalog install.
-  }
+ *  git remote. Empty for a folder that was copied in by hand. A sidecar that
+ *  exists but will not parse is NOT "no sidecar": the package came through
+ *  the installer, and the marker says so (`sidecarUnreadable`) so the renderer
+ *  never classifies it as a hand-copied, fully trusted folder. */
+async function packageOrigin(packageDir: string): Promise<PackageOrigin> {
+  let raw: string | null = null
 
   try {
-    const config = await fs.promises.readFile(path.join(packageDir, '.git', 'config'), 'utf8')
-    const match = /\[remote "origin"\][^[]*?url\s*=\s*(\S+)/.exec(config)
-
-    if (match) {
-      return { repo: match[1] }
-    }
+    raw = await fs.promises.readFile(path.join(packageDir, '.hermes-catalog.json'), 'utf8')
   } catch {
-    // Not a git checkout.
+    // No sidecar — not a catalog install; a git remote may still name it.
   }
 
-  return {}
+  const origin: PackageOrigin = {}
+
+  if (raw !== null) {
+    try {
+      const sidecar = JSON.parse(raw) as { catalog_name?: string; repo?: string; sha?: string }
+
+      if (typeof sidecar !== 'object' || sidecar === null) {
+        throw new TypeError('sidecar is not an object')
+      }
+
+      origin.catalogName = sidecar.catalog_name
+      origin.repo = sidecar.repo
+      origin.sha = sidecar.sha
+    } catch (error) {
+      console.warn(`[desktop-plugins] unreadable .hermes-catalog.json in ${packageDir}: ${String(error)}`)
+      origin.sidecarUnreadable = true
+    }
+  }
+
+  if (!origin.repo) {
+    try {
+      const config = await fs.promises.readFile(path.join(packageDir, '.git', 'config'), 'utf8')
+      const match = /\[remote "origin"\][^[]*?url\s*=\s*(\S+)/.exec(config)
+
+      if (match) {
+        origin.repo = match[1]
+      }
+    } catch {
+      // Not a git checkout.
+    }
+  }
+
+  return Object.fromEntries(Object.entries(origin).filter(([, value]) => value !== undefined)) as PackageOrigin
 }
 
 export async function ensureDir(dir: string): Promise<string> {

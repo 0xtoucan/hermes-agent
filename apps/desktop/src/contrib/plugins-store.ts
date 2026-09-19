@@ -27,7 +27,14 @@ export interface PluginRecord {
   /** Agent package this is the desktop half of (unified agent+desktop packages). */
   packageName?: string
   /** Where that package came from (catalog sidecar or git remote), when known. */
-  packageOrigin?: { catalogName?: string; repo?: string; sha?: string }
+  packageOrigin?: {
+    catalogName?: string
+    repo?: string
+    sha?: string
+    /** The install sidecar existed but could not be read: provenance unknown,
+     *  treated as a remote install (sandboxed). */
+    sidecarUnreadable?: boolean
+  }
 }
 
 // Explicit user enable/disable choices, id -> boolean. ABSENCE means "no

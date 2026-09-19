@@ -1,5 +1,5 @@
 /**
- * Builds the srcdoc of a catalog plugin's sandbox frame. Everything the guest
+ * Builds the srcdoc of a remote-tier plugin's sandbox frame. Everything the guest
  * needs is INLINED — React + ReactDOM (CJS bundles behind a 3-line require
  * shim), the guest runtime, the plugin source — because the frame's CSP is
  * `default-src 'none'`: it cannot fetch, it cannot import from the app's

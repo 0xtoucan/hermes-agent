@@ -172,6 +172,35 @@ describe('reconcileUnifiedDesktopHalves', () => {
     expect(raw.repo).toBe('file:///srv/raw.git')
   })
 
+  it('a corrupt catalog sidecar stamps `sidecarUnreadable` (installed, provenance unknown) instead of reading as hand-copied', async () => {
+    const home = makeHome()
+    const appRoot = path.join(home, 'desktop-plugins')
+    write(path.join(home, 'plugins', 'broken', 'desktop', 'plugin.js'), 'x')
+    write(path.join(home, 'plugins', 'broken', '.hermes-catalog.json'), '{ "repo": "https://github.com/o/broken.git", ')
+    // A sidecar that parses but names only the catalog entry keeps that name (no `repo` gate).
+    write(path.join(home, 'plugins', 'named', 'desktop', 'plugin.js'), 'y')
+    write(path.join(home, 'plugins', 'named', '.hermes-catalog.json'), JSON.stringify({ catalog_name: 'named' }))
+    write(path.join(home, 'plugins', 'hand', 'desktop', 'plugin.js'), 'z')
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    try {
+      await reconcileUnifiedDesktopHalves(home, appRoot)
+    } finally {
+      warn.mockRestore()
+    }
+
+    const broken = JSON.parse(fs.readFileSync(path.join(appRoot, 'broken', PACKAGE_MARKER), 'utf8'))
+    expect(broken.sidecarUnreadable).toBe(true)
+    expect(broken.repo).toBeUndefined()
+    const named = JSON.parse(fs.readFileSync(path.join(appRoot, 'named', PACKAGE_MARKER), 'utf8'))
+    expect(named).toMatchObject({ catalogName: 'named' })
+    expect(named.sidecarUnreadable).toBeUndefined()
+    const hand = JSON.parse(fs.readFileSync(path.join(appRoot, 'hand', PACKAGE_MARKER), 'utf8'))
+    expect(hand).not.toHaveProperty('repo')
+    expect(hand).not.toHaveProperty('catalogName')
+    expect(hand).not.toHaveProperty('sidecarUnreadable')
+  })
+
   it('never overwrites a standalone plugin the user installed under the same name', async () => {
     const home = makeHome()
     const appRoot = path.join(home, 'desktop-plugins')

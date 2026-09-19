@@ -1,5 +1,5 @@
 /*
- * GUEST side of the catalog-plugin sandbox. This file is NOT bundled as a
+ * GUEST side of the remote-plugin sandbox. This file is NOT bundled as a
  * module: `frame-document.ts` inlines it (`?raw`) into the srcdoc of the
  * per-plugin `<iframe sandbox="allow-scripts">`, after the React CJS bundles
  * and before the plugin module. It runs in an OPAQUE origin behind a
@@ -200,7 +200,7 @@
   function unsupported(name, hint) {
     const fail = () => {
       throw new Error(
-        `${name} is not available to catalog plugins: it runs in a sandboxed realm` + (hint ? ` — ${hint}` : '')
+        `${name} is not available to sandboxed plugins: it runs in a sandboxed realm` + (hint ? ` — ${hint}` : '')
       )
     }
 
@@ -405,7 +405,7 @@
 
     // The declared id is informational only: the host scopes storage, REST
     // and contribution provenance to the INSTALL FOLDER (`pluginId`), so a
-    // catalog plugin cannot claim another plugin's namespace by renaming itself.
+    // sandboxed plugin cannot claim another plugin's namespace by renaming itself.
     post('manifest', {
       defaultEnabled: plugin.defaultEnabled,
       description: plugin.description,

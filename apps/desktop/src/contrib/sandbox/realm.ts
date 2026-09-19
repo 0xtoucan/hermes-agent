@@ -1,5 +1,5 @@
 /**
- * HOST side of the catalog-plugin sandbox: one `SandboxRealm` per plugin owns
+ * HOST side of the remote-plugin sandbox: one `SandboxRealm` per plugin owns
  * the plugin's `<iframe sandbox="allow-scripts">`, routes its postMessage
  * traffic, and multiplexes every contribution the plugin renders into the
  * host layout.

@@ -2,7 +2,7 @@
  * The SDK subset a sandboxed plugin can reach, as a TABLE: guest method name
  * -> the ONE capability it needs + the host code that runs it. `realm.ts`
  * looks a call up here, checks the capability, and refuses everything else —
- * so adding a row is the only way to widen what a catalog plugin can do, and
+ * so adding a row is the only way to widen what a sandboxed plugin can do, and
  * the row states its price.
  *
  * Host DOM access (`host.querySelector` & co.) is deliberately absent: the

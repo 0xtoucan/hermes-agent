@@ -221,13 +221,115 @@ describe('scanDiskPlugins (#66899)', () => {
 })
 
 describe('trust tiers', () => {
-  it('classifies catalog provenance as `catalog`, everything else on disk as `local`', () => {
-    expect(pluginTrust({ packageOrigin: { catalogName: 'weather', repo: 'r' } })).toBe('catalog')
-    expect(pluginTrust({ packageOrigin: { repo: 'https://example.invalid/custom.git' } })).toBe('local')
+  it('sandboxes ANY installed package (catalog, git URL, unreadable sidecar); only hand-copied folders are `local`', () => {
+    expect(pluginTrust({ packageOrigin: { catalogName: 'weather', repo: 'r' } })).toBe('remote')
+    expect(pluginTrust({ packageOrigin: { catalogName: 'weather' } })).toBe('remote')
+    // `hermes plugins install <git-url>` / the `plugins.install` RPC: repo, no catalog name.
+    expect(pluginTrust({ packageOrigin: { repo: 'https://example.invalid/custom.git' } })).toBe('remote')
+    expect(pluginTrust({ packageOrigin: { sidecarUnreadable: true } })).toBe('remote')
+    expect(pluginTrust({ packageOrigin: {} })).toBe('local')
     expect(pluginTrust({})).toBe('local')
   })
 
-  it('never evaluates a catalog-tier source in the renderer realm — it goes to the sandbox loader', async () => {
+  it('a git-URL install (marker with repo, no catalogName) never evaluates in the renderer realm', async () => {
+    loadSandboxedPlugin.mockClear()
+    desktopPluginsRoot.mockResolvedValue('/local/.hermes/desktop-plugins')
+    const root = '/local/.hermes/desktop-plugins'
+    readDir.mockImplementation(async dir => {
+      if (dir === root) {
+        return { entries: [{ isDirectory: true, name: 'giturl', path: `${root}/giturl` }] }
+      }
+
+      if (dir === `${root}/giturl`) {
+        return {
+          entries: [
+            { isDirectory: false, name: '.hermes-package.json', path: `${root}/giturl/.hermes-package.json` },
+            { isDirectory: false, name: 'plugin.js', path: `${root}/giturl/plugin.js` }
+          ]
+        }
+      }
+
+      return { entries: [] }
+    })
+    readFileText.mockImplementation(async file =>
+      file.endsWith('.hermes-package.json')
+        ? { text: JSON.stringify({ package: 'giturl', repo: 'https://example.invalid/x.git', source: '/s' }) }
+        : { text: 'export default { id: "giturl", register() { throw new Error("must never evaluate here") } }' }
+    )
+    watchPreviewFile.mockResolvedValue({ id: 'w-giturl' })
+
+    await discoverRuntimePlugins()
+
+    expect(loadSandboxedPlugin).toHaveBeenCalledWith(
+      expect.stringContaining('must never evaluate here'),
+      'giturl',
+      expect.objectContaining({ packageOrigin: expect.objectContaining({ repo: 'https://example.invalid/x.git' }) })
+    )
+  })
+
+  it('an unparseable or package-less marker REFUSES the load instead of granting full authority', async () => {
+    loadSandboxedPlugin.mockClear()
+    desktopPluginsRoot.mockResolvedValue('/local/.hermes/desktop-plugins')
+    const root = '/local/.hermes/desktop-plugins'
+    let present = true
+    const folder = (name: string) => [
+      { isDirectory: false, name: '.hermes-package.json', path: `${root}/${name}/.hermes-package.json` },
+      { isDirectory: false, name: 'plugin.js', path: `${root}/${name}/plugin.js` }
+    ]
+    readDir.mockImplementation(async dir => {
+      if (dir === root) {
+        return {
+          entries: present
+            ? [
+                { isDirectory: true, name: 'corrupt', path: `${root}/corrupt` },
+                { isDirectory: true, name: 'nameless', path: `${root}/nameless` }
+              ]
+            : []
+        }
+      }
+
+      if (dir === `${root}/corrupt`) {
+        return { entries: folder('corrupt') }
+      }
+
+      if (dir === `${root}/nameless`) {
+        return { entries: folder('nameless') }
+      }
+
+      return { entries: [] }
+    })
+    readFileText.mockImplementation(async file => {
+      if (file === `${root}/corrupt/.hermes-package.json`) {
+        return { text: '{ not json' }
+      }
+
+      if (file === `${root}/nameless/.hermes-package.json`) {
+        return { text: JSON.stringify({ repo: 'r' }) }
+      }
+
+      return { text: 'export default { id: "x", register() { throw new Error("must never evaluate") } }' }
+    })
+
+    await discoverRuntimePlugins()
+
+    // Nothing was evaluated anywhere: no sandbox hand-off, no plugin.js read.
+    expect(loadSandboxedPlugin).not.toHaveBeenCalled()
+    expect(readFileText).not.toHaveBeenCalledWith(`${root}/corrupt/plugin.js`)
+    expect(readFileText).not.toHaveBeenCalledWith(`${root}/nameless/plugin.js`)
+    expect($pluginRecords.get().corrupt).toMatchObject({ status: 'error', error: expect.stringContaining('unreadable') })
+    expect($pluginRecords.get().nameless).toMatchObject({
+      status: 'error',
+      error: expect.stringContaining('names no package')
+    })
+
+    // The folders vanish -> the error rows go with them.
+    present = false
+    await discoverRuntimePlugins()
+    expect($pluginRecords.get().corrupt).toBeUndefined()
+    expect($pluginRecords.get().nameless).toBeUndefined()
+  })
+
+  it('never evaluates a remote-tier source in the renderer realm — it goes to the sandbox loader', async () => {
     loadSandboxedPlugin.mockClear()
 
     const register = vi.fn()
