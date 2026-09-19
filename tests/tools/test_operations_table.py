@@ -130,3 +130,16 @@ def test_wait_returns_the_reason_that_settles_the_operation_mid_wait():
 
     assert table.wait(operation, timeout=1, slice_seconds=0.01) == "continue"
     waiter.join()
+
+
+def test_wait_timeout_returns_without_settling():
+    """A tick timeout is the caller's turn to observe; only the deadline settles the operation."""
+    table = Operations()
+    operation = _op()
+    operation.deadline_at = time.time() + 60
+    table.open(operation)
+    assert table.wait(operation, timeout=0.02, slice_seconds=0.01) == "timeout"
+    assert not operation.settled
+    operation.deadline_at = time.time() - 1
+    assert table.wait(operation, timeout=5, slice_seconds=0.01) == "deadline"
+    assert operation.settled

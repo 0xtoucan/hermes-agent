@@ -49,22 +49,28 @@ class Operations:
                          if owner.profile == profile and oid == op_id and not o.settled), None)
 
     def wait(self, operation: Operation, *, timeout: Optional[float] = None, slice_seconds: float = 0.25) -> str:
-        """Block until the operation settles or its deadline passes. The wait is sliced so the
-        caller's interrupt flag is read between slices; the verdict is the operation's own
-        ``settled_by``, read after the wake, never the wait's return value."""
+        """Block until the operation settles, its deadline passes, or ``timeout`` seconds elapse.
+        Only the deadline settles the operation; a timeout returns so the caller can observe and
+        wait again. The wait is sliced so the caller's interrupt flag is read between slices.
+        Returns ``settled_by`` after a settle, ``"timeout"`` otherwise."""
         from tools.interrupt import is_interrupted
 
-        until = operation.deadline_at if timeout is None else min(operation.deadline_at, time.time() + timeout)
+        until = None if timeout is None else time.time() + timeout
         while not operation.settled:
             if is_interrupted():
                 operation.settle("interrupt")
                 break
-            remaining = until - time.time()
-            if remaining <= 0:
+            to_deadline = operation.deadline_at - time.time()
+            if to_deadline <= 0:
                 operation.settle("deadline")
                 break
+            remaining = to_deadline if until is None else min(to_deadline, until - time.time())
+            if remaining <= 0:
+                return "timeout"
             if operation.wake.wait(min(slice_seconds, remaining)):
                 operation.wake.clear()
+                if not operation.settled:
+                    return "woke"
         return operation.settled_by or "deadline"
 
     def close(self, operation: Operation) -> None:
