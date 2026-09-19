@@ -113,17 +113,33 @@ function awaitManifest(
 ): Promise<{ manifest: Manifest; realm: SandboxRealm }> {
   return new Promise((resolve, reject) => {
     let realm: SandboxRealm | null = null
-
-    const timer =
-      timeoutMs > 0 ? window.setTimeout(() => reject(new Error('sandbox frame did not boot in time')), timeoutMs) : 0
+    let settled = false
+    let timer = 0
 
     const settle = (fn: () => void) => {
+      if (settled) {
+        return
+      }
+
+      settled = true
       window.clearTimeout(timer)
       fn()
     }
 
+    // A realm that never boots is still a live iframe + message listener;
+    // it must go with the rejection, not wait for the next reload.
+    const fail = (message: string) =>
+      settle(() => {
+        realm?.dispose()
+        reject(new Error(message))
+      })
+
+    if (timeoutMs > 0) {
+      timer = window.setTimeout(() => fail('sandbox frame did not boot in time'), timeoutMs)
+    }
+
     realm = create({
-      onError: message => settle(() => reject(new Error(message))),
+      onError: fail,
       onManifest: manifest => settle(() => resolve({ manifest, realm: realm! }))
     })
   })

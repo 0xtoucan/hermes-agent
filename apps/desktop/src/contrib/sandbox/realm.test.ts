@@ -356,6 +356,40 @@ describe('frame document', () => {
 })
 
 describe('loadSandboxedPlugin', () => {
+  const frameFactory = (frames: FakeFrame[]) => (_srcdoc: string, realm: SandboxRealm) => {
+    frames.push(new FakeFrame(realm))
+
+    return frames[frames.length - 1]
+  }
+
+  it('disposes the realm when the frame never boots (timeout) or reports a boot error', async () => {
+    const timedOut: FakeFrame[] = []
+    expect(
+      await loadSandboxedPlugin('export default {}', 'slow', {
+        bootTimeoutMs: 5,
+        createFrame: frameFactory(timedOut),
+        packageName: 'slow',
+        packageOrigin: { repo: 'r' }
+      })
+    ).toBeNull()
+    expect(timedOut[0].removed).toBe(true)
+    expect($pluginRecords.get().slow).toMatchObject({ status: 'error', error: expect.stringContaining('boot') })
+
+    const errored: FakeFrame[] = []
+    const load = loadSandboxedPlugin('export default {}', 'broken', {
+      bootTimeoutMs: 0,
+      createFrame: frameFactory(errored),
+      packageName: 'broken',
+      packageOrigin: { repo: 'r' }
+    })
+    await flush()
+    errored[0].realm.handle({ message: 'SyntaxError: nope', type: 'error' })
+
+    expect(await load).toBeNull()
+    expect(errored[0].removed).toBe(true)
+    expect($pluginRecords.get().broken).toMatchObject({ status: 'error', error: 'SyntaxError: nope' })
+  })
+
   it('inventories the plugin from the guest manifest under its TRUSTED id and unloads cleanly', async () => {
     const frames: FakeFrame[] = []
 
