@@ -20,9 +20,9 @@ class WaitingEvent(threading.Event):
         return super().wait(timeout)
 
 
-@dataclass
+@dataclass(eq=False)
 class FakeOperation:
-    owner: Owner
+    owner: Optional[Owner]
     op_id: str
     deadline_at: float = field(default_factory=lambda: time.time() + 10)
     wake: threading.Event = field(default_factory=WaitingEvent)
@@ -42,6 +42,10 @@ class FakeOperation:
         self._settled_by = reason
         self.wake.set()
         return True
+
+    @property
+    def key(self) -> str:
+        return self.owner.key if self.owner else "s1"
 
     def snapshot(self) -> dict[str, str]:
         return {"op_id": self.op_id}
@@ -103,7 +107,8 @@ def test_two_profiles_sharing_a_key_do_not_see_each_other():
 
     assert table.current(_owner(profile="profile-a")) == [first]
     assert table.current(_owner(profile="profile-b")) == [second]
-    assert table.get(_owner(profile="profile-b"), first.op_id) is None
+    assert table.get(_owner(profile="profile-b"), first.op_id) is second
+    assert table.get(_owner(profile="profile-b"), first.op_id) is not first
 
 
 def test_cancel_settles_owned_operations_and_wakes_waiters():

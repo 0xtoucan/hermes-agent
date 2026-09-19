@@ -30,7 +30,9 @@ class Owner(NamedTuple):
 @runtime_checkable
 class Operation(Protocol):
     op_id: str
-    owner: Owner
+    # ``None`` until ``Operations.open`` stamps the opening thread's profile and the operation's key.
+    owner: Optional[Owner]
+    key: str
     deadline_at: float
     wake: threading.Event
 

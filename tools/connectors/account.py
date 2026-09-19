@@ -92,8 +92,9 @@ def _run(start: AccountOperationStart, action: str) -> None:
         operations.close(operation)
         start.failed = True
     finally:
+        profile = operation.owner.profile if operation.owner else None
         for leg in operation.legs:
-            _by_connector.pop((operation.owner.profile, leg.name), None)
+            _by_connector.pop((profile, leg.name), None)
         start.done.set()
 
 

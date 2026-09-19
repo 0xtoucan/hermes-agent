@@ -21,8 +21,11 @@ class Operations:
         self._lock = threading.Lock()
 
     def open(self, operation: Operation, *, exclusive: bool = False) -> None:
-        """Register an operation under its owner. ``exclusive`` refuses while the owner already has
-        an unsettled one (a session shows one connection card at a time)."""
+        """Register an operation under its owner. An operation without one is stamped with the
+        opening thread's profile (the turn's override) and its own key. ``exclusive`` refuses while
+        the owner already has an unsettled operation (a session shows one connection card at a time)."""
+        if operation.owner is None:
+            operation.owner = Owner.current(operation.key)
         with self._lock:
             if exclusive:
                 held = next((o for o in self._for_owner_locked(operation.owner) if not o.settled), None)
@@ -76,6 +79,8 @@ class Operations:
     def close(self, operation: Operation) -> None:
         """Remove the operation only while the table still holds this exact object: a finished
         operation must not delete the one that replaced it under the same owner."""
+        if operation.owner is None:
+            return
         key = (operation.owner, operation.op_id)
         with self._lock:
             if self._open.get(key) is operation:
