@@ -7,7 +7,7 @@ import { DEFAULT_CAPABILITIES, gatewayMethodAllowed, resolveCapabilities } from 
 import { buildFrameDocument, SANDBOX_CSP } from './frame-document'
 import { loadSandboxedPlugin, unloadSandboxedPlugin } from './loader'
 import type { GuestMessage, HostMessage } from './protocol'
-import { type SandboxFrame, SandboxRealm } from './realm'
+import { MAX_CHIP_HEIGHT, MAX_CHIP_WIDTH, type SandboxFrame, SandboxRealm } from './realm'
 
 const notify = vi.fn()
 const hostRequest = vi.fn(async (_method: string, _params: unknown) => ({ ok: true }))
@@ -217,6 +217,62 @@ describe('SandboxRealm bridge', () => {
     expect(registry.getArea('statusBar.right').some(c => c.id === 'fixture:chip')).toBe(false)
     expect(frame.removed).toBe(true)
     expect(frame.sent.some(m => m.type === 'deactivate')).toBe(true)
+  })
+})
+
+describe('overlay frame', () => {
+  const box = (el: HTMLElement, width: number, height: number) => {
+    el.getBoundingClientRect = () =>
+      ({ bottom: height, height, left: 0, right: width, top: 0, width, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect
+  }
+
+  it('is hidden and inert while no slot is on screen, live only while one is', () => {
+    const realm = new SandboxRealm({ granted: new Set(['ui']), name: 'p', pluginId: 'p', srcdoc: '' })
+    const frame = document.querySelector('iframe')!
+
+    // Boot: nothing to show — the full-window overlay must not paint or take focus.
+    expect(frame.hasAttribute('inert')).toBe(true)
+    expect(frame.style.visibility).toBe('hidden')
+    expect(frame.style.clipPath).toBe('inset(100%)')
+    expect(frame.style.pointerEvents).toBe('none')
+
+    const chip = document.createElement('div')
+    document.body.appendChild(chip)
+    box(chip, 80, 20)
+    const unmount = realm.mountSlot('chip', chip, false)
+
+    expect(frame.hasAttribute('inert')).toBe(false)
+    expect(frame.style.visibility).toBe('')
+    expect(frame.style.pointerEvents).toBe('auto')
+    expect(frame.style.clipPath).toContain('path(')
+
+    // A slot with an empty rect (scrolled out of view) does not count.
+    const hidden = document.createElement('div')
+    document.body.appendChild(hidden)
+    box(hidden, 0, 0)
+    realm.mountSlot('gone', hidden, false)
+    unmount()
+
+    expect(frame.hasAttribute('inert')).toBe(true)
+    expect(frame.style.visibility).toBe('hidden')
+    expect(frame.style.clipPath).toBe('inset(100%)')
+    realm.dispose()
+  })
+
+  it('clamps guest-reported chip sizes and ignores sizes for filling slots', () => {
+    const { realm } = realmWith(['ui'])
+    const chip = document.createElement('div')
+    const pane = document.createElement('div')
+    document.body.append(chip, pane)
+    realm.mountSlot('chip', chip, false)
+    realm.mountSlot('pane', pane, true)
+
+    realm.handle({ height: 9000, slotId: 'chip', type: 'slot-size', width: 5000 })
+    realm.handle({ height: 9000, slotId: 'pane', type: 'slot-size', width: 5000 })
+    realm.handle({ height: -1, slotId: 'unknown', type: 'slot-size', width: Number.NaN })
+
+    expect(realm.$slotSizes.get()).toEqual({ chip: { height: MAX_CHIP_HEIGHT, width: MAX_CHIP_WIDTH } })
+    realm.dispose()
   })
 })
 

@@ -78,6 +78,7 @@ function createIframeFrame(srcdoc: string): SandboxFrame {
   element.setAttribute('title', 'plugin sandbox')
   element.style.cssText =
     'position:absolute;inset:0;width:100%;height:100%;border:0;background:transparent;pointer-events:none;'
+  hideFrame(element)
   element.srcdoc = srcdoc
   sandboxContainer().appendChild(element)
 
@@ -90,6 +91,24 @@ function createIframeFrame(srcdoc: string): SandboxFrame {
     }
   }
 }
+
+/** No slot on screen: the overlay must neither paint nor take focus. `inert`
+ *  keeps a guest `input.focus()` from stealing the keyboard off the composer;
+ *  `visibility:hidden` + a fully-inset clip stop any paint. */
+function hideFrame(element: HTMLIFrameElement): void {
+  element.style.pointerEvents = 'none'
+  element.style.clipPath = 'inset(100%)'
+  element.style.visibility = 'hidden'
+  element.setAttribute('inert', '')
+}
+
+/** Guest-reported intrinsic sizes are advisory: a bar chip gets at most this
+ *  much of the bar; a filling slot (pane/workspace) never sizes its host. */
+export const MAX_CHIP_WIDTH = 320
+export const MAX_CHIP_HEIGHT = 64
+
+const clampSize = (value: unknown, max: number) =>
+  typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.min(value, max) : 0
 
 const EMPTY_RECT: SlotRect = { height: 0, left: 0, top: 0, width: 0 }
 
@@ -133,7 +152,7 @@ export class SandboxRealm {
   private ctx: null | PluginContext = null
   private disposers: (() => void)[] = []
   private readonly refused = new Set<Capability>()
-  private readonly slots = new Map<string, { el: HTMLElement; rect: SlotRect }>()
+  private readonly slots = new Map<string, { el: HTMLElement; fill: boolean; rect: SlotRect }>()
   private rafId: null | number = null
   private nextInvokeId = 1
   private readonly invocations = new Map<number, { reject: (e: Error) => void; resolve: (v: unknown) => void }>()
@@ -226,11 +245,23 @@ export class SandboxRealm {
 
         return
 
-      case 'slot-size':
+      case 'slot-size': {
+        // A filling slot (pane, workspace) is sized by the host layout, never
+        // by the guest; a bar chip may ask for at most a chip's worth of bar.
+        const slot = this.slots.get(message.slotId)
+
+        if (!slot || slot.fill) {
+          return
+        }
+
         this.$slotSizes.set({
           ...this.$slotSizes.get(),
-          [message.slotId]: { height: message.height, width: message.width }
+          [message.slotId]: {
+            height: clampSize(message.height, MAX_CHIP_HEIGHT),
+            width: clampSize(message.width, MAX_CHIP_WIDTH)
+          }
         })
+      }
     }
   }
 
@@ -336,7 +367,7 @@ export class SandboxRealm {
    *  over this element's rect until the returned disposer runs. */
   mountSlot(slotId: string, el: HTMLElement, fill: boolean): () => void {
     const rect = visibleRect(el)
-    this.slots.set(slotId, { el, rect })
+    this.slots.set(slotId, { el, fill, rect })
     this.send({ fill, rect, slotId, type: 'slot-mount' })
     this.syncHitRegion()
     this.startRectLoop()
@@ -389,15 +420,17 @@ export class SandboxRealm {
   /** Hit-test only where a slot is: clip-path clips pointer events too. */
   private syncHitRegion(): void {
     const rects = [...this.slots.values()].map(slot => slot.rect).filter(rect => rect.width > 0 && rect.height > 0)
-    const style = this.frame.element.style
+    const element = this.frame.element
+    const style = element.style
 
     if (rects.length === 0) {
-      style.pointerEvents = 'none'
-      style.clipPath = ''
+      hideFrame(element)
 
       return
     }
 
+    element.removeAttribute('inert')
+    style.visibility = ''
     style.pointerEvents = 'auto'
     style.clipPath = `path('${rects.map(r => `M${r.left} ${r.top}h${r.width}v${r.height}h${-r.width}Z`).join('')}')`
   }
