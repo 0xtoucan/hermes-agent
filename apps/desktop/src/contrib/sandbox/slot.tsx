@@ -22,8 +22,8 @@ export function SandboxSlot({ fill, realm, slotId }: SandboxSlotProps) {
   useLayoutEffect(() => {
     const el = ref.current
 
-    return el ? realm.mountSlot(slotId, el) : undefined
-  }, [realm, slotId])
+    return el ? realm.mountSlot(slotId, el, fill) : undefined
+  }, [fill, realm, slotId])
 
   return (
     <div

@@ -87,10 +87,12 @@ const emojibaseAssets = () => ({
       if (!emojibaseDir || !EMOJIBASE_PATH.test(rel)) {
         return next()
       }
+
       fs.readFile(path.join(emojibaseDir, rel), (err: unknown, buf: Buffer) => {
         if (err) {
           return next()
         }
+
         res.setHeader('Content-Type', 'application/json')
         res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
         res.end(buf)
@@ -112,9 +114,44 @@ const emojibaseAssets = () => ({
   }
 })
 
+// The catalog-plugin sandbox (src/contrib/sandbox/frame-document.ts) inlines
+// React's CJS bundles as TEXT into a sandboxed iframe. Those files sit behind
+// the packages' `exports` maps (no `./cjs/*` entry) and a bare `react/...?raw`
+// import is claimed by the dep optimizer, so resolve them here by name from
+// the same package roots the app itself uses — the copy in the frame is
+// always the app's React version.
+const SANDBOX_VENDOR_PREFIX = '@hermes/sandbox-vendor/'
+
+const sandboxVendorFiles: Record<string, string> = {
+  'react-dom-client.js': path.join(reactDomDir, 'cjs/react-dom-client.production.js'),
+  'react-dom.js': path.join(reactDomDir, 'cjs/react-dom.production.js'),
+  'react-jsx-dev-runtime.js': path.join(reactDir, 'cjs/react-jsx-dev-runtime.production.js'),
+  'react-jsx-runtime.js': path.join(reactDir, 'cjs/react-jsx-runtime.production.js'),
+  'react.js': path.join(reactDir, 'cjs/react.production.js'),
+  'scheduler.js': path.join(
+    path.dirname(requireFromApp.resolve('scheduler/package.json')),
+    'cjs/scheduler.production.js'
+  )
+}
+
+const sandboxVendor = () => ({
+  name: 'hermes:sandbox-vendor',
+  enforce: 'pre' as const,
+  resolveId(id: string) {
+    if (!id.startsWith(SANDBOX_VENDOR_PREFIX)) {
+      return null
+    }
+
+    const [name, query] = id.slice(SANDBOX_VENDOR_PREFIX.length).split('?')
+    const file = sandboxVendorFiles[name]
+
+    return file ? `${file}${query ? `?${query}` : ''}` : null
+  }
+})
+
 export default defineConfig(({ command }) => ({
   base: './',
-  plugins: [react(), babel({ presets: [compilerPreset()] }), tailwindcss(), emojibaseAssets()],
+  plugins: [sandboxVendor(), react(), babel({ presets: [compilerPreset()] }), tailwindcss(), emojibaseAssets()],
   css: {
     // Pin an explicit (empty) PostCSS config. Tailwind is handled entirely by
     // `@tailwindcss/vite`, so the renderer needs no PostCSS plugins — and

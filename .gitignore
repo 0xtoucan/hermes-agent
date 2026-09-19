@@ -96,6 +96,9 @@ apps/desktop/src/**/*.d.ts
 # e.g. hermes-bots): plugin.js IS the source, not tsc output. No .tsx
 # sibling exists, so the stale-shadow hazard above cannot apply.
 !apps/desktop/src/plugins/*/plugin.js
+# The catalog-plugin sandbox's GUEST runtime: shipped as raw text into the
+# sandboxed frame (`?raw`), so it is authored as plain JS on purpose.
+!apps/desktop/src/contrib/sandbox/guest-runtime.js
 !apps/desktop/src/global.d.ts
 !apps/desktop/src/vite-env.d.ts
 

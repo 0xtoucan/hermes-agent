@@ -31,7 +31,7 @@ export type HostMessage =
   | { type: 'invoke'; invokeId: number; callbackId: number; args: unknown[] }
   | { type: 'pane-visibility'; paneId: string; visible: boolean }
   | { type: 'reply'; callId: number; ok: boolean; result?: unknown; error?: string }
-  | { type: 'slot-mount'; slotId: string; rect: SlotRect }
+  | { type: 'slot-mount'; slotId: string; rect: SlotRect; fill: boolean }
   | { type: 'slot-rect'; slotId: string; rect: SlotRect }
   | { type: 'slot-unmount'; slotId: string }
   | { type: 'state'; values: Record<string, unknown> }

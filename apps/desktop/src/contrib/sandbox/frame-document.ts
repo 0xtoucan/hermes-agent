@@ -11,12 +11,14 @@
  * `</script>` inside it is escaped and can never terminate the tag.
  */
 
-import reactDomClientSource from 'react-dom/cjs/react-dom-client.production.js?raw'
-import reactDomSource from 'react-dom/cjs/react-dom.production.js?raw'
-import jsxDevRuntimeSource from 'react/cjs/react-jsx-dev-runtime.production.js?raw'
-import jsxRuntimeSource from 'react/cjs/react-jsx-runtime.production.js?raw'
-import reactSource from 'react/cjs/react.production.js?raw'
-import schedulerSource from 'scheduler/cjs/scheduler.production.js?raw'
+// Resolved by the `hermes:sandbox-vendor` plugin in vite.config.ts to the
+// app's own React package files (their `exports` maps hide `cjs/*`).
+import reactDomClientSource from '@hermes/sandbox-vendor/react-dom-client.js?raw'
+import reactDomSource from '@hermes/sandbox-vendor/react-dom.js?raw'
+import jsxDevRuntimeSource from '@hermes/sandbox-vendor/react-jsx-dev-runtime.js?raw'
+import jsxRuntimeSource from '@hermes/sandbox-vendor/react-jsx-runtime.js?raw'
+import reactSource from '@hermes/sandbox-vendor/react.js?raw'
+import schedulerSource from '@hermes/sandbox-vendor/scheduler.js?raw'
 
 import guestRuntimeSource from './guest-runtime.js?raw'
 
@@ -68,8 +70,8 @@ export function buildFrameDocument(input: FrameDocumentInput): string {
 html, body { margin: 0; background: transparent; overflow: hidden; }
 body { pointer-events: none; }
 .hermes-sandbox-slot { position: fixed; overflow: hidden; pointer-events: auto; }
-.hermes-sandbox-slot-inner { display: inline-flex; height: 100%; max-width: 100%; }
-[data-slot^="panes:"] .hermes-sandbox-slot-inner, [data-slot^="workspace:"] .hermes-sandbox-slot-inner { display: block; width: 100%; }
+.hermes-sandbox-slot-inner { display: inline-flex; height: 100%; width: max-content; white-space: nowrap; }
+.hermes-sandbox-slot[data-fill="true"] .hermes-sandbox-slot-inner { display: block; width: 100%; white-space: normal; overflow: auto; }
 .hermes-sandbox-error { font-size: 0.6875rem; color: #c0392b; }
 </style>
 <style>${input.styleText.replace(/<\//g, '<\\/')}</style>

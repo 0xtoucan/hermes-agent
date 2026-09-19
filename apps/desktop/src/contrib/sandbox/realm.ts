@@ -316,10 +316,10 @@ export class SandboxRealm {
 
   /** Mount a contribution's placeholder: the guest renders the contribution
    *  over this element's rect until the returned disposer runs. */
-  mountSlot(slotId: string, el: HTMLElement): () => void {
+  mountSlot(slotId: string, el: HTMLElement, fill: boolean): () => void {
     const rect = visibleRect(el)
     this.slots.set(slotId, { el, rect })
-    this.send({ rect, slotId, type: 'slot-mount' })
+    this.send({ fill, rect, slotId, type: 'slot-mount' })
     this.syncHitRegion()
     this.startRectLoop()
 
