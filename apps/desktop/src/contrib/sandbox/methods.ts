@@ -18,7 +18,7 @@ import * as sdk from '@/sdk'
 import type { NotificationInput, NotificationKind } from '@/store/notifications'
 
 import { type Capability, gatewayMethodAllowed, gatewayMethodCapability } from './capabilities'
-import { isCallbackRef, isRenderRef } from './protocol'
+import { isCallbackRef, isRenderRef, type SlotFill } from './protocol'
 import type { SandboxRealm } from './realm'
 import { SandboxSlot } from './slot'
 
@@ -57,9 +57,15 @@ function unmarshal(realm: SandboxRealm, value: unknown, depth = 0): unknown {
     return (...args: unknown[]) => realm.invoke(id, args)
   }
 
-  // A React node in the data (statusbar `label`): an inline guest slot.
+  // A React node in the data (statusbar `label`): an inline guest slot. A
+  // render FUNCTION in the data (a transcript directive): a block slot per
+  // mount, carrying that mount's props.
   if (isRenderRef(value)) {
-    return createElement(SandboxSlot, { fill: false, realm, renderId: value.__hermesRender })
+    const renderId = value.__hermesRender
+
+    return value.component
+      ? (props?: unknown) => createElement(SandboxSlot, { fill: 'block', props, realm, renderId })
+      : createElement(SandboxSlot, { fill: false, realm, renderId })
   }
 
   if (!value || typeof value !== 'object' || depth > 6) {
@@ -95,7 +101,7 @@ function guestNotification(input: Record<string, unknown>): NotificationInput {
 /** A contribution's `render`, host side: every mount becomes a `SandboxSlot`
  *  placeholder with its own slot id, carrying the render props (a transcript
  *  directive's attrs, a route's params) to the guest's render function. */
-const slotRender = (realm: SandboxRealm, renderId: string, fill: boolean) => (props?: unknown) =>
+const slotRender = (realm: SandboxRealm, renderId: string, fill: SlotFill) => (props?: unknown) =>
   createElement(SandboxSlot, { fill, props, realm, renderId })
 
 /** Areas whose items size themselves (bars); everything else fills its zone. */

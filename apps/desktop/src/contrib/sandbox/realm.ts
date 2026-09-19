@@ -32,7 +32,14 @@ import { notify } from '@/store/notifications'
 
 import { CAPABILITIES, type Capability } from './capabilities'
 import { methodCapability, METHODS } from './methods'
-import { type GuestMessage, type HostMessage, isGuestMessage, SANDBOX_PROTOCOL, type SlotRect } from './protocol'
+import {
+  type GuestMessage,
+  type HostMessage,
+  isGuestMessage,
+  SANDBOX_PROTOCOL,
+  type SlotFill,
+  type SlotRect
+} from './protocol'
 
 export interface SandboxFrame {
   element: HTMLIFrameElement
@@ -109,6 +116,8 @@ function hideFrame(element: HTMLIFrameElement): void {
  *  much of the bar; a filling slot (pane/workspace) never sizes its host. */
 export const MAX_CHIP_WIDTH = 320
 export const MAX_CHIP_HEIGHT = 64
+/** A block (directive leaf) may grow tall, never past a screen. */
+export const MAX_BLOCK_HEIGHT = 800
 
 const clampSize = (value: unknown, max: number) =>
   typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.min(value, max) : 0
@@ -118,6 +127,13 @@ const EMPTY_RECT: SlotRect = { height: 0, left: 0, top: 0, width: 0 }
 /** Placeholder rect clipped by every overflow-hiding ancestor, so a chip
  *  scrolled out of a pane body does not paint over unrelated chrome. */
 function visibleRect(el: HTMLElement): SlotRect {
+  // A kept-alive inactive tab hides its pane with `visibility: hidden` (the
+  // layout box survives so scroll state does); the box is there, the pane is
+  // not on screen, and painting the guest over it would cover the ACTIVE tab.
+  if (getComputedStyle(el).visibility === 'hidden') {
+    return EMPTY_RECT
+  }
+
   const box = el.getBoundingClientRect()
   let left = box.left
   let top = box.top
@@ -170,7 +186,7 @@ export class SandboxRealm {
   private teardownTimer: null | number = null
   private disposers: (() => void)[] = []
   private readonly refused = new Set<Capability>()
-  private readonly slots = new Map<string, { el: HTMLElement; fill: boolean; rect: SlotRect }>()
+  private readonly slots = new Map<string, { el: HTMLElement; fill: SlotFill; rect: SlotRect }>()
   /** Rects of guest layers painted outside slots (dialogs, popovers). */
   private overlayRects: SlotRect[] = []
   private rafId: null | number = null
@@ -282,16 +298,16 @@ export class SandboxRealm {
         // by the guest; a bar chip may ask for at most a chip's worth of bar.
         const slot = this.slots.get(message.slotId)
 
-        if (!slot || slot.fill) {
+        if (!slot || slot.fill === true) {
           return
         }
 
         this.$slotSizes.set({
           ...this.$slotSizes.get(),
-          [message.slotId]: {
-            height: clampSize(message.height, MAX_CHIP_HEIGHT),
-            width: clampSize(message.width, MAX_CHIP_WIDTH)
-          }
+          [message.slotId]:
+            slot.fill === 'block'
+              ? { height: clampSize(message.height, MAX_BLOCK_HEIGHT), width: 0 }
+              : { height: clampSize(message.height, MAX_CHIP_HEIGHT), width: clampSize(message.width, MAX_CHIP_WIDTH) }
         })
       }
     }
@@ -423,7 +439,7 @@ export class SandboxRealm {
 
   /** Mount a contribution's placeholder: the guest renders the contribution
    *  over this element's rect until the returned disposer runs. */
-  mountSlot(slotId: string, renderId: string, el: HTMLElement, fill: boolean, props?: unknown): () => void {
+  mountSlot(slotId: string, renderId: string, el: HTMLElement, fill: SlotFill, props?: unknown): () => void {
     const rect = visibleRect(el)
     this.slots.set(slotId, { el, fill, rect })
     this.send({ fill, props, rect, renderId, slotId, type: 'slot-mount' })

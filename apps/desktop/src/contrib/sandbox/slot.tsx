@@ -1,11 +1,13 @@
 import { useStore } from '@nanostores/react'
 import { useLayoutEffect, useRef, useState } from 'react'
 
+import type { SlotFill } from './protocol'
 import type { SandboxRealm } from './realm'
 
 interface SandboxSlotProps {
-  /** Pane/workspace bodies fill their zone; bar chips take the guest-reported size. */
-  fill: boolean
+  /** Pane/workspace bodies fill their zone; bar chips take the guest-reported
+   *  size; blocks take the host's width and the guest-reported height. */
+  fill: SlotFill
   /** Render props for this mount (a directive's attrs) — must survive
    *  structured clone; functions are dropped by the bridge. */
   props?: unknown
@@ -36,15 +38,19 @@ export function SandboxSlot({ fill, props, realm, renderId }: SandboxSlotProps) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fill, realm, renderId, slotId, JSON.stringify(props ?? null)])
 
+  const minHeight = size ? `${Math.ceil(size.height)}px` : undefined
+
   return (
     <div
-      className={fill ? 'size-full' : 'inline-block h-full'}
+      className={fill === true ? 'size-full' : fill === 'block' ? 'block w-full' : 'inline-block h-full'}
       data-sandbox-slot={slotId}
       ref={ref}
       style={
-        fill
+        fill === true
           ? undefined
-          : { minHeight: size ? `${Math.ceil(size.height)}px` : undefined, minWidth: size ? `${Math.ceil(size.width)}px` : '1px' }
+          : fill === 'block'
+            ? { minHeight: minHeight ?? '1px' }
+            : { minHeight, minWidth: size ? `${Math.ceil(size.width)}px` : '1px' }
       }
     />
   )

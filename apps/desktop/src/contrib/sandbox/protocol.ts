@@ -44,7 +44,7 @@ export type HostMessage =
   /** `renderId` names the plugin's render function; `slotId` is this mount
    *  (one render can be mounted many times — a transcript directive per
    *  message — each with its own `props`). */
-  | { type: 'slot-mount'; slotId: string; renderId: string; rect: SlotRect; fill: boolean; props?: unknown }
+  | { type: 'slot-mount'; slotId: string; renderId: string; rect: SlotRect; fill: SlotFill; props?: unknown }
   | { type: 'slot-rect'; slotId: string; rect: SlotRect }
   | { type: 'slot-unmount'; slotId: string }
   /** A relayed `ctx.socket` frame. */
@@ -67,9 +67,16 @@ export interface CallbackRef {
 export const isCallbackRef = (value: unknown): value is CallbackRef =>
   typeof value === 'object' && value !== null && typeof (value as CallbackRef).__hermesCallback === 'number'
 
-/** A React element the guest kept: the host mounts an inline slot for it. */
+/** How a slot sizes itself: a bar chip (guest-measured), a zone filler
+ *  (host-sized), or a block (host width, guest-measured height — a directive
+ *  leaf inside a transcript message). */
+export type SlotFill = 'block' | boolean
+
+/** A React element (or, with `component`, a render function taking props)
+ *  the guest kept: the host mounts a slot for it. */
 export interface RenderRef {
   __hermesRender: string
+  component?: boolean
 }
 
 export const isRenderRef = (value: unknown): value is RenderRef =>

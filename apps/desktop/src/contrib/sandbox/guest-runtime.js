@@ -119,6 +119,19 @@
         return undefined
       }
 
+      // `data.render` (a transcript directive's leaf) is a component taking
+      // props, mounted per occurrence: a render ref the host calls with props.
+      if (key === 'render') {
+        const renderId = `ref#${nextRenderRef++}`
+        renders.set(renderId, value)
+
+        if (refs) {
+          refs.push(renderId)
+        }
+
+        return { __hermesRender: renderId, component: true }
+      }
+
       // `menuContent: close => <Menu/>` returns guest UI into a HOST popover,
       // which paints above the frame; not reachable from the sandbox.
       if (key === 'menuContent') {
@@ -230,7 +243,7 @@
     const el = document.createElement('div')
     el.className = 'hermes-sandbox-slot'
     el.dataset.slot = slotId
-    el.dataset.fill = String(Boolean(fill))
+    el.dataset.fill = String(fill)
     const inner = document.createElement('div')
     inner.className = 'hermes-sandbox-slot-inner'
     el.appendChild(inner)
@@ -286,7 +299,21 @@
         return
       }
 
+      const style = getComputedStyle(el)
+
+      if (style.visibility === 'hidden' || style.display === 'none' || Number(style.opacity) === 0) {
+        return
+      }
+
       const box = el.getBoundingClientRect()
+
+      // A layer nobody can interact with may still need painting (a tooltip),
+      // but a LARGE one (a decorative full-window texture) must not widen the
+      // host's hit region: it would swallow clicks meant for the app and paint
+      // over it.
+      if (style.pointerEvents === 'none' && box.width * box.height > innerWidth * innerHeight * 0.25) {
+        return
+      }
 
       if (box.width > 0 && box.height > 0) {
         rects.push({ height: box.height, left: box.left, top: box.top, width: box.width })

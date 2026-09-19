@@ -97,6 +97,7 @@ body > :not(#slots) { pointer-events: auto; }
 .hermes-sandbox-slot { position: fixed; overflow: hidden; pointer-events: auto; }
 .hermes-sandbox-slot-inner { display: inline-flex; align-items: center; min-height: 100%; width: max-content; white-space: nowrap; }
 .hermes-sandbox-slot[data-fill="true"] .hermes-sandbox-slot-inner { display: block; height: 100%; width: 100%; white-space: normal; overflow: auto; }
+.hermes-sandbox-slot[data-fill="block"] .hermes-sandbox-slot-inner { display: block; width: 100%; white-space: normal; }
 .hermes-sandbox-error { font-size: 0.6875rem; color: #c0392b; }
 </style>
 <style id="hermes-host-style">${escapeStyleClose(input.styleText)}</style>
