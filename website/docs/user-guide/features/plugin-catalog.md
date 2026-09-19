@@ -88,6 +88,16 @@ The catalog is designed so you know exactly what you're installing:
 - **Capability declarations.** Entries state up front which tools, hooks, and
   middleware the plugin provides and which environment variables (API keys
   etc.) it needs, so you can judge its blast radius before installing.
+- **Desktop plugins from the catalog run in a sandbox.** In Hermes Desktop, a
+  catalog-installed plugin's `desktop/plugin.js` never runs inside the app
+  itself: it gets its own isolated frame with no network, no access to the
+  app's page, storage or cookies, and a fixed set of doors back to the app
+  (rendering its panels and chips, its own storage and backend namespace, the
+  event stream). Anything further — the clipboard, opening URLs, gateway
+  calls, navigation — must be declared under `desktop_capabilities:` in the
+  plugin's `plugin.yaml`; a call the plugin did not declare is refused and you
+  see a toast naming the plugin and the capability. Plugins you write yourself
+  or copy onto disk keep the full SDK, as before.
 - **Removed list.** Plugins pulled from the catalog (for example after a
   security incident) go on `plugin-catalog/removed.yaml` with a reason and
   date. The installer refuses to install anything on the removed list.
