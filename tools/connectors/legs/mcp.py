@@ -123,8 +123,8 @@ class _CatalogBackend:
             validate_env_var_name_for_write(key)
         from agent.secret_scope import current_secret_scope, reset_secret_scope, set_secret_scope
 
-        # The scope supplies credentials to install_entry and the probe without writing them to disk.
-        # Both paths resolve environment values through agent.secret_scope.get_secret.
+        # install_entry's prompt and the probe's ${VAR} interpolation both read get_secret, so the
+        # values reach them through the scope and touch disk only after both succeed.
         token = set_secret_scope({**(current_secret_scope() or {}), **{k: v for k, v in env.items() if v}})
         try:
             install_entry(entry, enable=True)
@@ -190,10 +190,8 @@ class _Runner:
         self.backend = backend
         self.op_id: Optional[str] = None
         self.work: Dict[str, _Work] = {}
-        # The credentials the card approved, per leg. Try again carries none (a failed row has
-        # no fields), so the install that runs again is the one the user approved. Kept here and
-        # not on the leg: the values are secrets, and the runner is the one object whose life
-        # is exactly the operation's.
+        # Approved credentials per leg. Try again sends none, so a retried install reuses these.
+        # Kept off the Leg: the values are secrets and the runner lives exactly as long as the operation.
         self.approved_env: Dict[str, Dict[str, str]] = {}
 
     def run(self, table: Dict[str, Callable], operation: ConnectionOperation, leg: Leg,

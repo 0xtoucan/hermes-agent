@@ -69,7 +69,7 @@ def _status_by_slug(client: Any) -> Dict[str, Dict[str, Any]]:
 
 def mint(client: Any, operation: ConnectionOperation, names: List[str], *, reinitiate: bool, actor: Actor) -> None:
     """Mint links for ``names`` and apply the gateway's per-app answer to the operation. ``actor`` is
-    the watcher on the first mint and the user on Try again. The operation id rides along so the
+    the watcher on the first mint and the user on Try again. The operation id is sent with it so the
     vendor's done page can name it on the way back to the desktop."""
     from tools.connectors.gateway.client import return_to_args
 

@@ -111,7 +111,7 @@ def _desktop_callback(answer=None):
 
 def _run(args, gw, *, callback=None, tick=0.0, platform="desktop"):
     # Two seams read the surface: managed decides whether a card exists, the client decides whether a
-    # return leg rides the mint.
+    # the return leg is sent with the mint.
     with patch("tools.connectors.legs.managed.WATCH_TICK_SECONDS", tick), \
          patch("tools.connectors.legs.managed.session_platform", return_value=platform), \
          patch("tools.connectors.gateway.client.session_platform", return_value=platform):
