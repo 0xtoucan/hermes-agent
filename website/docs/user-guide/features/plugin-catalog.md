@@ -90,20 +90,33 @@ The catalog is designed so you know exactly what you're installing:
   etc.) it needs, so you can judge its blast radius before installing.
 - **Installed desktop plugins run in a sandbox.** In Hermes Desktop, the
   `desktop/plugin.js` of any plugin you installed — from the catalog or with
-  `hermes plugins install <git-url>` — never runs inside the app itself: it gets its own isolated frame with no network, no access to the
-  app's page, storage or cookies, and a fixed set of doors back to the app
-  (rendering its panels and chips, its own storage and backend namespace, the
-  event stream). Anything further — the clipboard, opening URLs, gateway
-  calls, navigation — must be declared under `desktop_capabilities:` in the
-  plugin's `plugin.yaml`; a call the plugin did not declare is refused and you
-  see a toast naming the plugin and the capability. Plugins you write yourself
-  or copy onto disk keep the full SDK, as before.
+  `hermes plugins install <git-url>` — never runs inside the app itself: it gets
+  its own isolated frame with no network, no access to the app's page, storage
+  or cookies, and a fixed set of doors back to the app (rendering its panels
+  and chips, its own storage and backend namespace, the event stream).
+  Anything further — the clipboard, opening URLs, gateway calls, submitting
+  prompts, editing your draft, navigation — must be declared under
+  `desktop_capabilities:` in the plugin's `plugin.yaml` **and** allowed by you
+  (see below). Plugins you write yourself or copy onto disk keep the full SDK,
+  as before.
 - **Removed list.** Plugins pulled from the catalog (for example after a
   security incident) go on `plugin-catalog/removed.yaml` with a reason and
   date. The installer refuses to install anything on the removed list.
 - **Installed ≠ enabled.** Installing a catalog plugin puts it on disk; like
   any plugin it must still be enabled before it loads. See
   [Plugins → Enabling and disabling](plugins.md).
+
+Declaring a permission is a request, not a grant. Open **Capabilities →
+Plugins** and the plugin's row lists what it asked for as plain-language chips
+under **Permissions** — "Submit prompts as you", "Open links in your browser",
+"Read and edit your draft", and so on. Until you click **Allow**, the plugin
+runs with the defaults only (its own UI, storage, backend namespace and the
+event stream), and anything it tries beyond them is blocked with a notice
+naming the plugin and offering **Review**. The first time a plugin with extra
+requests activates you also get a one-time toast pointing at that row; nothing
+is granted from the toast. **Allow** is per profile — a grant made under one
+profile never applies to another — and **Revoke** on the same row returns the
+plugin to the defaults immediately, no restart needed.
 
 :::warning Catalog review is a point-in-time review
 A catalog entry means the pinned commit was looked at by a human, capability

@@ -893,18 +893,127 @@ companion repo.
 
 ## Security model
 
-A loaded plugin is evaluated as ESM in the renderer realm with **full app
-authority** — the React singleton, the whole SDK (`host.request` gateway RPC,
-`ctx.rest`, storage, `navigate`). The isolation the loader provides is **error
-isolation only**: a plugin can't crash the app (contributions are error-bounded,
-listeners isolated), but it can do anything the app can.
+A **bundled** or **local** plugin is evaluated as ESM in the renderer realm with
+**full app authority** — the React singleton, the whole SDK (`host.request`
+gateway RPC, `ctx.rest`, storage, `navigate`). The isolation the loader provides
+there is **error isolation only**: a plugin can't crash the app (contributions
+are error-bounded, listeners isolated), but it can do anything the app can.
 
 This is acceptable for **local** sources — a disk file can already run code on
 your machine — which is why the disk door only loads local files you (or your
 agent) wrote. The optional `integrity` (`sha256-…`) check only proves the bytes
-match a hash; it does **not** sandbox. A future remote-source door will need a
-real boundary (iframe/worker + CSP + capability gating) before it can land; do
-not treat this pipeline as a trust boundary.
+match a hash; it does **not** sandbox.
+
+Anything that arrived through an installer is a **remote** source and takes a
+different pipeline. The rule is "not hand-copied ⇒ sandboxed":
+
+| Tier | Source | Realm |
+|---|---|---|
+| `bundled` | `apps/desktop/src/plugins/*` | renderer, full SDK |
+| `local` | `$HERMES_HOME/desktop-plugins/<id>/plugin.js` you or your agent wrote, or a package folder copied in by hand (no install marker) | renderer, full SDK |
+| `remote` | the `desktop/plugin.js` of a package installed from the plugin catalog, `hermes plugins install <git-url>`, or the `plugins.install` RPC (the `.hermes-package.json` marker carries `catalogName`, `repo`, or `sidecarUnreadable`) | per-plugin sandbox frame, capability-gated SDK subset |
+
+### Sandbox and `desktop_capabilities`
+
+A remote-tier plugin runs in its own `<iframe sandbox="allow-scripts">`: opaque
+origin, `default-src 'none'` CSP (no network, no remote scripts), its own React
+copy. Its contributions render *inside* the frame — the host mounts a
+placeholder in the contribution's area and the frame paints into it — and every
+effect crosses a postMessage bridge that answers only a fixed method table
+(`apps/desktop/src/contrib/sandbox/methods.ts`). Each method names the **one**
+capability it needs. The same plugin code runs unchanged in both realms as long
+as it stays on the SDK; the differences are listed below.
+
+Declare what you need in `plugin.yaml`:
+
+```yaml
+desktop_capabilities:
+  - ui            # default
+  - storage       # default
+  - events        # default
+  - rest          # default
+  - composer
+  - os:open-external
+```
+
+| Capability | Lets the plugin… |
+|---|---|
+| `ui` **(default)** | register contributions, `host.notify` / `notifyError` (text only), `haptic`, read `host.state.*`, open a workspace tab, watch pane visibility |
+| `storage` **(default)** | use `ctx.storage` (plugin-scoped) |
+| `events` **(default)** | `host.onEvent` / `ctx.onEvent`, and `ctx.socket` to its own backend namespace |
+| `rest` **(default)** | `ctx.rest` — the plugin's own `/api/plugins/<id>/` namespace |
+| `rest:any` | `ctx.restAny` — any `/api/` route on the backend |
+| `gateway:request` | `host.request` for the read-only allowlist below (includes `session.history`, i.e. read access to every conversation the gateway holds) |
+| `prompt:submit` | `host.request('prompt.submit')` — send a turn as the user |
+| `llm` | `host.request('llm.oneshot')` — spend model tokens on a side request |
+| `composer` | `host.composer` — read and edit the draft |
+| `navigate` | `host.navigate` |
+| `os:clipboard` | `ctx.os.writeClipboard` |
+| `os:dialogs` | `ctx.os.pickOpenPath` / `pickSavePath` |
+| `os:open-external` | `ctx.os.openExternal` — http(s) URLs only |
+| `os:reveal-path` | `ctx.os.revealPath` — paths inside the plugin's own install folder only |
+| `os:notify` | `ctx.os.notify` — native OS notifications |
+
+The four defaults are granted to every plugin whether or not it lists them.
+**Everything else is a request, not a grant.** The user sees the requests as
+chips on the plugin's row in **Capabilities → Plugins** and decides with
+**Allow** (per profile, revocable from the same row); until then the plugin
+runs with the defaults, and a call beyond them is refused — the user gets a
+`Plugin "<name>" blocked` notice with a **Review** action. If the capability
+was never declared, the notice tells you to add it under `desktop_capabilities`
+instead. So: declare the minimum, and degrade gracefully when a call rejects —
+never assume a request was allowed. Unknown capability names are dropped and
+reported at load, never widened.
+
+`host.request` from the sandbox is an **exact-name allowlist**
+(`GATEWAY_METHOD_CAPABILITIES` in `apps/desktop/src/contrib/sandbox/capabilities.ts`):
+`billing.state`, `commands.catalog`, `cron.list`, `free_tier.status`,
+`profiles.list`, `session.history`, `session.info`, `session.list`,
+`skills.list`, `status` ride on `gateway:request`; `prompt.submit` needs
+`prompt:submit`; `llm.oneshot` needs `llm` (a third `timeoutMs` argument may
+lengthen that one call, capped at five minutes). Anything that installs,
+reconfigures, or executes on the user's machine — `cli.exec`,
+`profiles.configure`, filesystem, terminal, secrets — stays host-only and is
+never admitted to a sandboxed plugin. `host.getGateway().request` goes through
+the same table.
+
+**The composer door.** Reading or writing the editor DOM does not work in the
+sandbox (there is no host DOM) and drifts every time the editor changes; use
+the API instead, behind the `composer` capability:
+
+```javascript
+const draft = await host.composer.getText()       // plain text of the active draft (async in the sandbox)
+host.composer.insertText('…', 'block')            // mode: 'block' (own paragraph, default) | 'inline' (same line) | 'prefix' (leading — slash commands)
+host.composer.setText('')                          // replace the whole draft; '' clears
+```
+
+Feature-detect on older desktops with `typeof host.composer === 'object'`.
+
+**Not supported in the sandbox** (each fails loudly or degrades in a documented way):
+
+- Statusbar `menuContent` — dropped with a console warning. A host popover
+  cannot paint guest UI; use `render` with an SDK `Popover` inside your item.
+- `icon` given as a React **component** on palette / sidebar-nav items — the
+  host cannot render a guest component inline, so it draws its own glyph for
+  sandboxed rows. Statusbar `label` / `icon` / `detail` given as elements still
+  render.
+- `when` predicates on contributions — a host-evaluated function cannot cross
+  the boundary; the contribution is always shown (with a console warning). Gate
+  visibility inside your own `render`.
+- `useI18n` in the frame sees only a slice of the host catalog (`common`,
+  `errors.genericFailure`, `ui.search`, `ui.pagination`) plus your plugin's own
+  locale bundles (`ctx.i18n` / `usePluginI18n`). Ship your own strings.
+- Host DOM access (`host.querySelector`, `querySelectorAll`, `insertBefore`)
+  throws with a hint — use `host.composer` for the draft, an SDK hook for
+  anything else.
+- `Streamdown` is bundled into the frame only when your source imports it.
+- Toast extras — a guest `host.notify` carries `message`, `title`, `detail`,
+  `kind` only; `id`, `action`, `durationMs`, `placement` are stripped.
+- `host.logs`, `host.status`, `host.restartGateway`, and host calls made from
+  inside `onDispose` are not bridged.
+
+Point-in-time coverage of the real plugin set under the sandbox is recorded in
+`apps/desktop/src/contrib/sandbox/SDK_COVERAGE.md`.
 
 ## Pitfalls
 
@@ -933,7 +1042,7 @@ not treat this pipeline as a trust boundary.
 
 | Category | Exports |
 |----------|---------|
-| Host | `host` (`.state.*`, `.notify`, `.notifyError`, `.navigate`, `.onEvent`, `.logs`, `.status`, `.restartGateway`, `.request`) |
+| Host | `host` (`.state.*`, `.notify`, `.notifyError`, `.navigate`, `.onEvent`, `.logs`, `.status`, `.restartGateway`, `.request`, `.getGateway`, `.composer` — see [Sandbox and `desktop_capabilities`](#sandbox-and-desktop_capabilities) for what a sandboxed plugin can reach) |
 | Plugin contract | `HermesPlugin`, `PluginContext`, `PluginContribution`, `PluginStorage`, `PluginOs`, `PluginRestOptions`, `PluginNativeNotificationInput`, `PluginNotificationAction`, `HermesOpenTarget`, `Contribution` |
 | Area constants | `PANES_AREA`, `ROUTES_AREA`, `SIDEBAR_NAV_AREA`, `STATUSBAR_AREAS`, `TITLEBAR_AREAS`, `WORKSPACE_PAGE_HEADER_AREA`, `PALETTE_AREA`, `KEYBINDS_AREA`, `THEMES_AREA`, `COMPOSER_AREAS` |
 | Area payloads | `RouteContribution`, `SidebarNavContribution`, `StatusbarItem`, `TitlebarTool`, `PaletteContribution`, `KeybindContribution`, `ComposerMiddleware`, `ComposerAttachmentProvider` |

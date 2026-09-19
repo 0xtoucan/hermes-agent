@@ -306,6 +306,7 @@ this Hermes understands still loads with a warning.
 | `license` | str | SPDX-style license id (e.g. `MIT`). |
 | `homepage` | str | Project URL. |
 | `tags` | list of str | Free-form discovery tags (e.g. `[gateway, telegram]`). |
+| `desktop_capabilities` | list of str | For a package that ships a `desktop/plugin.js` half: the sandbox capabilities it asks the Desktop user for (`ui`, `storage`, `events`, `rest` are defaults; the rest are user-approved requests). See [Desktop Plugin SDK → Sandbox and `desktop_capabilities`](../desktop-plugin-sdk.md#sandbox-and-desktop_capabilities). |
 
 ```yaml
 # plugin.yaml — manifest v2 example
