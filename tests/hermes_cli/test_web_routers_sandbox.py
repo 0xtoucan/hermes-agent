@@ -48,14 +48,56 @@ def test_status_reports_availability_policy_and_the_requested_workspace(client, 
     assert body["workspace_ancestors"]["ready"] is True
 
 
-def test_enabling_switches_the_terminal_backend_and_disabling_restores_local(client):
+def test_enabling_switches_the_terminal_backend_and_disabling_restores_local(client, monkeypatch):
+    import tools.terminal_tool as terminal_tool
+    from hermes_cli.web_routers import sandbox as sandbox_routes
+
+    class _Env:
+        cleaned = 0
+
+        def cleanup(self):
+            _Env.cleaned += 1
+
+    bridged = []
+    monkeypatch.setattr(sandbox_routes, "_apply_backend_switch_to_this_process",
+                        lambda: bridged.append(True) or terminal_tool._active_environments.clear())
+    terminal_tool._active_environments["task-a"] = _Env()
+
     resp = client.post("/api/sandbox/policy", json={"enabled": True})
     assert resp.status_code == 200
     assert load_config()["terminal"]["backend"] == "mxc"
+    assert bridged == [True], "a backend change must be applied to the running process"
+    assert "task-a" not in terminal_tool._active_environments
+
+    resp = client.post("/api/sandbox/policy", json={"network": True})
+    assert resp.status_code == 200
+    assert bridged == [True], "a policy-only edit is live already and must not evict environments"
 
     resp = client.post("/api/sandbox/policy", json={"enabled": False})
     assert resp.status_code == 200
     assert load_config()["terminal"]["backend"] == "local"
+    assert bridged == [True, True]
+
+
+def test_live_backend_switch_rebridges_env_and_evicts_cached_environments(monkeypatch, _isolate_hermes_home):
+    import tools.terminal_tool as terminal_tool
+    from hermes_cli.web_routers import sandbox as sandbox_routes
+
+    class _Env:
+        cleaned = 0
+
+        def cleanup(self):
+            _Env.cleaned += 1
+
+    calls = []
+    monkeypatch.setattr("hermes_cli.config.apply_terminal_config_to_env", lambda env=None: calls.append(env))
+    monkeypatch.setattr("agent.secret_scope.is_multiplex_active", lambda: False)
+    terminal_tool._active_environments["task-b"] = _Env()
+    try:
+        sandbox_routes._apply_backend_switch_to_this_process()
+    finally:
+        terminal_tool._active_environments.pop("task-b", None)
+    assert calls == [None] and _Env.cleaned == 1
 
 
 def test_enabling_is_refused_with_the_host_reason_when_mxc_cannot_run(client, monkeypatch):

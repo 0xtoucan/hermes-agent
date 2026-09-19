@@ -1148,7 +1148,7 @@ export const zh = defineLocale({
       statusDegraded: '可用（受限）',
       statusUnavailable: '不可用',
       toggleLabel: '沙箱化智能体操作',
-      toggleDescription: '在内核强制隔离的容器中运行每条命令。策略更改在下一条命令时生效。',
+      toggleDescription: '在内核强制隔离的容器中运行每条命令。下一条命令起生效；之后请开始新对话，以便向智能体说明沙箱环境。',
       shellNote: '首次开启时会下载沙箱 shell。',
       workspaceTitle: '工作区',
       workspaceDescription: '读写。会话所在的文件夹始终被授予访问权限。',

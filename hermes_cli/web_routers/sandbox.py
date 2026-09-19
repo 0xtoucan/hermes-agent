@@ -16,7 +16,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from hermes_cli.web_deps import late
-from hermes_cli.web_routers._common import config_write_scope, http_failure, scoped_to_thread
+from hermes_cli.web_routers._common import config_write_scope, http_failure, log, scoped_to_thread
 
 router = APIRouter()
 
@@ -105,6 +105,25 @@ async def get_sandbox_status(profile: Optional[str] = None, provision: bool = Fa
         return await scoped_to_thread(profile, lambda: _status_payload(provision_shell=provision, workspace=workspace))
 
 
+def _apply_backend_switch_to_this_process() -> None:
+    """Make a terminal-backend change reach the running server without a restart.
+
+    Outside multiplexed hosting the terminal tool reads its backend from the process env that was
+    bridged at startup, and it caches one environment per task; both would keep serving the old
+    backend. Re-bridging config.yaml and dropping the cached environments means the next command
+    of every session is created against the new backend (multiplexed profiles already re-read the
+    file per turn)."""
+    from agent.secret_scope import is_multiplex_active
+    from tools.terminal_tool import _active_environments
+    from tools.terminal_tool_lifecycle import cleanup_vm
+
+    if not is_multiplex_active():
+        from hermes_cli.config import apply_terminal_config_to_env
+        apply_terminal_config_to_env(env=None)
+    for task_id in list(_active_environments.keys()):
+        cleanup_vm(task_id)
+
+
 @router.post("/api/sandbox/policy")
 async def update_sandbox_policy(body: SandboxPolicyUpdate, profile: Optional[str] = None):
     """Persist policy fields and/or switch the terminal backend. Enabling refuses (400) when the
@@ -112,6 +131,7 @@ async def update_sandbox_policy(body: SandboxPolicyUpdate, profile: Optional[str
     from tools.environments.mxc_host import status
 
     def _run():
+        backend_changed = False
         with config_write_scope(body.profile or profile):
             if body.enabled:
                 record = status(provision_shell=True)
@@ -119,10 +139,12 @@ async def update_sandbox_policy(body: SandboxPolicyUpdate, profile: Optional[str
                     raise HTTPException(status_code=400, detail=record["reason"] or "MXC is not available on this host.")
             config = load_config()
             terminal = _terminal_section(config)
+            before = str(terminal.get("backend") or "local")
             if body.enabled is True:
                 terminal["backend"] = "mxc"
-            elif body.enabled is False and str(terminal.get("backend") or "") == "mxc":
+            elif body.enabled is False and before == "mxc":
                 terminal["backend"] = "local"
+            backend_changed = str(terminal.get("backend") or "local") != before
             readwrite = _clean_paths(body.readwrite_paths)
             readonly = _clean_paths(body.readonly_paths)
             if readwrite is not None:
@@ -132,6 +154,11 @@ async def update_sandbox_policy(body: SandboxPolicyUpdate, profile: Optional[str
             if body.network is not None:
                 terminal["mxc_network"] = bool(body.network)
             save_config(config)
+            if backend_changed:
+                try:
+                    _apply_backend_switch_to_this_process()
+                except Exception:  # noqa: BLE001 — the file is saved; a restart still applies it
+                    log.warning("sandbox: live backend switch did not fully apply", exc_info=True)
         return _status_payload()
 
     with http_failure("Failed to update sandbox policy", 500, "Sandbox policy update failed"):

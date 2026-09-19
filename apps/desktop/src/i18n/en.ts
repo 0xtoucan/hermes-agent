@@ -943,7 +943,8 @@ export const en: Translations = {
       statusDegraded: 'Available (limited)',
       statusUnavailable: 'Not available',
       toggleLabel: 'Sandbox agent actions',
-      toggleDescription: 'Run every command in a kernel-enforced container. Policy changes apply to the next command.',
+      toggleDescription:
+        'Run every command in a kernel-enforced container. Takes effect on the next command; start a new conversation afterwards so the agent is briefed about the sandbox.',
       shellNote: 'The sandbox shell is downloaded the first time you turn this on.',
       workspaceTitle: 'Workspace',
       workspaceDescription: 'Read & write. The folder a session works in is always granted.',
