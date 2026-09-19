@@ -811,6 +811,37 @@ export interface Translations {
       screenRecording: string
       driverHealth: string
     }
+    sandbox: {
+      heading: string
+      description: string
+      statusAvailable: string
+      statusDegraded: string
+      statusUnavailable: string
+      toggleLabel: string
+      toggleDescription: string
+      shellNote: string
+      workspaceTitle: string
+      workspaceDescription: string
+      foldersTitle: string
+      foldersEmpty: string
+      addReadOnly: string
+      addReadWrite: string
+      remove: string
+      modeRead: string
+      modeReadWrite: string
+      networkLabel: string
+      networkDescription: string
+      containers: (count: number) => string
+      recheck: string
+      prepareTitle: string
+      prepareDescription: string
+      prepare: string
+      prepared: string
+      needsAdmin: string
+      copyCommand: string
+      enableFailed: string
+      updateFailed: string
+    }
     about: {
       heading: string
       version: (value: string) => string
@@ -3716,6 +3747,15 @@ export interface Translations {
       statusDone: string
       /** Over-budget / rejected memory write title — not "Saved to memory". */
       resultUnavailable: string
+      sandboxBlocked: string
+      sandboxBlockedDetail: (path: string) => string
+      sandboxAllowRead: string
+      sandboxAllowReadWrite: string
+      sandboxGrantedTitle: string
+      sandboxGranted: (path: string) => string
+      sandboxRetryDraft: (path: string, mode: string) => string
+      sandboxGrantFailed: string
+      sandboxPill: string
       memoryWriteNoted: string
       actions: {
         read: string

@@ -32,6 +32,13 @@ export interface CountMetric {
   noun: string
 }
 
+export interface ToolSandboxInfo {
+  backend: string
+  container?: string
+  /** Paths (or descriptive markers) the sandbox refused; empty when the command ran clean. */
+  denied: string[]
+}
+
 export interface ToolView {
   countLabel?: string
   detail: string
@@ -45,6 +52,9 @@ export interface ToolView {
    *  (terminal/execute_code) so the renderer knows to run them through
    *  the ANSI parser instead of printing them as literals. */
   rendersAnsi?: boolean
+  /** Present when the command ran inside a sandbox backend (Windows MXC);
+   *  `denied` lists what the sandbox refused so the renderer can offer a grant. */
+  sandbox?: ToolSandboxInfo
   /** Original query, shown above structured web-search results. */
   searchQuery?: string
   searchHits?: SearchResultRow[]
