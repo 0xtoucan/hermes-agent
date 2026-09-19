@@ -48,11 +48,12 @@ class FakeFrame implements SandboxFrame {
   }
 }
 
-function realmWith(granted: Parameters<typeof resolveCapabilities>[0], name = 'fixture') {
+function realmWith(granted: Parameters<typeof resolveCapabilities>[0], name = 'fixture', file?: string) {
   let frame!: FakeFrame
 
   const realm = new SandboxRealm({
     createFrame: (_srcdoc, owner) => (frame = new FakeFrame(owner)),
+    file,
     granted: resolveCapabilities(granted).granted,
     name,
     pluginId: name,
@@ -200,6 +201,57 @@ describe('SandboxRealm bridge', () => {
     expect(own.isConnected).toBe(false)
     expect(onError).toHaveBeenCalledWith(expect.stringContaining('https://attacker.example'))
     expect(notify.mock.calls.at(-1)?.[0]).toMatchObject({ kind: 'error', title: 'Plugin "p" disabled' })
+  })
+
+  it('admits only http(s) for os.openExternal and only own-folder paths for os.revealPath', async () => {
+    const openExternal = vi.fn(async (_url: string) => undefined)
+    const revealPath = vi.fn(async (_path: string) => true)
+    ;(window as unknown as { hermesDesktop: unknown }).hermesDesktop = { openExternal, revealPath }
+
+    try {
+      const { frame, realm } = realmWith(['os:open-external', 'os:reveal-path'], 'p', '/home/u/.hermes/desktop-plugins/p/plugin.js')
+      const urls = ['https://example.com/x', 'http://example.com/', 'file:///etc/passwd', 'javascript:alert(1)', 'hermes://x', 'not a url']
+      const paths = [
+        '/home/u/.hermes/desktop-plugins/p/README.md',
+        '/home/u/.hermes/desktop-plugins/p',
+        '/home/u/.hermes/desktop-plugins/p/../other/plugin.js',
+        '/home/u/.hermes/desktop-plugins/p-evil/plugin.js',
+        '/etc/passwd'
+      ]
+
+      urls.forEach((url, i) => call(realm, i + 1, 'osOpenExternal', [url]))
+      paths.forEach((path, i) => call(realm, 100 + i, 'osRevealPath', [path]))
+      await flush()
+
+      expect(openExternal.mock.calls.map(c => c[0])).toEqual(['https://example.com/x', 'http://example.com/'])
+      expect(revealPath.mock.calls.map(c => c[0])).toEqual([
+        '/home/u/.hermes/desktop-plugins/p/README.md',
+        '/home/u/.hermes/desktop-plugins/p'
+      ])
+      const refused = frame.replies().filter(r => !r.ok)
+      expect(refused).toHaveLength(4 + 3)
+      expect(refused.every(r => /only http\(s\)|own install folder/.test(r.error ?? ''))).toBe(true)
+      realm.dispose()
+    } finally {
+      delete (window as unknown as { hermesDesktop?: unknown }).hermesDesktop
+    }
+  })
+
+  it('refuses os.revealPath outright when the realm has no install file', async () => {
+    const revealPath = vi.fn(async () => true)
+    ;(window as unknown as { hermesDesktop: unknown }).hermesDesktop = { revealPath }
+
+    try {
+      const { frame, realm } = realmWith(['os:reveal-path'])
+      call(realm, 1, 'osRevealPath', ['/anything'])
+      await flush()
+
+      expect(revealPath).not.toHaveBeenCalled()
+      expect(frame.replies()[0]).toMatchObject({ ok: false })
+      realm.dispose()
+    } finally {
+      delete (window as unknown as { hermesDesktop?: unknown }).hermesDesktop
+    }
   })
 
   it('registers a contribution whose render is a host placeholder, and dispose tears it all down', async () => {

@@ -44,6 +44,9 @@ export interface SandboxFrame {
 export interface SandboxRealmOptions {
   /** Trusted key: the install folder. Scopes storage/REST/provenance. */
   pluginId: string
+  /** Absolute path of the plugin's entry file; `os.revealPath` may only
+   *  reveal paths inside its folder. Absent = the method is refused. */
+  file?: string
   name: string
   granted: ReadonlySet<Capability>
   srcdoc: string
@@ -141,6 +144,7 @@ const sameRect = (a: SlotRect, b: SlotRect) =>
 
 export class SandboxRealm {
   readonly pluginId: string
+  readonly file: string | undefined
   readonly name: string
   readonly granted: ReadonlySet<Capability>
   /** Intrinsic size the guest reports per slot — bars size their placeholder from it. */
@@ -166,6 +170,7 @@ export class SandboxRealm {
   constructor(options: SandboxRealmOptions) {
     this.options = options
     this.pluginId = options.pluginId
+    this.file = options.file
     this.name = options.name
     this.granted = options.granted
     this.onMessage = event => this.receive(event)

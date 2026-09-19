@@ -13,6 +13,7 @@ import { createElement } from 'react'
 
 import { hermesApi, profileScoped } from '@/api/client'
 import type { PluginContext, PluginContribution } from '@/contrib/plugin'
+import { admitPreviewExternalUrl } from '@/lib/preview-external'
 import * as sdk from '@/sdk'
 
 import { type Capability, gatewayMethodAllowed } from './capabilities'
@@ -86,6 +87,35 @@ function register({ ctx, realm }: MethodEnv, [raw]: unknown[]): string {
   realm.registrations.set(id, ctx.register(contribution))
 
   return id
+}
+
+/** Lexically normalize an absolute path: forward slashes, `.`/`..` resolved,
+ *  Windows drive letters lower-cased. No filesystem access — the renderer has
+ *  none — so a symlink inside the folder is still "inside"; what the check
+ *  denies is naming anything outside it. */
+export function normalizePath(input: string): string {
+  const unified = input.replace(/\\/g, '/')
+  const drive = /^[a-zA-Z]:/.exec(unified)?.[0].toLowerCase() ?? ''
+  const segments: string[] = []
+
+  for (const segment of unified.slice(drive.length).split('/')) {
+    if (segment === '..') {
+      segments.pop()
+    } else if (segment && segment !== '.') {
+      segments.push(segment)
+    }
+  }
+
+  return `${drive}/${segments.join('/')}`
+}
+
+const folderOf = (file: string) => normalizePath(file).replace(/\/[^/]*$/, '')
+
+export function insideFolder(folder: string, target: string): boolean {
+  const base = normalizePath(folder)
+  const path = normalizePath(target)
+
+  return path === base || path.startsWith(`${base}/`)
 }
 
 export const METHODS: Record<string, SandboxMethod> = {
@@ -197,6 +227,30 @@ export const METHODS: Record<string, SandboxMethod> = {
 
   osNotify: { capability: 'os:notify', run: ({ ctx }, [input]) => ctx.os.notify(record(input) as never) },
   osWriteClipboard: { capability: 'os:clipboard', run: ({ ctx }, [text]) => ctx.os.writeClipboard(String(text)) },
-  osOpenExternal: { capability: 'os:open-external', run: ({ ctx }, [url]) => ctx.os.openExternal(str(url, 'url')) },
-  osRevealPath: { capability: 'os:reveal-path', run: ({ ctx }, [path]) => ctx.os.revealPath(str(path, 'path')) }
+  osOpenExternal: {
+    capability: 'os:open-external',
+    run: ({ ctx }, [url]) => {
+      const target = str(url, 'url')
+
+      // Same admission as a preview guest's link: the web subset only. `file:`
+      // and custom schemes reach `shell.openPath` / protocol handlers in main.
+      if (!admitPreviewExternalUrl(target)) {
+        throw new Error('openExternal: only http(s) URLs may be opened from a sandboxed plugin')
+      }
+
+      return ctx.os.openExternal(target)
+    }
+  },
+  osRevealPath: {
+    capability: 'os:reveal-path',
+    run: ({ ctx, realm }, [path]) => {
+      const target = str(path, 'path')
+
+      if (!realm.file || !insideFolder(folderOf(realm.file), target)) {
+        throw new Error('revealPath: a sandboxed plugin may only reveal paths inside its own install folder')
+      }
+
+      return ctx.os.revealPath(target)
+    }
+  }
 }

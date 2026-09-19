@@ -183,6 +183,7 @@ export async function loadSandboxedPlugin(
       hooks =>
         new SandboxRealm({
           createFrame: options.createFrame,
+          file: options.file,
           granted,
           name: pluginId,
           pluginId,
