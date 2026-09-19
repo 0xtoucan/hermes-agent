@@ -1830,7 +1830,44 @@ export const en: Translations = {
       tierCommunity: 'community',
       updateToPin: (sha: string) => `Update to ${sha}`,
       updateFailed: (name: string) => `Could not update ${name}`,
-      updated: (name: string) => `${name} updated to the current catalog pin. Restart the gateway to apply.`
+      updated: (name: string) => `${name} updated to the current catalog pin. Restart the gateway to apply.`,
+      consentLabel: 'Permissions',
+      consentPending: 'asked for',
+      consentAllowed: 'allowed',
+      consentPendingHint:
+        'This plugin asked for these permissions. Until you allow them it runs with the defaults only, and anything it tries beyond them is blocked.',
+      consentAllowedHint: 'You allowed these permissions for this profile. Revoke returns the plugin to the defaults.',
+      consentAllow: 'Allow',
+      consentRevoke: 'Revoke',
+      consentAllowedToast: (name: string) => `${name} can now use the permissions it asked for.`,
+      consentRevokedToast: (name: string) => `${name} is back to the default permissions.`,
+      consentRequestTitle: (name: string) => `${name} asks for permissions`,
+      consentRequestMessage: (count: number) =>
+        `It requested ${count} permission${count === 1 ? '' : 's'} beyond the defaults. It runs without them until you allow them in Capabilities › Plugins.`,
+      consentReview: 'Review',
+      sandboxBlockedTitle: (name: string) => `Plugin "${name}" blocked`,
+      sandboxBlockedPending: (action: string, method: string) =>
+        `It tried to ${action} ("${method}"), which you have not allowed yet. Review its permissions in Capabilities › Plugins.`,
+      sandboxBlockedUndeclared: (action: string, method: string, capability: string) =>
+        `It tried to ${action} ("${method}") without the "${capability}" capability. The plugin must declare it under desktop_capabilities in its plugin.yaml.`,
+      sandboxDisabledTitle: (name: string) => `Plugin "${name}" disabled`,
+      capabilityLabels: {
+        ui: 'Add UI and show notices',
+        storage: 'Keep its own settings',
+        events: 'Follow gateway events',
+        rest: 'Talk to its own backend',
+        restAny: 'Call any backend route',
+        gatewayRequest: 'Read sessions, skills and status',
+        promptSubmit: 'Submit prompts as you',
+        llm: 'Run model requests',
+        composer: 'Read and edit your draft',
+        navigate: 'Navigate the app',
+        osClipboard: 'Write to the clipboard',
+        osDialogs: 'Open file dialogs',
+        osOpenExternal: 'Open links in your browser',
+        osRevealPath: 'Reveal its files in the file manager',
+        osNotify: 'Send system notifications'
+      }
     },
     officialCatalog: 'Available to install',
     officialPill: 'Official',

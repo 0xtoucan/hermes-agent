@@ -8,12 +8,13 @@
 
 import { type PluginContext } from '@/contrib/plugin'
 import { $pluginRecords, pluginActive, type PluginRecord, publishPlugin } from '@/contrib/plugins-store'
+import { translateNow } from '@/i18n'
 import { TRANSLATIONS } from '@/i18n/catalog'
 import { $runtimeLocale } from '@/i18n/runtime'
 import * as sdk from '@/sdk'
-import { notifyError } from '@/store/notifications'
+import { notify, notifyError } from '@/store/notifications'
 
-import { resolveCapabilities } from './capabilities'
+import { type Capability, resolveCapabilities } from './capabilities'
 import {
   buildFrameDocument,
   collectHostFontFaces,
@@ -21,11 +22,14 @@ import {
   pluginWantsStreamdown,
   styleSheetText
 } from './frame-document'
+import { $capabilityGrants, effectiveCapabilities, markCapabilitiesNoticed, pendingCapabilities } from './grants'
 import { FN_LEAF, type GuestMessage } from './protocol'
 import { type SandboxFrame, SandboxRealm } from './realm'
 
 export interface SandboxLoadOptions {
-  /** Declared `desktop_capabilities` from plugin.yaml; undefined = defaults. */
+  /** Declared `desktop_capabilities` from plugin.yaml; undefined = defaults.
+   *  Anything beyond the defaults is a REQUEST the user allows per profile
+   *  (grants.ts) — the realm starts with the defaults it asked for. */
   capabilities?: readonly unknown[]
   defaultEnabled?: boolean
   file?: string
@@ -222,7 +226,18 @@ function bridgeLateStyles(realm: SandboxRealm): void {
   })
 }
 
+/** Consent is live: Allow/Revoke on the plugin's row (or a profile switch)
+ *  moves the realm's grant set for its next call — no reload. Re-armed per
+ *  activation like every other bridge (deactivate runs the disposers). */
+function bridgeGrants(realm: SandboxRealm): void {
+  const sync = () => realm.setGranted(effectiveCapabilities(realm.pluginId, realm.requested))
+
+  sync()
+  realm.track($capabilityGrants.listen(sync))
+}
+
 function bootstrap(realm: SandboxRealm, _ctx: PluginContext): void {
+  bridgeGrants(realm)
   realm.send({ type: 'storage', values: storageSnapshot(realm.pluginId) })
   bridgeLocale(realm)
   bridgeHostState(realm)
@@ -278,7 +293,8 @@ export async function loadSandboxedPlugin(
   options: SandboxLoadOptions = {}
 ): Promise<null | string> {
   const pluginId = options.packageName ?? origin
-  const { granted, unknown } = resolveCapabilities(options.capabilities)
+  const { granted: requested, unknown } = resolveCapabilities(options.capabilities)
+  const granted = effectiveCapabilities(pluginId, requested)
 
   if (unknown.length > 0) {
     console.warn(`[plugins] ${pluginId}: unknown desktop_capabilities ignored: ${unknown.join(', ')}`)
@@ -292,8 +308,11 @@ export async function loadSandboxedPlugin(
     kind: 'disk' as const,
     file: options.file,
     packageName: options.packageName,
-    packageOrigin: options.packageOrigin
+    packageOrigin: options.packageOrigin,
+    requestedCapabilities: [...requested] as Capability[]
   }
+
+  const reviewRoute = `/skills?tab=plugins&plugin=${encodeURIComponent(pluginId)}`
 
   try {
     if ($pluginRecords.get()[pluginId]?.kind === 'bundled') {
@@ -328,7 +347,9 @@ export async function loadSandboxedPlugin(
           granted,
           name: pluginId,
           pluginId,
+          requested,
           srcdoc,
+          onReview: () => sdk.host.navigate(reviewRoute),
           onError: message => {
             console.error(`[plugins] ${pluginId} (sandbox)`, message)
 
@@ -362,6 +383,19 @@ export async function loadSandboxedPlugin(
 
     if (pluginActive(pluginId, (manifest.defaultEnabled ?? true) && (options.defaultEnabled ?? true))) {
       activate()
+
+      // First run with outstanding requests: offer, don't hijack — one toast
+      // per plugin + profile with a Review action; never navigate on our own.
+      const pending = pendingCapabilities(pluginId, requested)
+
+      if (pending.length > 0 && markCapabilitiesNoticed(pluginId)) {
+        notify({
+          kind: 'info',
+          title: translateNow('skills.plugins.consentRequestTitle', named.name),
+          message: translateNow('skills.plugins.consentRequestMessage', pending.length),
+          action: { label: translateNow('skills.plugins.consentReview'), onClick: () => sdk.host.navigate(reviewRoute) }
+        })
+      }
     }
 
     return pluginId

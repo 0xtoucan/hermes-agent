@@ -30,6 +30,7 @@ import {
   revealTreePane
 } from '@/components/pane-shell/tree/store'
 import { resolveRememberedActivePane, workspaceScopeKey } from '@/components/pane-shell/workspace-scope'
+import { dropCapabilityGrantsForProfile, migrateCapabilityGrantsForProfile } from '@/contrib/sandbox/grants'
 import type { WorkspaceMode } from '@/contrib/types'
 import { stableArray } from '@/lib/stable-array'
 import { readJson, writeJson } from '@/lib/storage'
@@ -2020,6 +2021,13 @@ export function dropTilesForProfile(
   }
 
   persistTiles()
+
+  // Plugin capability grants are profile-keyed too: a same-named profile
+  // created later must not inherit this one's consent. Local profiles only —
+  // the grants key knows profiles, not connections.
+  if (!routeConnection || routeConnection === 'local') {
+    dropCapabilityGrantsForProfile(name)
+  }
 }
 
 /**
@@ -2078,6 +2086,7 @@ export function migrateTilesForProfile(oldProfile: string, newProfile: string): 
   migrateTranscriptTailsForProfile(from, to)
   migrateRememberedNavigationForProfile(from, to)
   migrateSessionOwnerHintsForProfile(from, to)
+  migrateCapabilityGrantsForProfile(from, to)
 }
 
 /** ⌘⇧T — reopen the most recently closed tab where it was, then focus it.

@@ -26,6 +26,10 @@ export interface PluginRecord {
   file?: string
   /** Agent package this is the desktop half of (unified agent+desktop packages). */
   packageName?: string
+  /** Sandboxed (remote-tier) plugins: the `desktop_capabilities` the manifest
+   *  declared. Beyond the defaults these are requests the user allows per
+   *  profile (contrib/sandbox/grants.ts); the row renders them as chips. */
+  requestedCapabilities?: string[]
   /** Where that package came from (catalog sidecar or git remote), when known. */
   packageOrigin?: {
     catalogName?: string

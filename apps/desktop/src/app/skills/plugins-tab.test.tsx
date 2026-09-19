@@ -4,6 +4,7 @@ import { type ComponentProps, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { $pluginRecords } from '@/contrib/plugins-store'
+import { $capabilityGrants, allowedCapabilities } from '@/contrib/sandbox/grants'
 import { queryClient } from '@/lib/query-client'
 import { $agentPlugins, $agentPluginsStatus } from '@/store/agent-plugins'
 import { $pluginInstallRequest, closePluginInstallRequest } from '@/store/plugin-install-request'
@@ -137,6 +138,38 @@ describe('PluginsTab', () => {
   // A desktop half can only be copied out of a backend that runs on THIS
   // machine; against a remote one the reconcile is a structural no-op, so the
   // row must say so instead of pending forever (#114079).
+  it('shows a sandboxed plugin\'s requested permissions as chips: Allow grants them, Revoke takes them back', () => {
+    window.localStorage.clear()
+    $capabilityGrants.set({})
+    $pluginRecords.set({
+      'voice-plugin': {
+        id: 'voice-plugin',
+        kind: 'disk',
+        name: 'Voice',
+        packageOrigin: { catalogName: 'voice-plugin', repo: 'https://example.invalid/voice.git' },
+        requestedCapabilities: ['ui', 'rest', 'prompt:submit', 'os:clipboard'],
+        status: 'loaded'
+      }
+    })
+
+    renderPlugins({ profile: null })
+
+    const consent = within(screen.getByTestId('plugin-consent-voice-plugin'))
+    // Requested, not granted: the defaults (ui, rest) are not chips; the two requests are.
+    expect(consent.getByText('Submit prompts as you')).toBeTruthy()
+    expect(consent.getByText('Write to the clipboard')).toBeTruthy()
+    expect(consent.queryByText('Add UI and show notices')).toBeNull()
+    expect(allowedCapabilities('voice-plugin').size).toBe(0)
+
+    fireEvent.click(consent.getByRole('button', { name: 'Allow' }))
+    expect([...allowedCapabilities('voice-plugin')].sort()).toEqual(['os:clipboard', 'prompt:submit'])
+    expect(consent.queryByRole('button', { name: 'Allow' })).toBeNull()
+
+    fireEvent.click(consent.getByRole('button', { name: 'Revoke' }))
+    expect(allowedCapabilities('voice-plugin').size).toBe(0)
+    expect(consent.getByRole('button', { name: 'Allow' })).toBeTruthy()
+  })
+
   it('marks a remote-backend desktop half unavailable instead of forever copying', () => {
     $connection.set({ ...connectionFixture, mode: 'remote' })
     $agentPlugins.set([

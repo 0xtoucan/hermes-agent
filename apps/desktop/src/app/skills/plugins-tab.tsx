@@ -1,5 +1,5 @@
 import { useStore } from '@nanostores/react'
-import { memo, type ReactNode, useEffect, useMemo } from 'react'
+import { memo, type ReactNode, useEffect, useMemo, useState } from 'react'
 
 import { useGatewayRequest } from '@/app/gateway/hooks/use-gateway-request'
 import { Button } from '@/components/ui/button'
@@ -8,6 +8,16 @@ import { Switch } from '@/components/ui/switch'
 import { Tip } from '@/components/ui/tooltip'
 import { $pluginRecords, type PluginRecord, setPluginEnabled } from '@/contrib/plugins-store'
 import { discoverRuntimePlugins } from '@/contrib/runtime-loader'
+import { type Capability, isCapability } from '@/contrib/sandbox/capabilities'
+import { capabilityLabel } from '@/contrib/sandbox/capability-labels'
+import {
+  $capabilityGrants,
+  allowCapabilities,
+  allowedCapabilities,
+  consentCapabilities,
+  pendingCapabilities,
+  revokeCapabilities
+} from '@/contrib/sandbox/grants'
 import type { ProfileScope } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { triggerHaptic } from '@/lib/haptics'
@@ -163,6 +173,107 @@ function HalfCell({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
+/** Chips for one consent state (asked-for / allowed) with its action. */
+function ConsentChips({
+  capabilities,
+  hint,
+  state,
+  action
+}: {
+  capabilities: Capability[]
+  hint: string
+  state: string
+  action: ReactNode
+}) {
+  const { t } = useI18n()
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5" data-consent-state={state}>
+      <Tip label={hint}>
+        <span className="text-[0.65rem] text-(--ui-text-tertiary)">{state}</span>
+      </Tip>
+      {capabilities.map(capability => (
+        <span
+          className="inline-flex items-center rounded border border-(--ui-stroke-tertiary) px-1.5 py-px text-[0.65rem] text-(--ui-text-secondary)"
+          data-capability={capability}
+          key={capability}
+        >
+          {capabilityLabel(t, capability)}
+        </span>
+      ))}
+      {action}
+    </div>
+  )
+}
+
+/** Permissions row of a sandboxed plugin: what it asked for beyond the
+ *  defaults, split into pending (Allow) and allowed (Revoke). A request is
+ *  never a grant — the plugin runs with the defaults until Allow, per profile. */
+function ConsentCell({ record }: { record: PluginRecord }) {
+  const { t } = useI18n()
+  const p = t.skills.plugins
+  const grants = useStore($capabilityGrants)
+  const requested = (record.requestedCapabilities ?? []).filter(isCapability)
+  const asked = consentCapabilities(requested)
+
+  if (asked.length === 0) {
+    return null
+  }
+
+  const pending = pendingCapabilities(record.id, requested, grants)
+  const allowedSet = allowedCapabilities(record.id, grants)
+  const allowed = asked.filter(capability => allowedSet.has(capability))
+
+  return (
+    <HalfCell label={p.consentLabel}>
+      <div className="flex min-w-0 flex-1 flex-col items-end gap-1.5" data-testid={`plugin-consent-${record.id}`}>
+        {pending.length > 0 && (
+          <ConsentChips
+            action={
+              <Button
+                className="h-5 px-1.5 text-[0.65rem]"
+                onClick={() => {
+                  triggerHaptic('selection')
+                  allowCapabilities(record.id, pending)
+                  notify({ kind: 'success', message: p.consentAllowedToast(record.name) })
+                }}
+                size="xs"
+                variant="outline"
+              >
+                {p.consentAllow}
+              </Button>
+            }
+            capabilities={pending}
+            hint={p.consentPendingHint}
+            state={p.consentPending}
+          />
+        )}
+        {allowed.length > 0 && (
+          <ConsentChips
+            action={
+              <Button
+                className="h-5 px-1.5 text-[0.65rem]"
+                onClick={() => {
+                  triggerHaptic('selection')
+                  revokeCapabilities(record.id)
+                  notify({ kind: 'info', message: p.consentRevokedToast(record.name) })
+                }}
+                size="xs"
+                variant="ghost"
+              >
+                {p.consentRevoke}
+              </Button>
+            }
+            capabilities={allowed}
+            hint={p.consentAllowedHint}
+            state={p.consentAllowed}
+          />
+        )}
+      </div>
+    </HalfCell>
+  )
+}
+
 function Dash() {
   return (
     <span aria-hidden className="w-9 text-center text-(--ui-text-quaternary)">
@@ -263,6 +374,8 @@ function PackageRow({
           <Dash />
         )}
       </HalfCell>
+
+      {desktop && <ConsentCell record={desktop} />}
 
       <HalfCell label={p.halfAgentIn(scopeLabel)}>
         {agent ? (
@@ -373,7 +486,27 @@ export const PluginsTab = memo(function PluginsTab({
     [agentRows, desktopRecords]
   )
 
-  useDeepLinkHighlight({ param: 'plugin', ready: () => true, elementId: pluginElementId })
+  // A deep link (`?plugin=<id>` — the consent toast's Review, the palette)
+  // must also SELECT the package in the installed browser, or the row it
+  // highlights is never on screen.
+  const [selectId, setSelectId] = useState<null | string>(null)
+
+  useDeepLinkHighlight({
+    param: 'plugin',
+    ready: () => true,
+    elementId: pluginElementId,
+    onResolve: target => {
+      const pkg = packages.find(
+        candidate =>
+          candidate.key === target ||
+          candidate.desktop?.id === target ||
+          candidate.agent?.key === target ||
+          candidate.agent?.name === target
+      )
+
+      setSelectId(pkg ? `installed:${pkg.key}` : null)
+    }
+  })
 
   const agentBusy = (row: AgentPluginRow) => busyKey === (row.key ?? row.name) || busyKey === row.name
   const installedEntries = useMemo(() => parseCatalog('plugins', packages.map(pkg => ({
@@ -434,6 +567,7 @@ export const PluginsTab = memo(function PluginsTab({
             scopeLabel={label}
           />
         }}
+        selectId={selectId}
         view={view}
       />
     </div>

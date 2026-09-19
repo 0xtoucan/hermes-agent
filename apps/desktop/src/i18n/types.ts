@@ -1621,6 +1621,40 @@ export interface Translations {
       updateToPin: (sha: string) => string
       updateFailed: (name: string) => string
       updated: (name: string) => string
+      /** Capability consent for sandboxed (installed) plugins. */
+      consentLabel: string
+      consentPending: string
+      consentAllowed: string
+      consentPendingHint: string
+      consentAllowedHint: string
+      consentAllow: string
+      consentRevoke: string
+      consentAllowedToast: (name: string) => string
+      consentRevokedToast: (name: string) => string
+      consentRequestTitle: (name: string) => string
+      consentRequestMessage: (count: number) => string
+      consentReview: string
+      sandboxBlockedTitle: (name: string) => string
+      sandboxBlockedPending: (action: string, method: string) => string
+      sandboxBlockedUndeclared: (action: string, method: string, capability: string) => string
+      sandboxDisabledTitle: (name: string) => string
+      capabilityLabels: {
+        ui: string
+        storage: string
+        events: string
+        rest: string
+        restAny: string
+        gatewayRequest: string
+        promptSubmit: string
+        llm: string
+        composer: string
+        navigate: string
+        osClipboard: string
+        osDialogs: string
+        osOpenExternal: string
+        osRevealPath: string
+        osNotify: string
+      }
     }
     officialCatalog: string
     officialPill: string

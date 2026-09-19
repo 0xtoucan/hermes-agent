@@ -33,6 +33,8 @@ interface CatalogBrowserProps {
   isInstalling?: (entry: CatalogEntry) => boolean
   installedEntries?: CatalogEntry[]
   renderInstalledDetail?: (entry: CatalogEntry) => ReactNode
+  /** Entry to select when it is present (a deep link into the list). */
+  selectId?: null | string
 }
 
 const PAGE_SIZE = 60
@@ -48,7 +50,8 @@ export const CatalogBrowser = memo(function CatalogBrowser({
   renderInstalledDetail,
   view = 'browse',
   query = '',
-  onQueryChange
+  onQueryChange,
+  selectId = null
 }: CatalogBrowserProps) {
   const { t } = useI18n()
   const c = t.catalog
@@ -85,6 +88,13 @@ export const CatalogBrowser = memo(function CatalogBrowser({
     (category === 'all' || entry.category === category) &&
     (!deferredQuery || entry.search.includes(deferredQuery))
   ), [entries, source, category, deferredQuery])
+
+  useEffect(() => {
+    if (selectId && entries.some(entry => entry.id === selectId)) {
+      setSelectedId(selectId)
+      setDetailOpen(true)
+    }
+  }, [entries, selectId])
 
   const selected = filtered.find(entry => entry.id === selectedId) ?? filtered[0]
   const installedDetail = selected ? renderInstalledDetail?.(selected) : null

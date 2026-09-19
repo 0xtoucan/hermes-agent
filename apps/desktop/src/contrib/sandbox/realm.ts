@@ -28,9 +28,11 @@
 import { atom } from 'nanostores'
 
 import { createPluginContext, type PluginContext } from '@/contrib/plugin'
+import { translateNow } from '@/i18n'
 import { notify } from '@/store/notifications'
 
-import { CAPABILITIES, type Capability } from './capabilities'
+import { type Capability } from './capabilities'
+import { CAPABILITY_LABEL_KEYS } from './capability-labels'
 import { methodCapability, METHODS } from './methods'
 import {
   type GuestMessage,
@@ -55,7 +57,13 @@ export interface SandboxRealmOptions {
    *  reveal paths inside its folder. Absent = the method is refused. */
   file?: string
   name: string
+  /** What the realm may do NOW: the defaults plus every request the user
+   *  allowed. `setGranted` moves it live when a grant changes. */
   granted: ReadonlySet<Capability>
+  /** What the manifest asked for. A refusal for a requested-but-not-allowed
+   *  capability points the user at the Allow control; one for a capability
+   *  the plugin never declared points the author at plugin.yaml. */
+  requested?: ReadonlySet<Capability>
   srcdoc: string
   /** Frame factory seam — tests inject a fake that speaks as the guest
    *  through `realm.handle`; production builds the iframe. */
@@ -63,6 +71,9 @@ export interface SandboxRealmOptions {
   onError?: (message: string) => void
   onManifest?: (manifest: Extract<GuestMessage, { type: 'manifest' }>) => void
   onReady?: () => void
+  /** "Review" on a refusal toast for a requested capability: take the user
+   *  to the plugin's row (the loader supplies the navigation). */
+  onReview?: () => void
 }
 
 const CONTAINER_ID = 'hermes-plugin-sandboxes'
@@ -171,12 +182,13 @@ export class SandboxRealm {
   readonly pluginId: string
   readonly file: string | undefined
   readonly name: string
-  readonly granted: ReadonlySet<Capability>
+  readonly requested: ReadonlySet<Capability>
   /** Intrinsic size the guest reports per slot — bars size their placeholder from it. */
   readonly $slotSizes = atom<Record<string, { height: number; width: number }>>({})
 
   private readonly frame: SandboxFrame
   private readonly options: SandboxRealmOptions
+  private grantedNow: ReadonlySet<Capability>
   private readonly onMessage: (event: MessageEvent) => void
   private ctx: null | PluginContext = null
   /** The just-deactivated context, kept for the guest's `onDispose` calls
@@ -205,10 +217,22 @@ export class SandboxRealm {
     this.pluginId = options.pluginId
     this.file = options.file
     this.name = options.name
-    this.granted = options.granted
+    this.grantedNow = options.granted
+    this.requested = options.requested ?? options.granted
     this.onMessage = event => this.receive(event)
     window.addEventListener('message', this.onMessage)
     this.frame = (options.createFrame ?? createIframeFrame)(options.srcdoc, this)
+  }
+
+  get granted(): ReadonlySet<Capability> {
+    return this.grantedNow
+  }
+
+  /** A consent change (Allow / Revoke) applies to the NEXT call — no reload.
+   *  The per-capability refusal toast re-arms so a later refusal is reported. */
+  setGranted(next: ReadonlySet<Capability>): void {
+    this.grantedNow = next
+    this.refused.clear()
   }
 
   // ── transport ─────────────────────────────────────────────────────────────
@@ -243,7 +267,7 @@ export class SandboxRealm {
   /** Tear the realm down over a boundary violation: toast, report, dispose. */
   private fail(message: string): void {
     console.error(`[plugins] ${this.pluginId}: ${message}`)
-    notify({ kind: 'error', title: `Plugin "${this.name}" disabled`, message })
+    notify({ kind: 'error', message, title: translateNow('skills.plugins.sandboxDisabledTitle', this.name) })
     this.options.onError?.(message)
     this.dispose()
   }
@@ -359,10 +383,22 @@ export class SandboxRealm {
     }
 
     this.refused.add(capability)
+    const action = translateNow(`skills.plugins.capabilityLabels.${CAPABILITY_LABEL_KEYS[capability]}`).toLowerCase()
+
     notify({
       kind: 'error',
-      title: `Plugin "${this.name}" blocked`,
-      message: `It tried to ${CAPABILITIES[capability]} ("${method}") without the "${capability}" capability. The plugin must declare it under desktop_capabilities in its plugin.yaml.`
+      title: translateNow('skills.plugins.sandboxBlockedTitle', this.name),
+      message: this.requested.has(capability)
+        ? translateNow('skills.plugins.sandboxBlockedPending', action, method)
+        : translateNow('skills.plugins.sandboxBlockedUndeclared', action, method, capability),
+      ...(this.requested.has(capability)
+        ? {
+            action: {
+              label: translateNow('skills.plugins.consentReview'),
+              onClick: () => this.options.onReview?.()
+            }
+          }
+        : {})
     })
   }
 
