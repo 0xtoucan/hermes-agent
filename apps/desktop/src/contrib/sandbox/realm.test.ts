@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { $pluginRecords } from '@/contrib/plugins-store'
 import { registry } from '@/contrib/registry'
 
-import { DEFAULT_CAPABILITIES, gatewayMethodAllowed, resolveCapabilities } from './capabilities'
+import { DEFAULT_CAPABILITIES, GATEWAY_METHOD_ALLOWLIST, gatewayMethodAllowed, resolveCapabilities } from './capabilities'
 import { buildFrameDocument, SANDBOX_CSP } from './frame-document'
 import { loadSandboxedPlugin, unloadSandboxedPlugin } from './loader'
 import type { GuestMessage, HostMessage } from './protocol'
@@ -89,11 +89,13 @@ describe('capability table', () => {
     expect(unknown).toEqual(['root'])
   })
 
-  it('allowlists gateway methods by exact name or prefix', () => {
+  it('allowlists gateway methods by exact name only — no prefixes', () => {
     expect(gatewayMethodAllowed('session.list')).toBe(true)
-    expect(gatewayMethodAllowed('kanban.board')).toBe(true)
+    expect(gatewayMethodAllowed('session.list.anything')).toBe(false)
+    expect(gatewayMethodAllowed('kanban.board')).toBe(false)
     expect(gatewayMethodAllowed('plugins.manage')).toBe(false)
     expect(gatewayMethodAllowed('cli.exec')).toBe(false)
+    expect([...GATEWAY_METHOD_ALLOWLIST].some(name => name.endsWith('.'))).toBe(false)
   })
 })
 
@@ -106,6 +108,30 @@ describe('SandboxRealm bridge', () => {
 
     expect(hostRequest).toHaveBeenCalledWith('session.list', { limit: 1 })
     expect(frame.replies()).toEqual([expect.objectContaining({ callId: 1, ok: true, result: { ok: true } })])
+    realm.dispose()
+  })
+
+  it('forwards only kind/title/message/detail of a guest toast', async () => {
+    const { realm } = realmWith(['ui'])
+
+    call(realm, 1, 'notify', [
+      {
+        action: { label: 'Run', onClick: { __hermesCallback: 1 } },
+        detail: 'd',
+        durationMs: 0,
+        id: 'host-toast-id',
+        kind: 'success',
+        message: 'm',
+        placement: 'center',
+        secondaryAction: { label: 'x' },
+        title: 't'
+      }
+    ])
+    call(realm, 2, 'notify', [{ kind: 'bogus', message: 'plain' }])
+    await flush()
+
+    expect(notify.mock.calls[0][0]).toEqual({ detail: 'd', kind: 'success', message: 'm', title: 't' })
+    expect(notify.mock.calls[1][0]).toEqual({ detail: undefined, kind: undefined, message: 'plain', title: undefined })
     realm.dispose()
   })
 

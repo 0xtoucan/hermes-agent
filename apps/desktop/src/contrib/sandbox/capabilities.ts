@@ -1,7 +1,7 @@
 /**
  * The capability vocabulary for sandboxed (remote-tier) desktop plugins.
  * A plugin declares `desktop_capabilities:` in its plugin.yaml; absent, it
- * gets DEFAULT_CAPABILITIES. Every bridge method (sandbox/host-bridge.ts)
+ * gets DEFAULT_CAPABILITIES. Every bridge method (sandbox/methods.ts)
  * names the ONE capability it needs; the host refuses the call — and toasts
  * the plugin + capability — when that capability was not granted.
  */
@@ -60,21 +60,22 @@ export function resolveCapabilities(declared: readonly unknown[] | undefined): {
 }
 
 /** `host.request` methods a sandboxed plugin may call under `gateway:request`.
- *  Read-mostly session/profile/catalog surfaces; anything that installs,
- *  reconfigures or executes on the user's machine stays host-only. Prefixes
- *  end with `.`; exact names match whole. */
-export const GATEWAY_METHOD_ALLOWLIST: readonly string[] = [
+ *  EXACT method names only — no prefix wildcards, so a new gateway method
+ *  is never admitted by accident. Keep it minimal and read-only: anything
+ *  that installs, reconfigures or executes on the user's machine stays
+ *  host-only. Note that `session.history` returns full session transcripts:
+ *  granting `gateway:request` implies READ access to every conversation the
+ *  gateway holds, and a plugin manifest asking for it should be read that way. */
+export const GATEWAY_METHOD_ALLOWLIST: ReadonlySet<string> = new Set([
   'commands.catalog',
   'cron.list',
   'free_tier.status',
-  'kanban.',
   'profiles.list',
   'session.history',
   'session.info',
   'session.list',
   'skills.list',
   'status'
-]
+])
 
-export const gatewayMethodAllowed = (method: string): boolean =>
-  GATEWAY_METHOD_ALLOWLIST.some(entry => (entry.endsWith('.') ? method.startsWith(entry) : method === entry))
+export const gatewayMethodAllowed = (method: string): boolean => GATEWAY_METHOD_ALLOWLIST.has(method)
