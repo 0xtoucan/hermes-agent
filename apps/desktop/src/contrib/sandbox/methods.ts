@@ -15,6 +15,7 @@ import { hermesApi, profileScoped } from '@/api/client'
 import type { PluginContext, PluginContribution } from '@/contrib/plugin'
 import { admitPreviewExternalUrl } from '@/lib/preview-external'
 import * as sdk from '@/sdk'
+import type { NotificationInput, NotificationKind } from '@/store/notifications'
 
 import { type Capability, gatewayMethodAllowed } from './capabilities'
 import { isCallbackRef } from './protocol'
@@ -60,6 +61,18 @@ function unmarshal(realm: SandboxRealm, value: unknown, depth = 0): unknown {
   }
 
   return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, unmarshal(realm, item, depth + 1)]))
+}
+
+const NOTIFICATION_KINDS: readonly NotificationKind[] = ['error', 'info', 'success', 'warning']
+
+/** Only the TEXT of a guest toast crosses the bridge. `id` could replace or
+ *  dismiss the host's own toasts, `action`/`secondaryAction` would run host
+ *  code, `durationMs`/`placement` let a plugin park a sticky banner anywhere. */
+function guestNotification(input: Record<string, unknown>): NotificationInput {
+  const text = (value: unknown) => (typeof value === 'string' ? value : undefined)
+  const kind = NOTIFICATION_KINDS.find(name => name === input.kind)
+
+  return { kind, message: str(input.message, 'notification message'), title: text(input.title), detail: text(input.detail) }
 }
 
 const slotRender = (realm: SandboxRealm, slotId: string, fill: boolean) => () =>
@@ -127,7 +140,7 @@ export const METHODS: Record<string, SandboxMethod> = {
       realm.registrations.delete(id as string)
     }
   },
-  notify: { capability: 'ui', run: (_env, [input]) => void sdk.host.notify(record(input) as { message: string }) },
+  notify: { capability: 'ui', run: (_env, [input]) => void sdk.host.notify(guestNotification(record(input))) },
   notifyError: {
     capability: 'ui',
     run: (_env, [message, fallback]) =>
