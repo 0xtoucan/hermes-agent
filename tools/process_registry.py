@@ -94,9 +94,8 @@ WATCH_GLOBAL_COOLDOWN_SECONDS = 30
 # active turn. We probe whether ``systemd-run --user --scope`` is actually usable (the binary can
 # exist on the PATH while the user D-Bus session is unavailable — common for system services and
 # containers), and cache the verdict for a bounded TTL. See #70716.
-# The supervised gateway is scoped by default; any other embedding host (dashboard/serve
-# backend, a WebUI service) opts in with ``terminal.worker_scope_isolation: always`` — see
-# ``ProcessRegistry._scope_argv``. See #116936.
+# The supervised gateway is scoped by default; any other embedding host opts in with
+# ``HERMES_WORKER_SCOPES=1`` — see ``ProcessRegistry._scope_argv``. See #116936.
 _SYSTEMD_SCOPE_AVAILABLE: Optional[bool] = None
 _SYSTEMD_SCOPE_PROBE_LOCK = threading.Lock()
 _SYSTEMD_SCOPE_PROBED_AT = 0.0
@@ -903,19 +902,9 @@ class ProcessRegistry(ProcessCheckpointMixin):
 
     @staticmethod
     def _background_max_age_seconds() -> float:
-        """Hard lifetime cap (s) for tracked background processes; 0 disables."""
-        return ProcessRegistry._config_seconds("background_max_age_seconds", 86400.0)
+        """Opt-in hard lifetime cap (s) for tracked background processes; 0 (default) = none."""
+        return ProcessRegistry._config_seconds("background_max_age_seconds", 0.0)
 
-    @staticmethod
-    def _worker_scope_isolation() -> str:
-        """``terminal.worker_scope_isolation``: "auto" (supervised gateway only) or "always"
-        (also any Hermes host running under a systemd unit — dashboard/serve backend, an
-        embedding WebUI host). Unknown values fall back to "auto"."""
-        try:
-            value = str(ProcessRegistry._config_value("terminal", "worker_scope_isolation", "auto"))
-        except Exception:
-            return "auto"
-        return value if value in ("auto", "always") else "auto"
 
     @classmethod
     def _terminate_host_pid(cls, pid: int, expected_start: Optional[int] = None) -> None:
@@ -1096,14 +1085,7 @@ class ProcessRegistry(ProcessCheckpointMixin):
         """Login-shell argv for *safe_command* (parity with LocalEnvironment: rc files
         sourced, user tools on PATH), wrapped in a transient systemd scope when we are
         the supervised gateway (own cgroup: an OOM kills only the worker, not the
-        gateway and its messaging control plane) — or when the operator opts in with
-        ``terminal.worker_scope_isolation: always`` and this host runs under a systemd
-        unit (a dashboard/serve backend or an embedding host such as hermes-webui): the
-        gateway/agent loop lives in that host's cgroup, and an unscoped memory-heavy or
-        leaked worker can OOM-kill — or be OOM-killed with — the entire service. See
-        #116936. Plain CLI sessions stay unscoped either way: every descendant inherits
-        the marker env (_HERMES_GATEWAY / INVOCATION_ID), so keying on them alone would
-        scope interactive work too."""
+        gateway and its messaging control plane)."""
         argv = [_find_shell(), "-lic", f"set +m; {safe_command}"]
         # This applies to both pipe mode and the PTY path above. See #70716.
         isolate_worker = _IS_LINUX and (
