@@ -474,6 +474,26 @@ def _refresh_mcp_tools_between_turns(agent: Any) -> None:
         logger.debug("between-turns MCP tool refresh skipped", exc_info=True)
 
 
+def _refresh_tools_for_sandbox_policy(agent: Any) -> None:
+    """The sandbox's network switch changed since this agent's tool snapshot was taken:
+    re-derive the snapshot before the turn's first API call. A conversation that has not
+    started is rebuilt outright; a live one keeps its request prefix, so tools the switch
+    released append at the tail while tools it now withholds stay listed and are refused
+    at invocation instead."""
+    try:
+        from tools.environments.mxc_host import host_network_withheld_toolsets
+        withheld = host_network_withheld_toolsets()
+        if withheld == getattr(agent, "_sandbox_withheld_toolsets", withheld):
+            return
+        from tools.mcp_tool_agent import refresh_agent_mcp_tools
+        started = (int(getattr(agent, "_user_turn_count", 0) or 0) > 0
+                   or int(getattr(agent, "_api_call_count", 0) or 0) > 0)
+        refresh_agent_mcp_tools(agent, quiet_mode=True, preserve_prefix=started)
+        agent._sandbox_withheld_toolsets = withheld
+    except Exception:
+        logger.debug("sandbox policy tool refresh skipped", exc_info=True)
+
+
 def _bind_turn_identity(
     agent: Any, task_id: Optional[str], stream_callback, persist_user_message: Any,
     persist_user_timestamp: Optional[float], persist_user_platform_id: Optional[str],
@@ -918,6 +938,7 @@ def build_turn_context(
     agent._restore_primary_runtime()
     _publish_runtime_main(agent)
     _refresh_mcp_tools_between_turns(agent)
+    _refresh_tools_for_sandbox_policy(agent)
 
     if isinstance(user_message, str):
         user_message = sanitize_surrogates(user_message)

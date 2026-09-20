@@ -1059,6 +1059,10 @@ def _load_tools(agent, enabled_toolsets, disabled_toolsets):
         enabled_toolsets=enabled_toolsets, disabled_toolsets=disabled_toolsets,
         quiet_mode=agent.quiet_mode,
     )
+    # The sandbox's network switch shapes this selection; the turn path re-derives the
+    # snapshot when the switch has moved since (agent/turn_context.py).
+    from tools.environments.mxc_host import host_network_withheld_toolsets
+    agent._sandbox_withheld_toolsets = host_network_withheld_toolsets()
 
     agent.valid_tool_names = {tool["function"]["name"] for tool in agent.tools} if agent.tools else set()
     # Kanban guidance is session-static for the dispatcher-owned worker only. Profiles may

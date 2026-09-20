@@ -251,6 +251,65 @@ def test_url_context_reference_is_not_fetched_while_the_sandbox_is_offline(tmp_p
     assert fetched == ["https://example.com/story"] and "article body" in result.message
 
 
+def test_network_tools_are_refused_at_invocation_while_the_sandbox_is_offline(monkeypatch):
+    """A tool snapshot is frozen for a conversation (and restored from the session on resume), so a
+    model can still hold web_search after the switch is turned off. The policy has to hold at the
+    call, not only in the schema; other tools are unaffected."""
+    import json
+    import model_tools
+    monkeypatch.setattr(mxc_host, "host_network_withheld_toolsets", lambda terminal_cfg=None: ("web", "browser"))
+    result = json.loads(model_tools.handle_function_call("web_search", {"query": "anything"}))
+    assert "Allow network access" in result["error"]
+    _, blocked = model_tools._pre_dispatch_guards("read_file", {"path": "x"}, True, model_tools._CallIds(None, None, None, None, None), [])
+    assert blocked is None
+    monkeypatch.setattr(mxc_host, "host_network_withheld_toolsets", lambda terminal_cfg=None: ())
+    _, blocked = model_tools._pre_dispatch_guards("web_search", {"query": "q"}, True, model_tools._CallIds(None, None, None, None, None), [])
+    assert blocked is None
+
+
+def test_turning_network_on_releases_the_web_tools_before_the_next_turn(monkeypatch):
+    """The switch flips mid-conversation: the released tools join the snapshot before the turn's
+    first API call, appended after the existing prefix; when it flips off, listed tools stay
+    (prefix preserved) and the invocation gate speaks."""
+    from types import SimpleNamespace
+    import model_tools
+    from agent.turn_context import _refresh_tools_for_sandbox_policy
+
+    def build_agent(withheld):
+        monkeypatch.setattr(mxc_host, "host_network_withheld_toolsets", lambda terminal_cfg=None: withheld)
+        defs = model_tools.get_tool_definitions(enabled_toolsets=["terminal", "file", "web"], quiet_mode=True)
+        return SimpleNamespace(
+            tools=defs, valid_tool_names={t["function"]["name"] for t in defs},
+            enabled_toolsets=["terminal", "file", "web"], disabled_toolsets=None, quiet_mode=True,
+            _sandbox_withheld_toolsets=withheld, _user_turn_count=1, _api_call_count=2,
+            _tool_snapshot_generation=0, _session_db=None, session_id=None)
+
+    # The web tools' own reachability probe (an API key) is not what is under test.
+    from tools.mcp_tool_agent import reprobe_tool_availability
+    from tools.registry import registry
+    for name in ("web_search", "web_extract"):
+        monkeypatch.setattr(registry.get_entry(name), "check_fn", lambda: True)
+    reprobe_tool_availability()
+    agent = build_agent(("web", "browser"))
+    assert "web_search" not in agent.valid_tool_names
+    monkeypatch.setattr(mxc_host, "host_network_withheld_toolsets", lambda terminal_cfg=None: ())
+    _refresh_tools_for_sandbox_policy(agent)
+    names = [t["function"]["name"] for t in agent.tools]
+    assert "web_search" in names and names.index("web_search") > names.index("terminal"), "released tools append after the prefix"
+    assert agent._sandbox_withheld_toolsets == ()
+
+    monkeypatch.setattr(mxc_host, "host_network_withheld_toolsets", lambda terminal_cfg=None: ("web", "browser"))
+    _refresh_tools_for_sandbox_policy(agent)
+    assert "web_search" in agent.valid_tool_names, "a live conversation keeps its listed tools"
+    assert agent._sandbox_withheld_toolsets == ("web", "browser")
+
+    fresh = build_agent(())
+    fresh._user_turn_count, fresh._api_call_count = 0, 0
+    monkeypatch.setattr(mxc_host, "host_network_withheld_toolsets", lambda terminal_cfg=None: ("web", "browser"))
+    _refresh_tools_for_sandbox_policy(fresh)
+    assert "web_search" not in fresh.valid_tool_names, "a conversation that has not started is rebuilt outright"
+
+
 # ── host settings and status ─────────────────────────────────────────────────
 
 def test_resolve_settings_reads_config_first_then_env_bridge(monkeypatch):

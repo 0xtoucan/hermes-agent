@@ -270,9 +270,11 @@ def _tool_defs_cache_key(
         cfg_fp = file_signature(cfg_stat)
     except (FileNotFoundError, OSError, ImportError):
         cfg_fp = None
+    from tools.environments.mxc_host import host_network_withheld_toolsets
     return (
         registry.current_scope_key(), frozenset(enabled_toolsets) if enabled_toolsets is not None else None,
         frozenset(disabled_toolsets) if disabled_toolsets else None, registry._generation, cfg_fp,
+        host_network_withheld_toolsets(),
         bool(os.environ.get("HERMES_KANBAN_TASK")), bool(skip_tool_search_assembly),
         _is_delegated_child_context(), _is_dispatcher_owned_worker(), profile_scope,
     )
@@ -334,7 +336,7 @@ def _select_tool_names(enabled_toolsets: Optional[List[str]], disabled_toolsets:
         _apply_toolset_selection(tools, disabled_toolsets, quiet_mode, disable=True)
     # A sandbox policy with network off withholds the host-side network toolsets the same way,
     # so "network off" describes the whole agent and not only its sandboxed commands. The
-    # definitions cache keys on the config file's signature, so a policy edit is picked up.
+    # definitions cache key carries the withheld set, so a policy change is picked up.
     from tools.environments.mxc_host import host_network_withheld_toolsets
     withheld = host_network_withheld_toolsets()
     if withheld:
@@ -787,6 +789,14 @@ def _pre_dispatch_guards(function_name: str, function_args: Dict[str, Any], skip
             logger.debug("pre_tool_call hook error: %s", _hook_err)
         if block_message is not None:
             return function_args, (tool_error(block_message), "plugin_block", block_message)
+
+    # Sandbox network policy. Withholding the schema only shapes what a NEW agent sees; a tool
+    # snapshot is frozen for the life of a conversation, so an agent built before the switch
+    # was turned off still carries these tools. Policy is enforced at invocation regardless.
+    from tools.environments.mxc_host import OFFLINE_REASON, host_network_withheld_toolsets
+    withheld = host_network_withheld_toolsets()
+    if withheld and get_toolset_for_tool(function_name) in withheld:
+        return function_args, (tool_error(OFFLINE_REASON), "sandbox_offline", OFFLINE_REASON)
 
     # ACP/Zed edit approval before any file mutation. The requester is bound
     # via ContextVar only for ACP sessions, so CLI/gateway paths are unaffected.
