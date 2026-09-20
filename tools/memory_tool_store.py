@@ -24,9 +24,21 @@ ENTRY_DELIMITER = "\n§\n"
 
 
 def _scan_memory_content(content: str) -> Optional[str]:
-    """Error string if *content* matches injection/exfil patterns. Strict scope:
-    memory enters the system prompt, so a poisoned entry persists across sessions."""
-    return _first_threat_message(content, scope="strict")
+    """Error string if *content* matches injection/exfil patterns or carries a credential-shaped
+    token. Strict scope: memory enters the system prompt, so a poisoned entry persists across
+    sessions — and a raw token stored here is re-sent to the provider on every turn of every
+    session. The write is refused (not silently redacted) so the caller learns the entry never
+    landed and can store a reference instead; the shared egress redactor is the one shape list."""
+    from agent.redact import redact_sensitive_text
+
+    if threat := _first_threat_message(content, scope="strict"):
+        return threat
+    if redact_sensitive_text(content, force=True) != content:
+        return ("Refusing to store this entry: it contains a credential-shaped token (API key, access "
+                "token, private key, JWT, connection-string password, ...). Memory is injected into "
+                "every future session's prompt, so secrets must never live here. Store a reference "
+                "instead (env var name, vault entry, or file path) and retry.")
+    return None
 
 
 def _error(message: str, **extra) -> Dict[str, Any]:
@@ -334,7 +346,8 @@ class MemoryStore:
         ops = [op or {} for op in operations]
         # Scan every add/replace content BEFORE touching disk -- one poisoned op rejects the batch.
         for i, op in enumerate(ops):
-            scan_error = op.get("action") in {"add", "replace"} and op.get("content") and _scan_memory_content(op["content"])
+            body = op.get("content") or op.get("new_text")
+            scan_error = op.get("action") in {"add", "replace"} and body and _scan_memory_content(body)
             if scan_error:
                 return _error(f"Operation {i + 1}: {scan_error}")
 
