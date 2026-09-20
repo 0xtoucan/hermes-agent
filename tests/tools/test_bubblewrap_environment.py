@@ -1028,13 +1028,12 @@ class TestMaskedInside:
         dest = tmp_path / "data"
         (dest / "present").mkdir(parents=True)
         (dest / "absent").mkdir()
-        (tmp_path / "other").mkdir()
         config = BubblewrapConfig(binds=(BindMount(src=str(src), dest=str(dest), readonly=False),))
         with _no_session():
             env = BubblewrapEnvironment(cwd=str(work), timeout=10, config=config)
         (Path(env.get_temp_dir()) / "inner").mkdir()
         try:
-            yield env, {"home": home, "hermes_home": hermes_home, "work": work, "dest": dest, "tmp": tmp_path}
+            yield env, {"home": home, "hermes_home": hermes_home, "work": work, "dest": dest}
         finally:
             env.cleanup()
 
@@ -1043,7 +1042,8 @@ class TestMaskedInside:
         argv = env._wrap_popen_args(["bash"])
         state = Path(env.get_temp_dir())
         visible = [p["work"] / "sub", p["home"] / ".ssh", p["hermes_home"], state / "inner", p["dest"] / "present", Path("/usr/share"), Path("/tmp")]
-        masked = [p["home"] / ".ssh" / "deep", p["hermes_home"] / "logs", p["dest"] / "absent", p["tmp"] / "other"]
+        # /tmp is spelled literally: pytest's tmp_path follows TMPDIR, which on some hosts is not under /tmp.
+        masked = [p["home"] / ".ssh" / "deep", p["hermes_home"] / "logs", p["dest"] / "absent", Path("/tmp") / "other"]
         assert [str(x) for x in visible if masked_inside(argv, str(x))] == []
         assert [str(x) for x in masked if not masked_inside(argv, str(x))] == []
 
