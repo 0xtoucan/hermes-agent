@@ -78,3 +78,13 @@ jobs:
           uv run --no-sync python -m pytest \
             tests/tools/test_process_registry_windows_live.py \
             -o addopts= -v -p no:cacheprovider
+
+      - name: Shell hooks bare .sh path live E2E (#116601, b0919-L15)
+        shell: bash
+        run: |
+          set -uo pipefail
+          uv run --no-sync python -m pytest \
+            tests/agent/test_shell_hooks.py \
+            tests/hermes_cli/test_hooks_cli.py \
+            -k "bare_script_hook_path_executes or unroutable_script_hook or TestCallbackSubprocess or test_fires_real_subprocess_and_parses_block" \
+            -o addopts= -v -p no:cacheprovider
