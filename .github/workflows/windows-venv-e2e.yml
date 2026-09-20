@@ -78,3 +78,11 @@ jobs:
           uv run --no-sync python -m pytest \
             tests/tools/test_process_registry_windows_live.py \
             -o addopts= -v -p no:cacheprovider
+
+      - name: TEMP wine2e gitlock read-only tmp_pack sweep (#116384)
+        shell: bash
+        run: |
+          set -uo pipefail
+          uv run --no-sync python -m pytest \
+            tests/hermes_cli/test_gitlock_tmp_packs.py \
+            -m windows_only -o addopts= -v -p no:cacheprovider
