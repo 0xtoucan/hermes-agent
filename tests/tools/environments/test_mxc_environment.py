@@ -167,6 +167,18 @@ def test_sandbox_workspace_for_redirects_unsafe_folders_to_a_created_default_ins
     assert mxc_host.sandbox_workspace_for(str(project)) == str(project)
 
 
+def test_attachment_staging_dirs_grant_only_the_composer_folders(tmp_path, monkeypatch):
+    """The desktop's user-data folder holds tokens; only its composer staging subfolders may be read."""
+    monkeypatch.delenv(mxc_host.DESKTOP_USER_DATA_ENV, raising=False)
+    assert mxc_host.attachment_staging_dirs() == []
+    user_data = tmp_path / "user-data"
+    (user_data / "composer-images").mkdir(parents=True)
+    (user_data / "Local Storage").mkdir()
+    monkeypatch.setenv(mxc_host.DESKTOP_USER_DATA_ENV, str(user_data))
+    grants = mxc_host.attachment_staging_dirs()
+    assert grants == [str(user_data / "composer-images")], "missing subfolders are skipped, the parent is never granted"
+
+
 # ── host settings and status ─────────────────────────────────────────────────
 
 def test_resolve_settings_reads_config_first_then_env_bridge(monkeypatch):

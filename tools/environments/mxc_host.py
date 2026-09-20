@@ -465,6 +465,22 @@ def sandbox_workspace_for(cwd: str) -> str:
     return cwd if unsafe_workspace_reason(cwd) is None else default_workspace()
 
 
+# The desktop stages what the user pastes or attaches in the composer under its Electron user-data
+# folder. That content was handed to the agent deliberately, so the sandbox may always read it;
+# the desktop tells its spawned backend where that folder is. Only the staging subfolders are
+# granted: the user-data folder itself holds connection tokens and browser storage.
+DESKTOP_USER_DATA_ENV = "HERMES_DESKTOP_USER_DATA"
+ATTACHMENT_STAGING_SUBDIRS = ("composer-images", "composer-pastes")
+
+
+def attachment_staging_dirs() -> list[str]:
+    """Existing composer staging folders of the desktop that spawned this backend (empty otherwise)."""
+    user_data = (os.environ.get(DESKTOP_USER_DATA_ENV) or "").strip()
+    if not user_data:
+        return []
+    return [str(Path(user_data) / name) for name in ATTACHMENT_STAGING_SUBDIRS if (Path(user_data) / name).is_dir()]
+
+
 # ── status ───────────────────────────────────────────────────────────────────
 
 def _os_build() -> Optional[str]:

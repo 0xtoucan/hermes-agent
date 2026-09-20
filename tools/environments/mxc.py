@@ -341,6 +341,7 @@ class MxcEnvironment(BaseEnvironment):
         home = get_hermes_home()
         grants += [str(d) for d in iter_hermes_node_dirs() if d.is_dir()]
         grants += [str(home / name) for name in ("git", "bin") if (home / name).is_dir()]
+        grants += mxc_host.attachment_staging_dirs()
         return grants
 
     def _tool_path_entries(self, shell: str) -> list[str]:

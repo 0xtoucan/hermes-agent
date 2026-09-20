@@ -67,8 +67,10 @@ The policy is small on purpose, and the panel shows all of it:
   model runs outside the sandbox.
 
 A few read-only grants are added automatically so the agent's tools work: the Hermes install and
-its Python, the bundled Node and Git, and the sandbox shell. Hermes's data directory, with your
-configuration and credentials, is never granted.
+its Python, the bundled Node and Git, the sandbox shell, and the desktop's composer staging
+folders (the images and text you paste or attach), so a pasted screenshot can be analysed without
+a grant. Hermes's data directory, with your configuration and credentials, is never granted, and
+neither is the rest of the desktop's user-data folder.
 
 Edits take effect on the agent's next command. Hermes reads the policy fresh for every container
 it starts, which is what makes the grant-and-retry flow below possible without a restart.

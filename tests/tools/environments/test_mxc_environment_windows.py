@@ -80,3 +80,15 @@ def test_network_is_off_by_default(live_env):
 def test_timeout_kills_the_container(live_env):
     result = live_env.execute("sleep 30", timeout=2)
     assert result["returncode"] == 124
+
+
+def test_composer_attachments_are_readable_but_the_rest_of_user_data_is_not(live_env, tmp_path, monkeypatch):
+    user_data = tmp_path / "user-data"
+    (user_data / "composer-images").mkdir(parents=True)
+    (user_data / "composer-images" / "shot.png").write_bytes(b"PNG")
+    (user_data / "connections.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setenv(mxc_host.DESKTOP_USER_DATA_ENV, str(user_data))
+    image = (user_data / "composer-images" / "shot.png").as_posix()
+    tokens = (user_data / "connections.json").as_posix()
+    result = live_env.execute(f"cat '{image}'; echo; cat '{tokens}' >/dev/null 2>&1; echo rc=$?")
+    assert "PNG" in result["output"] and "rc=1" in result["output"]
