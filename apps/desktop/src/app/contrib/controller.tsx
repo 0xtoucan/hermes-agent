@@ -14,7 +14,7 @@ import { InlinePreviewDirective } from '@/components/assistant-ui/inline-preview
 import { IdleMount } from '@/components/idle-mount'
 import { OnboardingChatDirective } from '@/components/onboarding-chat/directive'
 import { $layoutEditMode, toggleLayoutEditMode } from '@/components/pane-shell/edit-mode'
-import { allPaneIds, groupLeafIds } from '@/components/pane-shell/tree/model'
+import { allPaneIds } from '@/components/pane-shell/tree/model'
 import { LayoutTreeRoot } from '@/components/pane-shell/tree/renderer'
 import {
   $layoutTree,
@@ -43,16 +43,27 @@ import { $workspaceOwnerLabels, workspaceOwnerTitle } from '@/components/pane-sh
 import { PenLibraryDialog } from '@/components/pen-library-dialog'
 import { SidebarProvider } from '@/components/ui/sidebar'
 import { discoverBundledPlugins } from '@/contrib/plugins'
+import { Slot } from '@/contrib/react/slot'
 import { registry } from '@/contrib/registry'
 import { discoverRuntimePlugins } from '@/contrib/runtime-loader'
 import { translateNow } from '@/i18n'
 import { NEW_SESSION_TITLE, sessionTitle as storedSessionTitle } from '@/lib/chat-runtime'
-import { Download, FileText, LayoutDashboard, PanelBottom, PanelTop, Pencil, Terminal, Upload, Zap } from '@/lib/icons'
+import {
+  Download,
+  FileText,
+  LayoutDashboard,
+  PanelBottom,
+  PanelTop,
+  Pencil,
+  Terminal,
+  Upload,
+  Users,
+  Zap
+} from '@/lib/icons'
 import { type KeybindContribution, KEYBINDS_AREA } from '@/lib/keybinds/actions'
 import { isOnboardingEnabled } from '@/lib/onboarding-enabled'
 import { TRANSCRIPT_DIRECTIVE_AREA, type TranscriptDirectiveContribution } from '@/lib/transcript-directives'
 import { setYoloEnabled } from '@/lib/yolo-session'
-import { pruneComposerPopoutZones } from '@/store/composer-popout'
 import {
   $fileBrowserOpen,
   $panesFlipped,
@@ -66,6 +77,7 @@ import {
   SIDEBAR_MAX_WIDTH
 } from '@/store/layout'
 import { $penLibraryOpen, openPenCanvas, openPenLibrary, watchPenSession } from '@/store/pen'
+import { $profileRailVisible } from '@/store/profile-rail-prefs'
 import { runExportProfileFlow, runImportProfileFlow } from '@/store/profile-share'
 import {
   $reviewOpen,
@@ -98,7 +110,7 @@ import {
 import { AppContextMenu } from '../context-menu/app-context-menu'
 import { HudShell } from '../hud/hud-shell'
 import { $terminalTakeover, setTerminalTakeover } from '../right-sidebar/store'
-import { $workspaceIsPage } from '../routes'
+import { $workspaceIsPage, WORKSPACE_PAGE_HEADER_AREA } from '../routes'
 
 import { DEFAULT_TREE, registerLayoutPresets } from './layout-presets'
 import { FilesPane, LogsPane, ReviewPaneContent } from './panes'
@@ -359,6 +371,15 @@ registry.registerMany([
     set: enabled => $statusbarVisible.set(enabled)
   }),
   paletteToggle({
+    id: 'view.toggleProfileRail',
+    label: 'Toggle profile rail',
+    action: 'view.toggleProfileRail',
+    icon: Users,
+    keywords: ['profile rail', 'profile bar', 'profile strip', 'profiles', 'sidebar', 'hide', 'show', 'chrome'],
+    get: () => $profileRailVisible.get(),
+    set: enabled => $profileRailVisible.set(enabled)
+  }),
+  paletteToggle({
     id: 'view.toggleTabStrip',
     label: 'Toggle tabs',
     action: 'view.toggleTabStrip',
@@ -491,15 +512,6 @@ if (!isBrowserWindow() && !isHudWindow()) {
 watchCanvasTiles()
 watchPenSession()
 
-// Composer pop-out state is keyed by layout zone, so drop entries for zones the
-// user has since closed or merged away — otherwise a long-lived install keeps a
-// row for every split it has ever had.
-$layoutTree.subscribe(tree => {
-  if (tree) {
-    pruneComposerPopoutZones(groupLeafIds(tree))
-  }
-})
-
 // Mirror sidebar pins into the backend keep-flag so the auto-archive sweep
 // never hides a pinned chat (and pre-existing pins migrate transparently).
 watchSessionPins()
@@ -538,6 +550,13 @@ const syncWorkspaceTitle = () => {
       tabTitle: stored ? undefined : () => <SessionDraftTitle scope={selected} />,
       // Pages aren't tab-able: the main zone's bar stands down while one shows.
       headerVeto: $workspaceIsPage.get(),
+      // Page-owned controls take the vetoed tab row. Deliberately NOT the
+      // `titleBar.center` slot: that one stays mounted in the titlebar on every
+      // route so plugin components (and their effects) survive navigation.
+      headerContent:
+        $workspaceIsPage.get() && registry.getArea(WORKSPACE_PAGE_HEADER_AREA).length
+          ? () => <Slot area={WORKSPACE_PAGE_HEADER_AREA} />
+          : undefined,
       placement: 'main',
       minWidth: '22vw',
       tabDrag: workspaceTabDrag,
@@ -553,6 +572,7 @@ $sessions.listen(syncWorkspaceTitle)
 $botChatScopes.listen(syncWorkspaceTitle)
 $workspaceOwnerLabels.listen(syncWorkspaceTitle)
 $workspaceIsPage.listen(syncWorkspaceTitle)
+registry.subscribeArea(WORKSPACE_PAGE_HEADER_AREA, syncWorkspaceTitle)
 
 // Layout reset collapses every session tile into main as a tab (after the
 // workspace) instead of re-scattering them — pre-placed before adoption.

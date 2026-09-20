@@ -5,8 +5,8 @@ Hermes desktop embeds the hosted pen.dev editor (app.pen.dev/new?embed) in a
 Canvas pane. This tool is the agent's door into that canvas: it round-trips
 through the gateway's blocking-prompt bridge — the same one ``read_preview``
 uses — so it works wherever the CLIENT is, remote backends included.
-tui_gateway emits ``pen.tool.request``, the renderer runs the operation
-against the live canvas and answers with ``pen.tool.respond``.
+tui_gateway sends a ``pen.tool`` server→client request, the renderer runs the
+operation against the live canvas and answers with the result as JSON text.
 
 Host actions (``open`` / ``close`` / ``schema``) own the pane and the live
 tool list. ``open`` and ``schema`` send ``get-mcp-schema`` so the agent
