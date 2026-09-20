@@ -91,6 +91,14 @@ is a symlink (a dotfiles repository that links `~/.ssh` to
 starts. Writes into a hidden directory land in the sandbox's copy and
 never reach the host.
 
+One exception: a CA bundle named by `SSL_CERT_FILE`, `SSL_CERT_DIR`,
+`HERMES_CA_BUNDLE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`,
+`NODE_EXTRA_CA_CERTS`, `GIT_SSL_CAINFO` or `PIP_CERT` that sits inside a
+hidden path (Hermes itself exports `SSL_CERT_FILE` pointing at the certifi
+bundle in its venv under `~/.hermes`) is bound back read-only at its own
+path. Trust anchors are public, and without them `curl`, `git`, `pip` and
+`node` would fail every TLS connection under the `network` profile.
+
 ## Working directory
 
 The working directory (`terminal.cwd`, the launch directory for the CLI,

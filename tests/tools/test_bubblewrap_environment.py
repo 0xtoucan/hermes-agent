@@ -342,9 +342,9 @@ class TestConstructionTimeMounts:
 
     def test_builder_signature_takes_only_construction_inputs_and_tracked_cwd(self):
         params = list(inspect.signature(build_bwrap_args).parameters)
-        # hidden_paths is the sensitive set the environment resolved at
-        # construction; it never comes from inside a sandbox.
-        assert params == ["config", "initial_cwd", "state_dir", "home", "hermes_home", "tracked_cwd", "bwrap_path", "hidden_paths"]
+        # hidden_paths and ca_bundles are sets the environment resolved at
+        # construction; neither ever comes from inside a sandbox.
+        assert params == ["config", "initial_cwd", "state_dir", "home", "hermes_home", "tracked_cwd", "bwrap_path", "hidden_paths", "ca_bundles"]
 
     def test_chdir_follows_tracked_cwd_with_fixed_mounts(self, sandbox_root, work_dir):
         home = os.path.expanduser("~")

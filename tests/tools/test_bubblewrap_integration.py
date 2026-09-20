@@ -130,6 +130,22 @@ class TestToolIntegration:
         assert host_file.read_text() == "hello"
         assert "hello" in read_file_tool(str(host_file), task_id=task_id)
 
+    def test_ca_bundle_under_hermes_home_is_readable_inside_the_sandbox(self, isolated_tool, tmp_path, monkeypatch):
+        """SSL_CERT_FILE pointing into the hidden HERMES_HOME (where hermes puts certifi's bundle) must
+        still be readable, or every TLS client in the sandbox fails; the rest of HERMES_HOME stays hidden."""
+        hermes_home = tmp_path / ".hermes"
+        bundle = hermes_home / "venv" / "certifi" / "cacert.pem"
+        bundle.parent.mkdir(parents=True)
+        bundle.write_text("TRUST-ANCHORS\n")
+        (hermes_home / "config.yaml").write_text("secret: yes\n")
+        monkeypatch.setenv("SSL_CERT_FILE", str(bundle))
+        r = json.loads(isolated_tool.terminal_tool(
+            'cat "$SSL_CERT_FILE"; ls -A "$(dirname "$SSL_CERT_FILE")/../.."', task_id="ca-bundle",
+        ))
+        assert r["exit_code"] == 0, r
+        assert "TRUST-ANCHORS" in r["output"]
+        assert "config.yaml" not in r["output"]
+
     def test_background_is_refused_and_never_spawned_unsandboxed(self, isolated_tool, monkeypatch):
         from tools.process_registry import process_registry
 

@@ -115,6 +115,17 @@ DEFAULT_HERMES_HOME_NAME = ".hermes"
 # exactly these, with no change to LocalEnvironment.
 HOST_SOCKET_VARS: tuple[str, ...] = ("SSH_AUTH_SOCK", "GPG_AGENT_INFO", "DBUS_SESSION_BUS_ADDRESS")
 
+# Variables that name a trust-anchor file (or directory, for SSL_CERT_DIR)
+# on the host. Hermes itself exports SSL_CERT_FILE=certifi's bundle at
+# startup, and on the standard install that file lives in the venv under
+# HERMES_HOME; hidden, every TLS client in the sandbox fails with "error
+# adding trust anchors" under the network profile. Trust anchors are
+# public, so a bundle the hidden set would mask is bound back read-only.
+CA_BUNDLE_VARS: tuple[str, ...] = (
+    "HERMES_CA_BUNDLE", "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE",
+    "CURL_CA_BUNDLE", "NODE_EXTRA_CA_CERTS", "GIT_SSL_CAINFO", "PIP_CERT",
+)
+
 DEFAULT_PROFILE = "network"
 DEFAULT_HOME_MODE = "auto"
 DEFAULT_MEMORY_MB = 256
@@ -353,6 +364,28 @@ def is_sensitive_source(src: str, hidden_paths: Sequence[str]) -> bool:
     return any(_is_within(c, root) for c in candidates for root in hidden_paths)
 
 
+def hidden_ca_bundles(hidden_paths: Sequence[str], environ: Mapping[str, str] | None = None) -> tuple[str, ...]:
+    """Trust-anchor paths named by CA_BUNDLE_VARS that the hidden set would mask.
+
+    Bound at the path as the environment spells it, since that is what the
+    sandbox's tools open; the hidden-set check follows symlinks like the
+    bind filter does. A value missing on the host yields nothing: the tool
+    then reports the same missing file it would on the host.
+    """
+    env = os.environ if environ is None else environ
+    bundles: list[str] = []
+    for name in CA_BUNDLE_VARS:
+        value = env.get(name, "")
+        if not value:
+            continue
+        path = os.path.abspath(os.path.expanduser(value))
+        if path in bundles or not os.path.exists(path):
+            continue
+        if is_sensitive_source(path, hidden_paths):
+            bundles.append(path)
+    return tuple(bundles)
+
+
 def hidden_path_under(src: str, hidden_paths: Sequence[str]) -> str | None:
     """The first hidden path strictly under *src* (or under what it symlinks to), else None."""
     abs_src = os.path.abspath(os.path.expanduser(src))
@@ -519,18 +552,21 @@ def build_bwrap_args(
     *,
     bwrap_path: str = "bwrap",
     hidden_paths: Sequence[str] | None = None,
+    ca_bundles: Sequence[str] | None = None,
 ) -> list[str]:
     """Build the bwrap argv prefix; the caller appends the shell argv after the trailing ``--``.
 
     All arguments are fixed at environment construction except *tracked_cwd*,
-    which only sets ``--chdir``. *hidden_paths* is the set
-    BubblewrapEnvironment resolved at construction; when omitted it is
-    resolved from *home* and *hermes_home* on this call, which suits tests
-    of the pure builder only.
+    which only sets ``--chdir``. *hidden_paths* and *ca_bundles* are the sets
+    BubblewrapEnvironment resolved at construction; when omitted they are
+    resolved from *home*, *hermes_home* and the process environment on this
+    call, which suits tests of the pure builder only.
     """
     profile = resolve_profile(config.profile)
     if hidden_paths is None:
         hidden_paths = sensitive_paths(home, hermes_home)
+    if ca_bundles is None:
+        ca_bundles = hidden_ca_bundles(hidden_paths)
 
     argv: list[str] = [
         bwrap_path,
@@ -578,6 +614,12 @@ def build_bwrap_args(
     # HOME itself still hides what sits under it, and before the state dir
     # so that stays reachable under a hidden HERMES_HOME.
     argv += sensitive_overlay_args(hidden_paths, state_dir)
+
+    # Trust anchors the overlays just hid come back read-only at their own
+    # path (see CA_BUNDLE_VARS); -try, so a bundle removed from the host
+    # between spawns fails in the tool that opens it, not in bwrap.
+    for bundle in ca_bundles:
+        argv += ["--ro-bind-try", bundle, bundle]
 
     # Under home_mode=profile the subprocess HOME is HERMES_HOME/home
     # (hermes_constants.get_subprocess_home), so bind it back read-write on
@@ -828,6 +870,7 @@ class BubblewrapEnvironment(LocalEnvironment):
         # Resolved once and kept for the life of the environment: the set
         # never follows a symlink swapped in later.
         self._hidden_paths = sensitive_paths(self._home, self._hermes_home)
+        self._ca_bundles = hidden_ca_bundles(self._hidden_paths)
         # The operator binds are filtered, their sources expanded and their
         # destinations resolved once here, like the hidden set and the cwd,
         # so the mount paths are fixed for the life of the environment
@@ -1097,6 +1140,7 @@ class BubblewrapEnvironment(LocalEnvironment):
             tracked_cwd,
             bwrap_path=self._bwrap_path,
             hidden_paths=self._hidden_paths,
+            ca_bundles=self._ca_bundles,
         )
 
     def _reset_masked_cwd(self) -> str | None:

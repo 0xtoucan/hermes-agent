@@ -18,7 +18,9 @@ from tools.environments.bubblewrap import (
     ancestor_pin_args,
     build_bwrap_args,
     empty_file_path,
+    hidden_ca_bundles,
     load_bubblewrap_config,
+    masked_inside,
     resolve_bind_dests,
     runtime_overlay_args,
     sensitive_paths,
@@ -658,3 +660,28 @@ class TestPinTargetInsideTheBind:
         argv = ancestor_pin_args([(str(w), str(w))], [str(w)], hidden)
         home, config = str(w / "home"), str(w / "home" / ".config")
         assert argv == ["--bind", home, home, "--bind", config, config]
+
+
+class TestHiddenCaBundles:
+    def test_bundle_under_hermes_home_is_bound_back_read_only_after_the_overlays(self, paths, monkeypatch):
+        """Hermes exports SSL_CERT_FILE=certifi's bundle from the venv under HERMES_HOME; hidden, every TLS
+        client in the sandbox fails. The bundle comes back read-only at its own path, and only the bundle."""
+        hermes_home = Path(paths["hermes_home"])
+        bundle = hermes_home / "hermes-agent" / "venv" / "certifi" / "cacert.pem"
+        bundle.parent.mkdir(parents=True)
+        bundle.write_text("# trust anchors")
+        outside = Path(paths["home"]).parent / "system-ca.pem"
+        outside.write_text("# system anchors")
+        hidden = sensitive_paths(paths["home"], paths["hermes_home"])
+        environ = {"SSL_CERT_FILE": str(bundle), "CURL_CA_BUNDLE": str(outside),
+                   "REQUESTS_CA_BUNDLE": str(hermes_home / "missing.pem")}
+        assert hidden_ca_bundles(hidden, environ) == (str(bundle),)
+
+        argv = build(paths=paths, hidden_paths=hidden, ca_bundles=(str(bundle),))
+        assert (str(bundle), str(bundle)) in triples(argv, "--ro-bind-try")
+        bundle_at = argv.index(str(bundle))
+        assert bundle_at > max(i for i, a in enumerate(argv) if a == "--tmpfs")  # lands on top of the overlay
+        assert bundle_at < argv.index("--chdir")
+        assert not masked_inside(argv, str(bundle))
+        assert masked_inside(argv, str(hermes_home / "config.yaml"))
+        assert str(bundle) not in build(paths=paths, hidden_paths=hidden, ca_bundles=())
