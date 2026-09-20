@@ -1501,14 +1501,14 @@ export function buildToolView(part: ToolPart, inlineDiff: string): ToolView {
   const unavailable = part.result === undefined && part.completedAt !== undefined
   const title = unavailable ? translateNow('assistant.tool.resultUnavailable') : titleParts.title
   const titleEnriched = title !== baseTitle
-  const baseSubtitle =
-    sandbox?.denied.length && !error
-      ? translateNow('assistant.tool.sandboxBlocked')
-      : error || toolSubtitle(part, argsRecord, resultRecord)
+  const baseSubtitle = sandbox?.denied.length
+    ? translateNow('assistant.tool.sandboxBlocked')
+    : error || toolSubtitle(part, argsRecord, resultRecord)
 
   const keepSubtitleWithTitle =
     part.toolName === 'terminal' ||
     part.toolName === 'execute_code' ||
+    Boolean(sandbox?.denied.length) ||
     (isFileEditTool(part.toolName) && Boolean(baseSubtitle.trim()))
 
   const subtitle = titleEnriched && !error && !keepSubtitleWithTitle ? '' : baseSubtitle
