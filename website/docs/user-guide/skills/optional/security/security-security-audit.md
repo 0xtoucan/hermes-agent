@@ -76,6 +76,7 @@ Find vulnerabilities that violate a real trust boundary, then give owners the so
 >   from executed evidence), and the 11-step promotion block stays in the prompts
 >   as the contract that explains WHY nothing is promoted.
 > - **Output directory.** Default `~/security-audit-skill/<repo-name>/run-<N>`; never
+> <!-- no-tmp: ok — the line below forbids /tmp; it is not a path anything writes to -->
 >   `/tmp`, never inside the target unless the user selects an ignored path. Record
 >   `skill_dir` and the children spent so far in `run-metadata.json` (the validators
 >   do not check that file; keep it small and factual).
@@ -157,6 +158,7 @@ The parent creates and is the only writer of shared run files:
 - `FINDINGS-DETAIL.md`
 - `NEEDS-VALIDATION.md`
 
+<!-- no-tmp: ok — upstream rule forbidding /tmp as a fallback, kept verbatim -->
 Each hunter or verifier receives a unique root under `<output-dir>/agents/<agent-id>/`, with separate `scratch/` and `artifacts/` directories. Canonical agent IDs match `^[a-z0-9][a-z0-9_-]{0,63}$` and must not equal a Windows device name such as `con`, `prn`, `aux`, `nul`, `com1` through `com9`, or `lpt1` through `lpt9`. Lowercase IDs prevent case-fold collisions. The agent and every target-controlled process may write only to `scratch/`; retained `artifacts/` is parent-owned, is never exposed to the sandbox, and is writable only by trusted parent-side promotion code. Agents may not change shared files, target source, retained artifacts, or another agent's directory. Do not use `/tmp` or the host home directory as a writable fallback.
 
 Before execution, the parent opens and retains trusted, non-inheritable directory descriptors for the agent's `scratch/` and `artifacts/` roots, and records an allowlist of expected scratch-relative artifact files plus explicit per-file and cumulative byte limits. Never pass those descriptors to the agent or sandbox. After the sandbox and all its processes terminate, trusted parent-side code promotes each allowlisted file separately:
