@@ -386,6 +386,13 @@ def hidden_ca_bundles(hidden_paths: Sequence[str], environ: Mapping[str, str] | 
     return tuple(bundles)
 
 
+def resolve_scratch_dir(hermes_home: str) -> str:
+    """Real path of the Hermes scratch dir for *hermes_home* (``<home>/cache/scratch``), created if missing."""
+    from hermes_constants import get_scratch_dir
+
+    return os.path.realpath(str(get_scratch_dir(hermes_home, prune=False)))
+
+
 def hidden_path_under(src: str, hidden_paths: Sequence[str]) -> str | None:
     """The first hidden path strictly under *src* (or under what it symlinks to), else None."""
     abs_src = os.path.abspath(os.path.expanduser(src))
@@ -553,20 +560,24 @@ def build_bwrap_args(
     bwrap_path: str = "bwrap",
     hidden_paths: Sequence[str] | None = None,
     ca_bundles: Sequence[str] | None = None,
+    scratch_dir: str | None = None,
 ) -> list[str]:
     """Build the bwrap argv prefix; the caller appends the shell argv after the trailing ``--``.
 
     All arguments are fixed at environment construction except *tracked_cwd*,
-    which only sets ``--chdir``. *hidden_paths* and *ca_bundles* are the sets
-    BubblewrapEnvironment resolved at construction; when omitted they are
-    resolved from *home*, *hermes_home* and the process environment on this
-    call, which suits tests of the pure builder only.
+    which only sets ``--chdir``. *hidden_paths*, *ca_bundles* and
+    *scratch_dir* are what BubblewrapEnvironment resolved at construction;
+    when omitted they are resolved from *home*, *hermes_home* and the
+    process environment on this call, which suits tests of the pure builder
+    only.
     """
     profile = resolve_profile(config.profile)
     if hidden_paths is None:
         hidden_paths = sensitive_paths(home, hermes_home)
     if ca_bundles is None:
         ca_bundles = hidden_ca_bundles(hidden_paths)
+    if scratch_dir is None:
+        scratch_dir = resolve_scratch_dir(hermes_home)
 
     argv: list[str] = [
         bwrap_path,
@@ -620,6 +631,15 @@ def build_bwrap_args(
     # between spawns fails in the tool that opens it, not in bwrap.
     for bundle in ca_bundles:
         argv += ["--ro-bind-try", bundle, bundle]
+
+    # The Hermes scratch dir (TMPDIR for every command, and what the system
+    # prompt tells the model to write temporary files to) lives under the
+    # hidden HERMES_HOME. Left hidden, each command's scratch writes land in
+    # that sandbox's private tmpfs and are gone by the next command, with
+    # no error. Bound back at its own path: writable with the cwd, read-only
+    # under the restricted profile so a write fails loudly instead.
+    if scratch_dir:
+        argv += ["--bind-try" if profile.writable_cwd else "--ro-bind-try", scratch_dir, scratch_dir]
 
     # Under home_mode=profile the subprocess HOME is HERMES_HOME/home
     # (hermes_constants.get_subprocess_home), so bind it back read-write on
@@ -871,6 +891,7 @@ class BubblewrapEnvironment(LocalEnvironment):
         # never follows a symlink swapped in later.
         self._hidden_paths = sensitive_paths(self._home, self._hermes_home)
         self._ca_bundles = hidden_ca_bundles(self._hidden_paths)
+        self._scratch_dir = resolve_scratch_dir(self._hermes_home)
         # The operator binds are filtered, their sources expanded and their
         # destinations resolved once here, like the hidden set and the cwd,
         # so the mount paths are fixed for the life of the environment
@@ -1141,6 +1162,7 @@ class BubblewrapEnvironment(LocalEnvironment):
             bwrap_path=self._bwrap_path,
             hidden_paths=self._hidden_paths,
             ca_bundles=self._ca_bundles,
+            scratch_dir=self._scratch_dir,
         )
 
     def _reset_masked_cwd(self) -> str | None:

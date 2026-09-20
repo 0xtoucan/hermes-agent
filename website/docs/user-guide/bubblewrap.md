@@ -75,7 +75,12 @@ directory shows as empty and a file shows as empty. The set is fixed:
 
 `~/.hermes` (or whatever `HERMES_HOME` points at) is hidden as well: the
 agent already holds its own configuration and keys in memory and does not
-need to read them from inside a command. With `terminal.home_mode: profile`
+need to read them from inside a command. Two directories under it stay
+reachable at their own paths: the backend's own state directory
+(`HERMES_HOME/sandboxes/bwrap-*`) and the Hermes scratch directory
+(`HERMES_HOME/cache/scratch`, which is `TMPDIR` for every command), the
+latter writable whenever the working directory is, so temporary files
+survive from one command to the next. With `terminal.home_mode: profile`
 the `HERMES_HOME/home` directory is the subprocess `HOME` and stays
 readable and writable; the rest of `HERMES_HOME` stays hidden.
 
