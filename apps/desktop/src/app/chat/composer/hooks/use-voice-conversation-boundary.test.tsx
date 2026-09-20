@@ -23,9 +23,16 @@ vi.mock('@/hermes', () => ({
   getApiRequestConnection: () => null,
   getApiRequestProfile: () => null,
   hermesApi: mocks.config,
+  // `@/store/profile` subscribes at import and routes REST calls through this.
+  setApiRequestProfile: () => {},
   speakText: vi.fn()
 }))
-vi.mock('@/api/client', () => ({ profileScoped: (value: unknown) => value }))
+// The direct-TTS config fetch scopes its request by the session owner
+// (`ownerScoped`, ae7bf989); an ownerless scope resolves to no extra fields.
+vi.mock('@/api/client', () => ({
+  ownerScoped: () => ({}),
+  profileScoped: (value: unknown) => value
+}))
 vi.mock('./use-mic-recorder', () => ({ useMicRecorder: () => ({ handle: mocks.mic, level: 0 }) }))
 vi.mock('@/lib/voice-barge-in', () => ({ monitorSpeechDuringPlayback: () => vi.fn() }))
 vi.mock('@/lib/thinking-sound', () => ({ startThinkingSound: vi.fn(), stopThinkingSound: vi.fn() }))
