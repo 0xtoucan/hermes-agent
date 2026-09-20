@@ -332,6 +332,13 @@ def _select_tool_names(enabled_toolsets: Optional[List[str]], disabled_toolsets:
     # disabled toolset are strictly stripped out. See issue #17309.
     if disabled_toolsets:
         _apply_toolset_selection(tools, disabled_toolsets, quiet_mode, disable=True)
+    # A sandbox policy with network off withholds the host-side network toolsets the same way,
+    # so "network off" describes the whole agent and not only its sandboxed commands. The
+    # definitions cache keys on the config file's signature, so a policy edit is picked up.
+    from tools.environments.mxc_host import host_network_withheld_toolsets
+    withheld = host_network_withheld_toolsets()
+    if withheld:
+        _apply_toolset_selection(tools, list(withheld), quiet_mode, disable=True)
     return tools
 
 

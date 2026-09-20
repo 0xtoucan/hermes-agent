@@ -957,7 +957,8 @@ export const en: Translations = {
       modeRead: 'Read-only',
       modeReadWrite: 'Read & write',
       networkLabel: 'Allow network access',
-      networkDescription: "Off by default: sandboxed commands cannot reach the internet or this machine's services.",
+      networkDescription:
+        "Off by default: the agent is offline. Sandboxed commands cannot reach the internet or this machine's services, and web search and browsing tools are withheld until you turn this on.",
       containers: count => (count === 1 ? '1 container started this session' : `${count} containers started this session`),
       recheck: 'Recheck',
       prepareTitle: 'Prepare workspace for git',

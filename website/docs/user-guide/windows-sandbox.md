@@ -62,9 +62,11 @@ The policy is small on purpose, and the panel shows all of it:
   folders explicitly is reported as an error. In the CLI, launch `hermes` from a project folder.
 - **Additional folders**, each read-only or read & write. These are `terminal.mxc_readonly_paths`
   and `terminal.mxc_readwrite_paths` in `config.yaml`.
-- **Network**, off by default (`terminal.mxc_network`). When it is off, sandboxed commands cannot
-  reach the internet or services on your own machine; local inference is unaffected because the
-  model runs outside the sandbox.
+- **Network**, off by default (`terminal.mxc_network`). Off means the agent is offline: sandboxed
+  commands cannot reach the internet or services on your own machine, and Hermes's own web search,
+  page-fetch and browser tools are withheld from the model until you turn it on (they run in the
+  Hermes process, outside the container, so the switch has to cover them too or it would mean
+  little). Local inference is unaffected because the model runs outside the sandbox.
 
 A few read-only grants are added automatically so the agent's tools work: the Hermes install and
 its Python, the bundled Node and Git, the sandbox shell, and the desktop's composer staging
@@ -121,8 +123,12 @@ any workspace.
   container alive for the life of the process.
 - The `execute_code` kernel does not persist between calls under this backend; commands and the
   file tools are the supported path.
-- Browser automation and desktop control run on the host, outside the sandbox. Turn those
-  toolsets off when the point is containment.
+- Browser automation and desktop control run on the host, outside the sandbox. The network
+  switch withholds the web and browser toolsets when it is off; turn the `computer_use` toolset
+  off yourself when the point is containment.
+- The switch is binary on current Windows builds. Per-domain allow or deny lists for sandboxed
+  commands need a host-side egress proxy the container can reach, and the container cannot reach
+  the host on these builds; that arrives with the next MXC contract.
 - Messaging gateways must set `terminal.cwd` to a project folder; the sandbox will not accept the
   gateway's home directory as a workspace.
 

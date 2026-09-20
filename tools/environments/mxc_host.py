@@ -507,6 +507,22 @@ def backend_enabled(terminal_cfg: Optional[dict] = None) -> bool:
     return str(backend or "").strip().lower() == "mxc"
 
 
+# Toolsets that reach the network from the Hermes process itself rather than from inside a
+# container. With the sandbox on and its network off, the switch has to mean "the agent is
+# offline", so these are withheld from the model too; an egress the sandbox cannot see would
+# otherwise make the setting a formality.
+HOST_NETWORK_TOOLSETS = ("web", "browser")
+
+
+def host_network_withheld_toolsets(terminal_cfg: Optional[dict] = None) -> tuple[str, ...]:
+    """Toolsets to withhold from the model under the current sandbox policy: the host-network
+    toolsets when the sandbox is on and its network is off, otherwise nothing."""
+    cfg = terminal_cfg if terminal_cfg is not None else _terminal_section()
+    if not backend_enabled(cfg):
+        return ()
+    return () if resolve_settings(cfg).policy.network else HOST_NETWORK_TOOLSETS
+
+
 def status(*, provision_shell: bool = False, settings: Optional[MxcSettings] = None) -> dict:
     """One record describing whether the MXC backend can run here and how it is configured.
 

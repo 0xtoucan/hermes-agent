@@ -179,6 +179,27 @@ def test_attachment_staging_dirs_grant_only_the_composer_folders(tmp_path, monke
     assert grants == [str(user_data / "composer-images")], "missing subfolders are skipped, the parent is never granted"
 
 
+def test_host_network_toolsets_are_withheld_only_when_the_sandbox_is_on_and_offline():
+    assert mxc_host.host_network_withheld_toolsets({"backend": "local", "mxc_network": False}) == ()
+    assert mxc_host.host_network_withheld_toolsets({"backend": "mxc", "mxc_network": True}) == ()
+    withheld = mxc_host.host_network_withheld_toolsets({"backend": "mxc", "mxc_network": False})
+    assert "web" in withheld and "browser" in withheld
+
+
+def test_tool_definitions_drop_web_and_browser_tools_when_the_sandbox_is_offline(monkeypatch):
+    """The network switch has to describe the whole agent: with the sandbox on and network off, the
+    model must not see host-side network tools at all (an egress the sandbox cannot see would make
+    the switch a formality). Terminal and file tools stay."""
+    import model_tools
+    monkeypatch.setattr(mxc_host, "host_network_withheld_toolsets", lambda terminal_cfg=None: ("web", "browser"))
+    names = model_tools._select_tool_names(["terminal", "file", "web", "browser"], None, True)
+    assert "terminal" in names and "read_file" in names
+    assert not any(n.startswith("web_") or n.startswith("browser_") for n in names)
+    monkeypatch.setattr(mxc_host, "host_network_withheld_toolsets", lambda terminal_cfg=None: ())
+    names = model_tools._select_tool_names(["terminal", "file", "web", "browser"], None, True)
+    assert "web_search" in names and "browser_navigate" in names
+
+
 # ── host settings and status ─────────────────────────────────────────────────
 
 def test_resolve_settings_reads_config_first_then_env_bridge(monkeypatch):
