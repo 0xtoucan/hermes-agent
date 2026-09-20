@@ -222,6 +222,10 @@ terminal:
   temp_dir: ""      # Session temp root; empty = TMPDIR, else ~/.hermes/cache/terminal
   font_family: ""   # Desktop terminal font; e.g. "MesloLGS NF"
   timeout: 180      # Per-command timeout in seconds
+  foreground_yield_sec: 0  # >0: a foreground command running this long is handed to the background
+                           # (partial output + session id returned, process keeps running; poll with
+                           # process()). Local backend only. Keeps long test suites/builds from
+                           # blocking the agent's turn; 15 is a reasonable value for coding runs.
   home_mode: auto   # auto | real | profile — subprocess HOME policy
   env_passthrough: []  # Env var names to forward to sandboxed execution (terminal + execute_code)
   sync_back_max_bytes: 2147483648  # Remote backends: refuse to extract a state archive larger than this (bytes)

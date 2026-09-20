@@ -682,6 +682,7 @@ def _get_env_config() -> Dict[str, Any]:
         "host_cwd": host_cwd,
         "docker_mount_cwd_to_workspace": mount_docker_cwd,
         "timeout": _parse_env_var("TERMINAL_TIMEOUT", "180"),
+        "foreground_yield_sec": _parse_env_var("TERMINAL_FOREGROUND_YIELD_SEC", "0"),
         "lifetime_seconds": _parse_env_var("TERMINAL_LIFETIME_SECONDS", "300"),
         # SSH-specific config
         "ssh_host": _tenv("TERMINAL_SSH_HOST", ""),
@@ -783,7 +784,9 @@ from tools.terminal_tool_guards import (
     _foreground_background_guidance, _safe_command_preview, _validate_workdir,
     gateway_lifecycle_block, self_repo_block,
 )
-from tools.terminal_tool_background import _YIELDED_NOTE, spawn_background_process, yield_to_background_handler
+from tools.terminal_tool_background import (
+    _ELAPSED_YIELD_NOTE, _YIELDED_NOTE, spawn_background_process, yield_to_background_handler,
+)
 from tools.terminal_tool_result import finalize_foreground_result
 
 
@@ -1095,10 +1098,17 @@ def _acquire_env(plan: _ExecPlan, task_id: Optional[str]) -> Any:
         return new_env
 
 
-def _yield_kwargs(command: str, **ctx) -> dict:
-    """``env.execute`` kwargs enabling yield-to-background (local backend only)."""
+def _yield_kwargs(command: str, yield_after_sec: int = 0, **ctx) -> dict:
+    """``env.execute`` kwargs enabling yield-to-background (local backend only). A positive
+    ``yield_after_sec`` (config ``terminal.foreground_yield_sec``) also hands the command off once
+    it has run that long, so a long build or test run stops blocking the model's turn."""
     handler = yield_to_background_handler(command=command, **ctx)
-    return {"yield_handler": handler} if handler is not None else {}
+    if handler is None:
+        return {}
+    kwargs: dict = {"yield_handler": handler}
+    if yield_after_sec > 0:
+        kwargs["yield_after"] = float(yield_after_sec)
+    return kwargs
 
 
 def _run_foreground(
@@ -1129,7 +1139,8 @@ def _run_foreground(
             # internal env.execute() consumers stay unbounded.
             result = env.execute(
                 command, timeout=effective_timeout, cwd=command_cwd, bounded_capture=True,
-                **_yield_kwargs(command, env_type=env_type, cwd=command_cwd, effective_task_id=eff,
+                **_yield_kwargs(command, yield_after_sec=int(plan.config.get("foreground_yield_sec") or 0),
+                                env_type=env_type, cwd=command_cwd, effective_task_id=eff,
                                 task_id=task_id, session_key=session_key),
             )
             break
@@ -1148,10 +1159,12 @@ def _run_foreground(
             return _error_json(_redact_terminal_error_text(f"Command execution failed: {type(e).__name__}: {e}"))
 
     if result.get("yielded_session_id"):
+        elapsed = result.get("yield_reason") == "elapsed"
+        note = _ELAPSED_YIELD_NOTE.format(seconds=plan.config.get("foreground_yield_sec")) if elapsed else _YIELDED_NOTE
         return json.dumps({
             "output": result.get("output", ""), "exit_code": None, "error": None,
             "status": "yielded_to_background", "session_id": result["yielded_session_id"],
-            "pid": result.get("pid"), "notify_on_complete": True, "note": _YIELDED_NOTE,
+            "pid": result.get("pid"), "notify_on_complete": True, "note": note,
         }, ensure_ascii=False)
     return finalize_foreground_result(
         command=command, result=result, env=env, env_type=env_type, effective_task_id=eff,

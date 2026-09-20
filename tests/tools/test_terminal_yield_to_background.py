@@ -96,3 +96,32 @@ def test_yield_request_without_steer_leaves_foreground_wait_alone():
     finally:
         interrupt_mod.consume_yield(threading.current_thread().ident)
         env.cleanup()
+
+
+@pytest.mark.live_system_guard_bypass
+def test_foreground_yield_sec_hands_long_command_to_background(tmp_path, monkeypatch):
+    """``terminal.foreground_yield_sec`` (env bridge TERMINAL_FOREGROUND_YIELD_SEC): a command
+    that outlives it returns partial output + a live session instead of blocking the turn.
+    Why: a 42-call build task sat through blocking commands for 60 model steps while an agent
+    whose shell yields finished the same task in 12."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("TERMINAL_FOREGROUND_YIELD_SEC", "1")
+    t0 = time.monotonic()
+    r = json.loads(terminal_tool("echo started; sleep 60; echo done", task_id="yield-elapsed", timeout=90))
+    elapsed = time.monotonic() - t0
+    try:
+        assert r["status"] == "yielded_to_background", r
+        assert elapsed < 10, elapsed
+        assert "started" in r["output"] and r["exit_code"] is None
+        assert "running for 1s" in r["note"] and "Do NOT re-run" in r["note"]
+        assert process_registry.poll(r["session_id"])["status"] == "running"
+    finally:
+        process_registry.kill_process(r["session_id"])
+
+
+def test_foreground_yield_off_by_default_blocks_until_exit(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.delenv("TERMINAL_FOREGROUND_YIELD_SEC", raising=False)
+    r = json.loads(terminal_tool("sleep 1.5; echo done", task_id="yield-off", timeout=30))
+    assert r.get("status") != "yielded_to_background"
+    assert r["exit_code"] == 0 and "done" in r["output"]

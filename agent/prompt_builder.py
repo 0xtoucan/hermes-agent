@@ -412,7 +412,9 @@ PARALLEL_TOOL_CALL_GUIDANCE = (
     "read-only commands should be batched into the same assistant turn — the runtime executes independent "
     "calls concurrently, and batching avoids resending the whole conversation on every extra round-trip.\n"
     "Only serialize calls when a later call genuinely depends on an earlier call's result (e.g. you must "
-    "read a file before you can patch it). When in doubt and the calls are independent, batch them."
+    "read a file before you can patch it). When in doubt and the calls are independent, batch them.\n"
+    "GOOD: one response that calls `git status` AND runs the test suite AND reads the two files you need.\n"
+    "BAD: call `git status`, wait for the result, run the tests, wait, read one file, wait, read the next."
 )
 
 # Execution-discipline guidance for models that abandon partial results, skip prerequisite lookups, answer

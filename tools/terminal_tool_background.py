@@ -220,6 +220,12 @@ _YIELDED_NOTE = (
     "exits (notify_on_complete). Read the user's message and respond to it now; use "
     "process(action='poll'|'wait'|'log', session_id=...) to check on this command."
 )
+_ELAPSED_YIELD_NOTE = (
+    "This command has been running for {seconds}s, so it was moved to the background WITHOUT being "
+    "killed and is still running; the output above is partial. Do NOT re-run it. Continue with other "
+    "work now if you have any, then process(action='wait'|'poll'|'log', session_id=...) to collect the "
+    "rest of its output and exit code."
+)
 
 
 def yield_to_background_handler(

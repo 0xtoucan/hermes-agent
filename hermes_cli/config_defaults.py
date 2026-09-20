@@ -288,6 +288,11 @@ DEFAULT_CONFIG = {
         # Menlo, Consolas, monospace"). Lets users use a Nerd Font without patching the app.
         "font_family": "",
         "timeout": 180,
+        # Seconds a foreground command may block the model's turn before it is handed to the
+        # background (partial output + session id returned; the process keeps running and the
+        # model polls it with process()). 0 = never; the command blocks until it exits or hits
+        # `timeout`. Local backend only. Long test suites and builds are the usual beneficiaries.
+        "foreground_yield_sec": 0,
         # Seconds between SIGTERM and escalated SIGKILL for host process trees (browser daemons). 0
         # = SIGTERM only.
         "daemon_term_grace_seconds": 2.0,

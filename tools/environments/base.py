@@ -343,12 +343,16 @@ class BaseEnvironment(ABC):
     def _wait_for_process(
         self, proc: ProcessHandle, timeout: int = 120, *,
         bounded_capture: bool = False, watch_interrupt_tid: int | None = None,
-        yield_handler: Callable[[ProcessHandle, str], dict] | None = None) -> dict:
+        yield_handler: Callable[[ProcessHandle, str], dict] | None = None,
+        yield_after: float | None = None) -> dict:
         """Poll-based wait with interrupt checking and stdout draining (shared, not overridden).
         ``yield_handler(proc, output_so_far)``: when the tool thread is asked to yield
-        (``tools.interrupt.request_yield`` — a user message arrived mid-command), the drain
-        thread is stopped, the still-running process is handed to the handler and its dict
-        is returned as the result; the process is NOT killed.
+        (``tools.interrupt.request_yield`` — a user message arrived mid-command) or the command
+        has run for ``yield_after`` seconds, the drain thread is stopped, the still-running
+        process is handed to the handler and its dict is returned as the result (with
+        ``yield_reason`` = ``"interrupt"`` / ``"elapsed"``); the process is NOT killed. The
+        elapsed trigger keeps a long build or test run from blocking the model's turn: it gets
+        the partial output plus a session id and can keep working while the command finishes.
         ``bounded_capture=True`` (foreground terminal-tool path only) retains at most
         ``tool_output.max_bytes`` in a head/tail window so a verbose subprocess cannot OOM the
         process; the default keeps full fidelity for internal consumers. Fires the activity
@@ -386,7 +390,13 @@ class BaseEnvironment(ABC):
                     trace.interrupted()
                     _kill_and_join()
                     return self._finalize_wait_result(output, output.render(suffix="\n[Command interrupted]"), 130)
-                if yield_handler is not None and consume_yield(watch_interrupt_tid):
+                yield_reason = None
+                if yield_handler is not None:
+                    if consume_yield(watch_interrupt_tid):
+                        yield_reason = "interrupt"
+                    elif yield_after is not None and time.monotonic() - _activity_state["start"] >= yield_after:
+                        yield_reason = "elapsed"
+                if yield_reason is not None:
                     drain_stop.set()
                     drain_thread.join(timeout=1)
                     try:
@@ -396,9 +406,11 @@ class BaseEnvironment(ABC):
                         handed = None
                     if handed is not None:
                         output.close_spill()
+                        handed["yield_reason"] = yield_reason
                         return handed
                     drain_stop.clear()
                     drain_thread = _start_drain_thread(proc, output, drain_stop)
+                    yield_after = None  # handoff refused: finish the wait in the foreground
                 if time.monotonic() > deadline:
                     trace.timed_out()
                     _kill_and_join()
@@ -496,7 +508,8 @@ class BaseEnvironment(ABC):
         stdin_data: str | None = None,
         rewrite_compound_background: bool = True,
         bounded_capture: bool = False,
-        yield_handler: Callable[[ProcessHandle, str], dict] | None = None) -> dict:
+        yield_handler: Callable[[ProcessHandle, str], dict] | None = None,
+        yield_after: float | None = None) -> dict:
         """Execute a command, return {"output": str, "returncode": int}. ``bounded_capture=True``
         caps retention at ``tool_output.max_bytes`` WHILE draining; only the foreground terminal
         tool may set it — internal full-fidelity consumers (file-op ``cat`` reads feeding the
@@ -545,7 +558,8 @@ class BaseEnvironment(ABC):
             return self._wait_for_process(
                 spawned, timeout=effective_timeout, bounded_capture=bounded_capture,
                 watch_interrupt_tid=parent_tid,
-                **({"yield_handler": yield_handler} if yield_handler is not None else {}))
+                **({"yield_handler": yield_handler, "yield_after": yield_after}
+                   if yield_handler is not None else {}))
 
         def _on_timeout() -> None:
             if proc_holder:
