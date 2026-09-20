@@ -57,35 +57,35 @@ hermes skills uninstall <skill-name>
 
 | Skill | Description |
 |-------|-------------|
-| [**ai-presenter-video**](/docs/user-guide/skills/optional/creative/creative-ai-presenter-video) | Make a verified AI presenter video from script + image. |
-| [**archify**](/docs/user-guide/skills/optional/creative/creative-archify) | Validated interactive HTML diagrams, upstream-maintained. |
-| [**ascii-art**](/docs/user-guide/skills/optional/creative/creative-ascii-art) | ASCII art: pyfiglet, cowsay, boxes, image-to-ascii. |
-| [**audiocraft-audio-generation**](/docs/user-guide/skills/optional/creative/creative-audiocraft-audio-generation) | AudioCraft: MusicGen text-to-music, AudioGen text-to-sound. |
+| [**ai-presenter-video**](../user-guide/skills/optional/creative/creative-ai-presenter-video.md) | Make a verified AI presenter video from script + image. |
+| [**archify**](../user-guide/skills/optional/creative/creative-archify.md) | Validated interactive HTML diagrams, upstream-maintained. |
+| [**ascii-art**](../user-guide/skills/optional/creative/creative-ascii-art.md) | ASCII art: pyfiglet, cowsay, boxes, image-to-ascii. |
+| [**audiocraft-audio-generation**](../user-guide/skills/optional/creative/creative-audiocraft-audio-generation.md) | AudioCraft: MusicGen text-to-music, AudioGen text-to-sound. |
 | [**auteur**](../user-guide/skills/optional/creative/creative-auteur.md) | Design and build cinematic, award-level web pages. |
-| [**baoyu-article-illustrator**](/docs/user-guide/skills/optional/creative/creative-baoyu-article-illustrator) | Article illustrations: type × style × palette consistency. |
-| [**baoyu-comic**](/docs/user-guide/skills/optional/creative/creative-baoyu-comic) | Knowledge comics (知识漫画): educational, biography, tutorial. |
-| [**comfyui**](/docs/user-guide/skills/optional/creative/creative-comfyui) | Generate images, video, and audio via diffusion workflows. |
-| [**concept-diagrams**](/docs/user-guide/skills/optional/creative/creative-concept-diagrams) | Generate flat, minimal educational SVG visuals as HTML. |
-| [**creative-ideation**](/docs/user-guide/skills/optional/creative/creative-creative-ideation) | Generate ideas via named methods from creative practice. |
-| [**draw-your-font**](/docs/user-guide/skills/optional/creative/creative-draw-your-font) | Turn a handwriting photo into an installable TTF font. |
+| [**baoyu-article-illustrator**](../user-guide/skills/optional/creative/creative-baoyu-article-illustrator.md) | Article illustrations: type × style × palette consistency. |
+| [**baoyu-comic**](../user-guide/skills/optional/creative/creative-baoyu-comic.md) | Knowledge comics (知识漫画): educational, biography, tutorial. |
+| [**comfyui**](../user-guide/skills/optional/creative/creative-comfyui.md) | Generate images, video, and audio via diffusion workflows. |
+| [**concept-diagrams**](../user-guide/skills/optional/creative/creative-concept-diagrams.md) | Generate flat, minimal educational SVG visuals as HTML. |
+| [**creative-ideation**](../user-guide/skills/optional/creative/creative-creative-ideation.md) | Generate ideas via named methods from creative practice. |
+| [**draw-your-font**](../user-guide/skills/optional/creative/creative-draw-your-font.md) | Turn a handwriting photo into an installable TTF font. |
 | [**dream-loop**](../user-guide/skills/optional/creative/creative-dream-loop.md) | Build stunning 3D scenes via a concept-art fidelity loop. |
-| [**excalidraw**](/docs/user-guide/skills/optional/creative/creative-excalidraw) | Hand-drawn Excalidraw JSON diagrams (arch, flow, seq). |
-| [**fal-music**](/docs/user-guide/skills/optional/creative/creative-fal-music) | Generate music and sound effects via fal.ai hosted models. |
-| [**heartmula**](/docs/user-guide/skills/optional/creative/creative-heartmula) | HeartMuLa: Suno-like song generation from lyrics + tags. |
-| [**hyperframes**](/docs/user-guide/skills/optional/creative/creative-hyperframes) | Render MP4/WebM videos from HTML compositions. |
-| [**impeccable**](/docs/user-guide/skills/optional/creative/creative-impeccable) | Frontend design guidance, upstream-maintained (impeccable). |
+| [**excalidraw**](../user-guide/skills/optional/creative/creative-excalidraw.md) | Hand-drawn Excalidraw JSON diagrams (arch, flow, seq). |
+| [**fal-music**](../user-guide/skills/optional/creative/creative-fal-music.md) | Generate music and sound effects via fal.ai hosted models. |
+| [**heartmula**](../user-guide/skills/optional/creative/creative-heartmula.md) | HeartMuLa: Suno-like song generation from lyrics + tags. |
+| [**hyperframes**](../user-guide/skills/optional/creative/creative-hyperframes.md) | Render MP4/WebM videos from HTML compositions. |
+| [**impeccable**](../user-guide/skills/optional/creative/creative-impeccable.md) | Frontend design guidance, upstream-maintained (impeccable). |
 | [**ip-as-logo**](../user-guide/skills/optional/creative/creative-ip-as-logo.md) | Design minimal cute IP mascot marks readable at 32px. |
-| [**kanban-video-orchestrator**](/docs/user-guide/skills/optional/creative/creative-kanban-video-orchestrator) | Plan and run multi-agent video production pipelines. |
-| [**meme-generation**](/docs/user-guide/skills/optional/creative/creative-meme-generation) | Create meme PNGs from templates with Pillow text overlay. |
+| [**kanban-video-orchestrator**](../user-guide/skills/optional/creative/creative-kanban-video-orchestrator.md) | Plan and run multi-agent video production pipelines. |
+| [**meme-generation**](../user-guide/skills/optional/creative/creative-meme-generation.md) | Create meme PNGs from templates with Pillow text overlay. |
 | [**mono-color**](../user-guide/skills/optional/creative/creative-mono-color.md) | Generate one- or two-ink editorial print poster images. |
-| [**pixel-art**](/docs/user-guide/skills/optional/creative/creative-pixel-art) | Pixel art w/ era palettes (NES, Game Boy, PICO-8). |
-| [**pretext**](/docs/user-guide/skills/optional/creative/creative-pretext) | Build creative browser demos with DOM-free text layout. |
-| [**simple-english**](/docs/user-guide/skills/optional/creative/creative-simple-english) | Rewrite text to ASD-STE100 Simplified Technical English. |
-| [**sketch**](/docs/user-guide/skills/optional/creative/creative-sketch) | Throwaway HTML mockups: 2-3 design variants to compare. |
-| [**social-media-content-calendar**](/docs/user-guide/skills/optional/creative/creative-social-media-content-calendar) | Plan multi-platform social campaigns: briefs to posting. |
-| [**system-atlas**](/docs/user-guide/skills/optional/creative/creative-system-atlas) | Build explorable isometric architecture atlases as HTML. |
-| [**tldraw-offline**](/docs/user-guide/skills/optional/creative/creative-tldraw-offline) | Drive and script tldraw offline canvases with an agent. |
-| [**unreal-mcp**](/docs/user-guide/skills/optional/creative/creative-unreal-mcp) | Automate Unreal Engine editor scenes, actors, and renders. |
+| [**pixel-art**](../user-guide/skills/optional/creative/creative-pixel-art.md) | Pixel art w/ era palettes (NES, Game Boy, PICO-8). |
+| [**pretext**](../user-guide/skills/optional/creative/creative-pretext.md) | Build creative browser demos with DOM-free text layout. |
+| [**simple-english**](../user-guide/skills/optional/creative/creative-simple-english.md) | Rewrite text to ASD-STE100 Simplified Technical English. |
+| [**sketch**](../user-guide/skills/optional/creative/creative-sketch.md) | Throwaway HTML mockups: 2-3 design variants to compare. |
+| [**social-media-content-calendar**](../user-guide/skills/optional/creative/creative-social-media-content-calendar.md) | Plan multi-platform social campaigns: briefs to posting. |
+| [**system-atlas**](../user-guide/skills/optional/creative/creative-system-atlas.md) | Build explorable isometric architecture atlases as HTML. |
+| [**tldraw-offline**](../user-guide/skills/optional/creative/creative-tldraw-offline.md) | Drive and script tldraw offline canvases with an agent. |
+| [**unreal-mcp**](../user-guide/skills/optional/creative/creative-unreal-mcp.md) | Automate Unreal Engine editor scenes, actors, and renders. |
 
 ## data-science
 
