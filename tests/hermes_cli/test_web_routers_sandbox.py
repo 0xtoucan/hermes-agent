@@ -29,13 +29,17 @@ def _available(**overrides):
 
 
 @pytest.fixture
-def client(_isolate_hermes_home, monkeypatch):
+def client(_isolate_hermes_home, monkeypatch, tmp_path):
     monkeypatch.setattr(mxc_host, "status", lambda **_: _available())
     # Real ancestor_readiness over a stubbed icacls, so the route returns the genuine record shape
     # the desktop dereferences (a hand-shaped stub here once hid a missing field).
     listing = "X APPLICATION PACKAGE AUTHORITY\\ALL APPLICATION PACKAGES:(R)\n"
     monkeypatch.setattr(mxc_host, "_icacls",
                         lambda directory, *args, **kw: __import__("subprocess").CompletedProcess([], 0, listing, ""))
+    # The default workspace lives in the REAL user profile; tests must never create it there.
+    default = tmp_path / "default-workspace"
+    default.mkdir()
+    monkeypatch.setattr(mxc_host, "default_workspace", lambda: str(default))
     from hermes_cli.web_server import _SESSION_HEADER_NAME, _SESSION_TOKEN, app
     test_client = TestClient(app)
     test_client.headers[_SESSION_HEADER_NAME] = _SESSION_TOKEN
@@ -43,13 +47,35 @@ def client(_isolate_hermes_home, monkeypatch):
 
 
 def test_status_reports_availability_policy_and_the_requested_workspace(client, tmp_path):
-    resp = client.get("/api/sandbox/status", params={"workspace": str(tmp_path)})
+    # A sibling of the isolated HERMES_HOME: tmp_path itself contains it and would be refused.
+    project = tmp_path / "proj"
+    project.mkdir()
+    resp = client.get("/api/sandbox/status", params={"workspace": str(project)})
     assert resp.status_code == 200
     body = resp.json()
     assert body["available"] is True and body["enabled"] is False
-    assert body["workspace"] == os.path.normpath(str(tmp_path))
+    assert body["workspace"] == os.path.normpath(str(project))
     assert set(body["workspace_ancestors"]) == {"ready", "missing", "needs_admin", "admin_command"}
     assert body["workspace_ancestors"]["ready"] is True
+
+
+def test_status_shows_the_default_workspace_for_a_session_anchored_at_home(client, tmp_path):
+    resp = client.get("/api/sandbox/status", params={"workspace": os.path.expanduser("~")})
+    assert resp.status_code == 200
+    assert resp.json()["workspace"] == str(tmp_path / "default-workspace")
+
+
+def test_fs_default_cwd_lands_a_fresh_draft_in_the_default_workspace_under_mxc(client, tmp_path, monkeypatch):
+    from hermes_cli.web_routers import files
+    default = str(tmp_path / "default-workspace")
+    monkeypatch.setattr(files, "load_config", lambda: {"terminal": {"backend": "mxc", "cwd": os.path.expanduser("~")}})
+    assert files._fs_default_cwd() == default
+    project = tmp_path / "proj"
+    project.mkdir()
+    monkeypatch.setattr(files, "load_config", lambda: {"terminal": {"backend": "mxc", "cwd": str(project)}})
+    assert os.path.normcase(files._fs_default_cwd()) == os.path.normcase(str(project.resolve()))
+    monkeypatch.setattr(files, "load_config", lambda: {"terminal": {"backend": "local", "cwd": os.path.expanduser("~")}})
+    assert os.path.normcase(files._fs_default_cwd()) == os.path.normcase(os.path.realpath(os.path.expanduser("~")))
 
 
 def test_enabling_switches_the_terminal_backend_and_disabling_restores_local(client, monkeypatch):

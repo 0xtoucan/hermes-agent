@@ -245,31 +245,6 @@ def denial_note(denied: list[str], *, workspace: str, policy: mxc_host.MxcPolicy
     return "\n".join(lines)
 
 
-def unsafe_workspace_reason(workspace: str) -> Optional[str]:
-    """Why *workspace* must not become a sandbox's read/write root, or None when it is fine.
-
-    A grant covers everything beneath the folder, so the drive root, the user profile, and any
-    folder that contains Hermes's own home (config, credentials, sessions) would hand the
-    sandbox the very data it exists to protect."""
-    root = os.path.normpath(workspace)
-    drive, tail = os.path.splitdrive(root)
-    if tail in ("\\", "/", ""):
-        return f"The sandbox workspace would be the drive root ({root}). Point terminal.cwd at a project folder."
-    home = os.path.normpath(os.path.expanduser("~"))
-    if root.lower() == home.lower():
-        return (f"The sandbox workspace would be your home folder ({root}), which would grant the sandbox "
-                "read/write access to everything in your profile. Point terminal.cwd at a project folder.")
-    try:
-        from hermes_constants import get_hermes_home
-        hermes_home = os.path.normpath(str(get_hermes_home()))
-    except Exception:
-        hermes_home = ""
-    if hermes_home and (hermes_home.lower() + os.sep).startswith(root.lower().rstrip(os.sep) + os.sep):
-        return (f"The sandbox workspace ({root}) contains Hermes's own data directory ({hermes_home}), including "
-                "credentials. Point terminal.cwd at a project folder.")
-    return None
-
-
 # ── environment ──────────────────────────────────────────────────────────────
 
 class MxcEnvironment(BaseEnvironment):
@@ -295,7 +270,7 @@ class MxcEnvironment(BaseEnvironment):
         # The read/write grant is the session's workspace root, not the live cwd: a ``cd`` into
         # a subdirectory stays covered, and a ``cd`` outside it is refused by the sandbox.
         self.workspace_root = to_native_path(self.cwd)
-        refusal = unsafe_workspace_reason(self.workspace_root)
+        refusal = mxc_host.unsafe_workspace_reason(self.workspace_root)
         if refusal:
             raise RuntimeError(refusal)
         self._sandbox_home = f"{self.get_temp_dir()}/mxc-home-{self._session_id}"

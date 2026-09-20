@@ -1151,7 +1151,7 @@ export const zh = defineLocale({
       toggleDescription: '在内核强制隔离的容器中运行每条命令。下一条命令起生效；之后请开始新对话，以便向智能体说明沙箱环境。',
       shellNote: '首次开启时会下载沙箱 shell。',
       workspaceTitle: '工作区',
-      workspaceDescription: '读写。会话所在的文件夹始终被授予访问权限。',
+      workspaceDescription: '读写。会话所在的文件夹始终被授予访问权限；没有项目文件夹的会话在用户目录下的 Hermes 文件夹中工作。',
       foldersTitle: '其他文件夹',
       foldersEmpty: '没有额外文件夹。智能体只能访问工作区。',
       addReadOnly: '添加只读文件夹',

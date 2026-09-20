@@ -420,6 +420,51 @@ def admin_prepare_command(directories: Iterable[str]) -> str:
     return " && ".join(f'icacls "{d}" /grant {grants}' for d in directories)
 
 
+def unsafe_workspace_reason(workspace: str) -> Optional[str]:
+    """Why *workspace* must not become a sandbox's read/write root, or None when it is fine.
+
+    A grant covers everything beneath the folder, so the drive root, the user profile, and any
+    folder that contains Hermes's own home (config, credentials, sessions) would hand the
+    sandbox the very data it exists to protect."""
+    root = os.path.normpath(workspace)
+    drive, tail = os.path.splitdrive(root)
+    if tail in ("\\", "/", ""):
+        return f"The sandbox workspace would be the drive root ({root}). Point terminal.cwd at a project folder."
+    home = os.path.normpath(os.path.expanduser("~"))
+    if root.lower() == home.lower():
+        return (f"The sandbox workspace would be your home folder ({root}), which would grant the sandbox "
+                "read/write access to everything in your profile. Point terminal.cwd at a project folder.")
+    try:
+        from hermes_constants import get_hermes_home
+        hermes_home = os.path.normpath(str(get_hermes_home()))
+    except Exception:
+        hermes_home = ""
+    if hermes_home and (hermes_home.lower() + os.sep).startswith(root.lower().rstrip(os.sep) + os.sep):
+        return (f"The sandbox workspace ({root}) contains Hermes's own data directory ({hermes_home}), including "
+                "credentials. Point terminal.cwd at a project folder.")
+    return None
+
+
+# Sessions that have no project folder would otherwise be anchored at the user's home, which the
+# sandbox refuses. They get a dedicated folder inside the profile instead: rooted where the user
+# expects their work to live, without granting Documents, AppData or credentials.
+DEFAULT_WORKSPACE_DIRNAME = "Hermes"
+
+
+def default_workspace() -> str:
+    """The folder a sandboxed session without a project works in (created on first use)."""
+    target = Path(os.path.expanduser("~")) / DEFAULT_WORKSPACE_DIRNAME
+    target.mkdir(parents=True, exist_ok=True)
+    return str(target)
+
+
+def sandbox_workspace_for(cwd: str) -> str:
+    """*cwd* when it may be a sandbox workspace, else the default workspace. The one rule every
+    surface (session creation, the desktop's default folder, the Sandbox panel) applies, so they
+    agree on where a sandboxed session works."""
+    return cwd if unsafe_workspace_reason(cwd) is None else default_workspace()
+
+
 # ── status ───────────────────────────────────────────────────────────────────
 
 def _os_build() -> Optional[str]:

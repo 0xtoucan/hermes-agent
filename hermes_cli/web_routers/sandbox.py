@@ -63,14 +63,15 @@ def _workspace_path(config: dict) -> str:
 
 
 def _status_payload(*, provision_shell: bool = False, workspace: Optional[str] = None) -> dict:
-    from tools.environments.mxc_host import ancestor_readiness, status
+    from tools.environments.mxc_host import ancestor_readiness, sandbox_workspace_for, status
 
     record = status(provision_shell=provision_shell)
     config = load_config()
     resolved = os.path.normpath(os.path.expandvars(os.path.expanduser(workspace))) if workspace else _workspace_path(config)
-    record["workspace"] = resolved
+    # Show the folder the sandbox will actually use: a session anchored at home reports the default workspace.
+    record["workspace"] = sandbox_workspace_for(resolved)
     if record["platform_supported"]:
-        record["workspace_ancestors"] = ancestor_readiness(resolved)
+        record["workspace_ancestors"] = ancestor_readiness(record["workspace"])
     return record
 
 

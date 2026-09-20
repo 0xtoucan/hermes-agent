@@ -947,7 +947,8 @@ export const en: Translations = {
         'Run every command in a kernel-enforced container. Takes effect on the next command; start a new conversation afterwards so the agent is briefed about the sandbox.',
       shellNote: 'The sandbox shell is downloaded the first time you turn this on.',
       workspaceTitle: 'Workspace',
-      workspaceDescription: 'Read & write. The folder a session works in is always granted.',
+      workspaceDescription:
+        'Read & write. The folder a session works in is always granted; a session without a project folder works in the Hermes folder under your user profile.',
       foldersTitle: 'Additional folders',
       foldersEmpty: 'No extra folders. The agent can only touch the workspace.',
       addReadOnly: 'Add read-only folder',

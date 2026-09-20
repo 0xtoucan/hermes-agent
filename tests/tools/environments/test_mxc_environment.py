@@ -17,8 +17,8 @@ import pytest
 from tools.environments import mxc_host
 from tools.environments.mxc import (GIT_ANCESTOR_DENIAL, MXC_SCHEMA_VERSION, build_container_config,
                                     denial_note, find_denials, normalize_grant_paths, posix_bootstrap_script,
-                                    posix_wrap_command_script, to_forward_slashes, to_native_path,
-                                    unsafe_workspace_reason)
+                                    posix_wrap_command_script, to_forward_slashes, to_native_path)
+from tools.environments.mxc_host import unsafe_workspace_reason
 
 # Constructs that busybox ``sh`` rejects or misparses; none may appear in the scripts the sandbox runs.
 _BASH_ONLY = ("declare ", "shopt", "source ", "${!", "builtin ", "[[", "alias -p")
@@ -148,6 +148,23 @@ def test_unsafe_workspace_refuses_home_drive_root_and_hermes_home_parents(tmp_pa
     assert "Hermes's own data directory" in unsafe_workspace_reason(str(tmp_path / "data"))
     assert unsafe_workspace_reason(str(tmp_path / "proj")) is None
     assert unsafe_workspace_reason(str(hermes_home / "hermes-agent")) is None, "a checkout inside HERMES_HOME is fine"
+
+
+def test_sandbox_workspace_for_redirects_unsafe_folders_to_a_created_default_inside_home(tmp_path, monkeypatch):
+    """A session with no project folder lands in ``~/Hermes`` rather than failing on its first command;
+    a real project folder is left alone."""
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "data" / ".hermes"))
+    monkeypatch.setattr(os.path, "expanduser", lambda p: str(home) if p == "~" else p)
+    expected = home / mxc_host.DEFAULT_WORKSPACE_DIRNAME
+    assert not expected.exists()
+    assert mxc_host.sandbox_workspace_for(str(home)) == str(expected)
+    assert expected.is_dir()
+    assert mxc_host.unsafe_workspace_reason(str(expected)) is None, "the default must itself be an acceptable workspace"
+    project = tmp_path / "proj"
+    project.mkdir()
+    assert mxc_host.sandbox_workspace_for(str(project)) == str(project)
 
 
 # ── host settings and status ─────────────────────────────────────────────────
