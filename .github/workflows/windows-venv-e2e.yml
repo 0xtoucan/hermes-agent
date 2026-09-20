@@ -78,3 +78,12 @@ jobs:
           uv run --no-sync python -m pytest \
             tests/tools/test_process_registry_windows_live.py \
             -o addopts= -v -p no:cacheprovider
+
+      - name: b0919-L02 wizard A/B (temporary)
+        env:
+          PYTHONUTF8: "1"
+        shell: bash
+        timeout-minutes: 15
+        run: |
+          set -uo pipefail
+          uv run --no-sync python -m pytest tests/hermes_cli/test_gateway_windows.py -k 'wizard_install_service_asks_once' -o addopts= -v -p no:cacheprovider
