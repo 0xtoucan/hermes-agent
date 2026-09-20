@@ -78,3 +78,13 @@ jobs:
           uv run --no-sync python -m pytest \
             tests/tools/test_process_registry_windows_live.py \
             -o addopts= -v -p no:cacheprovider
+
+      - name: b20-windows rmtree red/green receipt
+        shell: bash
+        run: |
+          set -uo pipefail
+          uv run --no-sync python -m pytest \
+            tests/hermes_cli/test_profile_distribution.py \
+            tests/hermes_cli/test_mcp_catalog.py \
+            tests/hermes_cli/test_plugins_cmd.py \
+            -o addopts= -v -p no:cacheprovider -k "read_only or readonly or git_metadata"
