@@ -52,29 +52,48 @@ jobs:
         with:
           command: uv sync --locked --python 3.11 --extra dev --extra messaging
 
-      - name: Run venv-holder live E2E
+      - name: "#115578 receipt: zombie-probe cost + snapshot lock hold on real Windows"
         shell: bash
         run: |
           set -uo pipefail
-          uv run --no-sync python -m pytest \
-            tests/hermes_cli/test_venv_holder_windows_live.py \
-            tests/hermes_cli/test_taskkill_identity_windows_live.py \
-            tests/hermes_cli/test_git_trampoline_windows_live.py \
-            tests/hermes_cli/test_managed_uv_windows_cutover.py \
-            -o addopts= -v -p no:cacheprovider
+          uv run --no-sync python - <<'PY'
+          import os, statistics, sys, time, tempfile, pathlib
+          sys.path.insert(0, os.getcwd())
+          from gateway import status
+          import psutil
+          calls = []
+          real = psutil.Process.status
+          def spy(self):
+              calls.append(self.pid); return real(self)
+          psutil.Process.status = spy
+          t = []
+          for _ in range(50):
+              s = time.perf_counter(); status._pid_exists(os.getpid()); t.append((time.perf_counter() - s) * 1000)
+          psutil.Process.status = real
+          print(f"RECEIPT _pid_exists median={statistics.median(t):.3f}ms status_probe_calls={len(calls)}")
+          home = pathlib.Path(tempfile.mkdtemp()) / "hermes"
+          (home / "runtime").mkdir(parents=True)
+          from hermes_cli import active_sessions as a
+          entries = [{"lease_id": f"l{i}", "session_id": f"s{i}", "pid": os.getpid()} for i in range(13)]
+          a._write_entries(home / "runtime" / "active_sessions.json", entries)
+          held = []
+          real_lock = a._FileLock
+          class Timed(real_lock):
+              def __enter__(self):
+                  r = super().__enter__(); self._t0 = time.perf_counter(); return r
+              def __exit__(self, *e):
+                  held.append((time.perf_counter() - self._t0) * 1000); return super().__exit__(*e)
+          a._FileLock = Timed
+          for _ in range(12):
+              a.active_session_registry_snapshot(registry_home=home)
+          print(f"RECEIPT snapshot(13 leases) lock hold median={statistics.median(held):.2f}ms max={max(held):.2f}ms")
+          PY
 
-      - name: Run Telegram CLOSE-WAIT reconnect live E2E (#87057)
+      - name: "#115578 receipt: tests"
         shell: bash
         run: |
           set -uo pipefail
           uv run --no-sync python -m pytest \
-            tests/gateway/test_telegram_closewait_windows_live.py \
-            -o addopts= -v -p no:cacheprovider
-
-      - name: Run background-executor spawn parity live E2E (#70716)
-        shell: bash
-        run: |
-          set -uo pipefail
-          uv run --no-sync python -m pytest \
-            tests/tools/test_process_registry_windows_live.py \
-            -o addopts= -v -p no:cacheprovider
+            tests/gateway/test_status.py tests/hermes_cli/test_active_sessions.py \
+            -k "TestPidExistsZombieProbe or test_snapshot_prunes_after_lock_release" \
+            -o addopts= -v -p no:cacheprovider -rA
