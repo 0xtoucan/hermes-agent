@@ -3,6 +3,7 @@ import { Dialog as DialogPrimitive } from 'radix-ui'
 import { useEffect, useState } from 'react'
 
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
+import { Tip } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n'
 import { Check, MessageCircle, Pencil, Trash2 } from '@/lib/icons'
 import { relativeTime } from '@/lib/time'
@@ -113,22 +114,23 @@ export function PenLibraryDialog({ onOpenChange, open }: PenLibraryDialogProps) 
                           </button>
                         </span>
                       ) : (
-                        <button
-                          aria-label={t.penLibrary.delete}
-                          className={cn(
-                            'shrink-0 cursor-pointer rounded p-1 text-muted-foreground opacity-0 transition-opacity',
-                            'hover:bg-(--chrome-action-hover) hover:text-(--ui-text-danger)',
-                            'group-hover/pen:opacity-100 group-data-[selected=true]/pen:opacity-100'
-                          )}
-                          onClick={event => {
-                            event.stopPropagation()
-                            setConfirmingDelete(item.path)
-                          }}
-                          title={t.penLibrary.delete}
-                          type="button"
-                        >
-                          <Trash2 className="size-3.5" />
-                        </button>
+                        <Tip label={t.penLibrary.delete}>
+                          <button
+                            aria-label={t.penLibrary.delete}
+                            className={cn(
+                              'shrink-0 cursor-pointer rounded p-1 text-muted-foreground opacity-0 transition-opacity',
+                              'hover:bg-(--chrome-action-hover) hover:text-(--ui-text-danger)',
+                              'group-hover/pen:opacity-100 group-data-[selected=true]/pen:opacity-100'
+                            )}
+                            onClick={event => {
+                              event.stopPropagation()
+                              setConfirmingDelete(item.path)
+                            }}
+                            type="button"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        </Tip>
                       )}
                     </CommandItem>
                   )

@@ -296,6 +296,7 @@ import { LEGACY_OAUTH_PARTITION, resolveOauthPartition } from './oauth-partition
 import { mintGatewayWsTicket as mintOauthGatewayWsTicket, requestWithOauthFallback } from './oauth-rest-request'
 import { wireOauthSessionResponse } from './oauth-session-response'
 import { createParentStartMarkerResolver, parentWatchdogEnv } from './parent-process-identity'
+import { shutdownPenHost, syncPenWebTheme, wirePenCanvas } from './pen'
 import { registerPetOverlayIpc } from './pet-overlay-ipc'
 import {
   pendingNotice as pendingPluginCompatNotice,
@@ -333,7 +334,6 @@ import {
   runPrimaryBackendStartup
 } from './primary-backend-startup'
 import { rehomePrimaryConnection } from './primary-connection-rehome'
-import { shutdownPenHost, syncPenWebTheme, wirePenCanvas } from './pen'
 import { PrimaryProfilePin } from './primary-profile-pin'
 import {
   assertLocalProfileCanStart,
