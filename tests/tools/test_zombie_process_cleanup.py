@@ -481,6 +481,23 @@ class TestDelegationCleanup:
         monkeypatch.setattr(relay_runtime, "get_runtime", lambda **_kwargs: relay_host)
         monkeypatch.setattr("tools.delegate_tool._get_child_timeout", lambda: 0.1)
 
+        # The contract under test is "the cap fires while the child's turn is active". A 0.1s
+        # cap races the worker thread's startup on a loaded runner, so gate the parent's wait
+        # on the child having begun its turn instead of hoping the thread wins the race.
+        from tools import delegate_tool_child_run
+
+        class _GatedSettled(threading.Event):
+            def wait(self, timeout=None):
+                child_started.wait(timeout=5)
+                return super().wait(timeout=timeout)
+
+        def _gated_heartbeat(*args, **kwargs):
+            heartbeat = delegate_tool_child_run._Heartbeat(*args, **kwargs)
+            heartbeat.settled = _GatedSettled()
+            return heartbeat
+
+        monkeypatch.setattr("tools.delegate_tool._start_heartbeat", _gated_heartbeat)
+
         def run_conversation(**kwargs):
             lease = relay_runtime.SESSION_COORDINATOR.acquire_conversation(
                 profile_key=relay_runtime.current_profile_key(),
