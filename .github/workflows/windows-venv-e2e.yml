@@ -78,3 +78,11 @@ jobs:
           uv run --no-sync python -m pytest \
             tests/tools/test_process_registry_windows_live.py \
             -o addopts= -v -p no:cacheprovider
+
+      - name: b20-windows bash red/green receipt
+        shell: bash
+        run: |
+          set -uo pipefail
+          uv run --no-sync python -m pytest \
+            tests/agent/test_skill_inline_bash_windows.py \
+            -o addopts= -v -p no:cacheprovider -k "inline_shell"
