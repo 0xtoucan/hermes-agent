@@ -19,6 +19,17 @@ def _ensure_redaction_enabled(monkeypatch):
 
 class TestKnownPrefixes:
 
+    def test_aws_sts_stripe_restricted_webhook_and_sendgrid_secret_half_masked(self):
+        """Ported shapes: STS ``ASIA`` keys (only ``AKIA`` was known), Stripe ``rk_test_`` /
+        ``whsec_``, and SendGrid's ``SG.<id>.<secret>`` — the old body stopped at the first
+        dot and left the 43-char secret half in cleartext."""
+        sendgrid = "SG." + "a" * 22 + "." + "b" * 43
+        for token in ("ASIAIOSFODNN7EXAMPLE", "rk_test_" + "A" * 24, "whsec_" + "B" * 32, sendgrid):
+            out = redact_sensitive_text(f"key {token} end", force=True)
+            assert token not in out, out
+        assert "b" * 43 not in redact_sensitive_text(sendgrid, force=True)
+        assert redact_sensitive_text("ASIAIOSFODNN7EXAMPLE", file_read=True) == "«redacted:ASIA…»"
+
     def test_dotted_sk_and_prefixless_zhipu_keys_fully_masked_on_every_surface(self):
         """A key whose body carries dots must never leave a cleartext tail, and the
         prefix-less Zhipu ``id.secret`` shape must mask at all: on the terminal

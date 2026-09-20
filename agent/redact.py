@@ -155,11 +155,16 @@ _PREFIX_PATTERNS = [
     r"fc-[A-Za-z0-9]{10,}",             # Firecrawl
     r"bb_live_[A-Za-z0-9_-]{10,}",      # BrowserBase
     r"gAAAA[A-Za-z0-9_=-]{20,}",        # Codex encrypted tokens
-    r"AKIA[A-Z0-9]{16}",                # AWS Access Key ID
+    r"AKIA[A-Z0-9]{16}",                # AWS Access Key ID (long-lived IAM)
+    r"ASIA[A-Z0-9]{16}",                # AWS Access Key ID (STS temporary credentials)
     r"sk_live_[A-Za-z0-9]{10,}",        # Stripe secret key (live)
     r"sk_test_[A-Za-z0-9]{10,}",        # Stripe secret key (test)
-    r"rk_live_[A-Za-z0-9]{10,}",        # Stripe restricted key
-    r"SG\.[A-Za-z0-9_-]{10,}",          # SendGrid API key
+    r"rk_live_[A-Za-z0-9]{10,}",        # Stripe restricted key (live)
+    r"rk_test_[A-Za-z0-9]{10,}",        # Stripe restricted key (test)
+    r"whsec_[A-Za-z0-9]{10,}",          # Stripe webhook signing secret
+    # SendGrid keys are ``SG.<22-char id>.<43-char secret>``: the body must span both dotted
+    # segments or the mask stops at the first dot and the secret half stays visible.
+    r"SG\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}",
     r"hf_[A-Za-z0-9]{10,}",             # HuggingFace token
     r"r8_[A-Za-z0-9]{10,}",             # Replicate API token
     r"npm_[A-Za-z0-9]{10,}",            # npm access token
