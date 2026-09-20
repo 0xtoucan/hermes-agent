@@ -2,8 +2,8 @@
  *  One pane per provider — the live .pen can change without remounting. */
 
 import { useStore } from '@nanostores/react'
-import type { ReactNode } from 'react'
 import { atom } from 'nanostores'
+import type { ReactNode } from 'react'
 
 import { revealTreePane } from '@/components/pane-shell/tree/store'
 

@@ -52,7 +52,7 @@ function broadcastPenEvent(event: string, payload: unknown): void {
   }
 }
 
-function wirePenWebviewGuests(opts: { preloadPath: string; windowBackground: () => string }): void {
+function wirePenWebviewGuests(opts: { preloadPath: string }): void {
   app.on('web-contents-created', (_event, contents) => {
     contents.on('will-attach-webview', (_e, webPreferences, params) => {
       if (!isPenWebUrl(String(params.src || ''), penWebEditorUrl())) {
@@ -67,12 +67,6 @@ function wirePenWebviewGuests(opts: { preloadPath: string; windowBackground: () 
 
     contents.on('did-attach-webview', (_e, guest) => {
       attachPenWebGuest(guest, penWebTheme(), penWebEditorUrl())
-
-      try {
-        guest.setBackgroundColor(opts.windowBackground())
-      } catch {
-        // Cosmetic.
-      }
     })
   })
 }
@@ -247,7 +241,7 @@ function wirePenIpc(): void {
   )
 }
 
-export function wirePenCanvas(opts: { preloadPath: string; windowBackground: () => string }): void {
+export function wirePenCanvas(opts: { preloadPath: string }): void {
   wirePenWebviewGuests(opts)
   wirePenIpc()
 }

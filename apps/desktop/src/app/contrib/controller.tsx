@@ -1,3 +1,6 @@
+// Side-effect import: registers the pen provider with the canvas-tile surface.
+import '../chat/pen-tile'
+
 import { useStore } from '@nanostores/react'
 import { atom, computed } from 'nanostores'
 import type { CSSProperties, ReactElement, PointerEvent as ReactPointerEvent } from 'react'
@@ -13,7 +16,6 @@ import { OnboardingChatDirective } from '@/components/onboarding-chat/directive'
 import { $layoutEditMode, toggleLayoutEditMode } from '@/components/pane-shell/edit-mode'
 import { allPaneIds, groupLeafIds } from '@/components/pane-shell/tree/model'
 import { LayoutTreeRoot } from '@/components/pane-shell/tree/renderer'
-import { PenLibraryDialog } from '@/components/pen-library-dialog'
 import {
   $layoutTree,
   bindPaneVisibility,
@@ -38,6 +40,7 @@ import {
   watchContributedPanes
 } from '@/components/pane-shell/tree/store'
 import { $workspaceOwnerLabels, workspaceOwnerTitle } from '@/components/pane-shell/workspace-scope'
+import { PenLibraryDialog } from '@/components/pen-library-dialog'
 import { SidebarProvider } from '@/components/ui/sidebar'
 import { discoverBundledPlugins } from '@/contrib/plugins'
 import { registry } from '@/contrib/registry'
@@ -80,10 +83,8 @@ import { $statusbarVisible } from '@/store/statusbar-prefs'
 import { isBrowserWindow, isHudWindow } from '@/store/windows'
 
 import { BrowserPopoutShell } from '../chat/browser-popout-shell'
-import type { SessionDragPayload } from '../chat/composer/inline-refs'
 import { watchCanvasTiles } from '../chat/canvas-tile'
-// Side-effect import: registers the pen provider with the canvas-tile surface.
-import '../chat/pen-tile'
+import type { SessionDragPayload } from '../chat/composer/inline-refs'
 import { watchPreviewTiles } from '../chat/preview-tile'
 import { watchRouteTiles } from '../chat/route-tile'
 import { startSessionDrag } from '../chat/session-drag'

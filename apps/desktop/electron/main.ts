@@ -18104,10 +18104,7 @@ app.whenReady().then(() => {
   installMediaPermissions()
   installDownloadHandling()
   registerMediaProtocol()
-  wirePenCanvas({
-    preloadPath: path.join(APP_ROOT, 'dist', 'pen-web-preload.cjs'),
-    windowBackground: getWindowBackgroundColor
-  })
+  wirePenCanvas({ preloadPath: path.join(APP_ROOT, 'dist', 'pen-web-preload.cjs') })
   installEmbedReferer()
   installRemoteHeaderRules()
   registerDeepLinkProtocol()
