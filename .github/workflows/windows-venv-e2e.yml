@@ -78,3 +78,12 @@ jobs:
           uv run --no-sync python -m pytest \
             tests/tools/test_process_registry_windows_live.py \
             -o addopts= -v -p no:cacheprovider
+
+      - name: Run cron bot-chat UTF-8 decode witness (#115894, b0919-L06-cron)
+        shell: bash
+        run: |
+          set -uo pipefail
+          uv run --no-sync python -m pytest \
+            tests/cron/test_cron_bot_chat_delivery.py \
+            tests/cron/test_cron_script.py \
+            -m windows_only -o addopts= -v -p no:cacheprovider
