@@ -586,7 +586,7 @@ def build_bwrap_args(
         "--proc", "/proc",
         "--tmpfs", "/tmp",
     ]
-    argv += runtime_overlay_args(state_dir, os.getuid())
+    argv += runtime_overlay_args(state_dir, os.getuid())  # windows-footgun: ok — bwrap is Linux-only; never reached on Windows
 
     # The cwd is always bound at its own path so --chdir resolves even when
     # it sits under the masked /tmp; the profile decides whether it is
@@ -1189,7 +1189,7 @@ class BubblewrapEnvironment(LocalEnvironment):
         # when the sandbox forks, so a count taken at construction goes stale
         # as the host starts threads, and a limit that falls below the live
         # count stops bwrap from creating its namespace at all.
-        uid_threads = uid_thread_count(os.getuid()) if self._config.max_procs else 0
+        uid_threads = uid_thread_count(os.getuid()) if self._config.max_procs else 0  # windows-footgun: ok — Linux-only backend
         return prlimit_args(rlimit_values(self._config, uid_threads=uid_threads), self._prlimit_path)
 
     def _live_sandbox_pids(self) -> list[int]:
@@ -1233,7 +1233,7 @@ class BubblewrapEnvironment(LocalEnvironment):
         """
         for pid in self._live_sandbox_pids():
             try:
-                os.killpg(os.getpgid(pid), signal.SIGKILL)
+                os.killpg(os.getpgid(pid), signal.SIGKILL)  # windows-footgun: ok — Linux-only backend, POSIX process groups
             except (ProcessLookupError, PermissionError):
                 continue
         deadline = time.monotonic() + wait
