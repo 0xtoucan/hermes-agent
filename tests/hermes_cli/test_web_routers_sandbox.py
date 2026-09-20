@@ -31,8 +31,11 @@ def _available(**overrides):
 @pytest.fixture
 def client(_isolate_hermes_home, monkeypatch):
     monkeypatch.setattr(mxc_host, "status", lambda **_: _available())
-    monkeypatch.setattr(mxc_host, "ancestor_readiness",
-                        lambda path: {"ready": True, "missing": [], "needs_admin": [], "admin_command": ""})
+    # Real ancestor_readiness over a stubbed icacls, so the route returns the genuine record shape
+    # the desktop dereferences (a hand-shaped stub here once hid a missing field).
+    listing = "X APPLICATION PACKAGE AUTHORITY\\ALL APPLICATION PACKAGES:(R)\n"
+    monkeypatch.setattr(mxc_host, "_icacls",
+                        lambda directory, *args, **kw: __import__("subprocess").CompletedProcess([], 0, listing, ""))
     from hermes_cli.web_server import _SESSION_HEADER_NAME, _SESSION_TOKEN, app
     test_client = TestClient(app)
     test_client.headers[_SESSION_HEADER_NAME] = _SESSION_TOKEN
@@ -45,6 +48,7 @@ def test_status_reports_availability_policy_and_the_requested_workspace(client, 
     body = resp.json()
     assert body["available"] is True and body["enabled"] is False
     assert body["workspace"] == os.path.normpath(str(tmp_path))
+    assert set(body["workspace_ancestors"]) == {"ready", "missing", "needs_admin", "admin_command"}
     assert body["workspace_ancestors"]["ready"] is True
 
 

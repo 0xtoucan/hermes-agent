@@ -329,28 +329,66 @@ def _icacls(*args: str, timeout: float = 15.0) -> subprocess.CompletedProcess:
                           encoding="utf-8", errors="replace", **_hidden_window_kwargs())
 
 
-def ancestor_ready(directory: str) -> Optional[bool]:
-    """Whether *directory* already grants AppContainer processes listing rights (None if unreadable)."""
+def _icacls_entries(directory: str) -> Optional[list[tuple[str, set[str]]]]:
+    """``(trustee, rights tokens)`` per ACE line of ``icacls <directory>``, or None when unreadable."""
     try:
         completed = _icacls(directory)
     except (OSError, subprocess.TimeoutExpired):
         return None
     if completed.returncode != 0:
         return None
-    for line in completed.stdout.splitlines():
-        if "ALL APPLICATION PACKAGES" not in line.upper() and "S-1-15-2-1" not in line:
+    entries: list[tuple[str, set[str]]] = []
+    for raw in completed.stdout.splitlines():
+        line = raw.strip()
+        if ":(" not in line:
             continue
-        rights = line.rsplit(":", 1)[-1]
-        tokens = {tok.strip().upper() for group in rights.split(")") for tok in group.strip("(").split(",")}
-        if tokens & _ANCESTOR_RIGHTS_OK:
-            return True
-    return False
+        # The first line carries the path before the first ACE; later lines are indented ACEs.
+        if line.lower().startswith(os.path.normpath(directory).lower()):
+            line = line[len(os.path.normpath(directory)):].strip()
+        trustee, _, rights = line.rpartition(":")
+        tokens = {tok.strip().upper() for group in rights.split(")") for tok in group.strip("(").split(",") if tok.strip()}
+        entries.append((trustee.strip(), tokens))
+    return entries
+
+
+def _has_appcontainer_listing(entries: list[tuple[str, set[str]]]) -> bool:
+    return any(("ALL APPLICATION PACKAGES" in trustee.upper() or "S-1-15-2-1" in trustee) and tokens & _ANCESTOR_RIGHTS_OK
+               for trustee, tokens in entries)
+
+
+def _user_can_modify_acl(entries: list[tuple[str, set[str]]]) -> bool:
+    """True when the current user holds Full Control on the folder (Full includes the right to change
+    its permissions); Modify does not, so system folders such as the drive root and C:\\Users report
+    False and are left to an administrator."""
+    user = (os.environ.get("USERNAME") or "").strip().lower()
+    if not user:
+        return False
+    return any(trustee.lower().endswith("\\" + user) and "F" in tokens for trustee, tokens in entries)
+
+
+def ancestor_ready(directory: str) -> Optional[bool]:
+    """Whether *directory* already grants AppContainer processes listing rights (None if unreadable)."""
+    entries = _icacls_entries(directory)
+    if entries is None:
+        return None
+    return _has_appcontainer_listing(entries)
 
 
 def ancestor_readiness(path: str) -> dict:
-    """``{"ready": bool, "missing": [...]}`` for the ancestors of *path* that still block traversal."""
-    missing = [d for d in workspace_ancestors(path) if ancestor_ready(d) is False]
-    return {"ready": not missing, "missing": missing}
+    """Readiness of *path*'s ancestors for container traversal, in the shape the desktop panel
+    consumes: ``ready``, the ``missing`` ancestors, the subset that ``needs_admin`` (the current user
+    cannot change their permissions), and the ``admin_command`` that prepares those."""
+    missing: list[str] = []
+    needs_admin: list[str] = []
+    for directory in workspace_ancestors(path):
+        entries = _icacls_entries(directory)
+        if entries is None or _has_appcontainer_listing(entries):
+            continue
+        missing.append(directory)
+        if not _user_can_modify_acl(entries):
+            needs_admin.append(directory)
+    return {"ready": not missing, "missing": missing, "needs_admin": needs_admin,
+            "admin_command": admin_prepare_command(needs_admin) if needs_admin else ""}
 
 
 def prepare_ancestors(path: str) -> dict:
@@ -373,7 +411,7 @@ def prepare_ancestors(path: str) -> dict:
         else:
             needs_admin.append(directory)
     return {"prepared": prepared, "needs_admin": needs_admin, "errors": errors,
-            "admin_command": admin_prepare_command(needs_admin) if needs_admin else None}
+            "admin_command": admin_prepare_command(needs_admin) if needs_admin else ""}
 
 
 def admin_prepare_command(directories: Iterable[str]) -> str:

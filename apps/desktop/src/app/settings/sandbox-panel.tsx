@@ -178,9 +178,11 @@ export function SandboxPanel({ workspace }: { workspace?: string } = {}) {
   }
 
   const ancestors = status.workspace_ancestors
+  const needsAdmin = ancestors?.needs_admin ?? []
+  const adminCommand = ancestors?.admin_command ?? ''
   const grants: { path: string; mode: SandboxGrantMode }[] = [
-    ...status.policy.readwrite_paths.map(path => ({ path, mode: 'readwrite' as const })),
-    ...status.policy.readonly_paths.map(path => ({ path, mode: 'read' as const }))
+    ...(status.policy?.readwrite_paths ?? []).map(path => ({ path, mode: 'readwrite' as const })),
+    ...(status.policy?.readonly_paths ?? []).map(path => ({ path, mode: 'read' as const }))
   ]
 
   return (
@@ -210,7 +212,7 @@ export function SandboxPanel({ workspace }: { workspace?: string } = {}) {
         </p>
       )}
 
-      {status.warnings.map(warning => (
+      {(status.warnings ?? []).map(warning => (
         <p className="px-1 text-[0.7rem] text-muted-foreground" key={warning}>
           <AlertTriangle className="mr-1 inline size-3" />
           {warning}
@@ -246,21 +248,21 @@ export function SandboxPanel({ workspace }: { workspace?: string } = {}) {
           {ancestors && !ancestors.ready && (
             <ListRow
               action={
-                ancestors.needs_admin.length === 0 ? (
+                needsAdmin.length === 0 ? (
                   <Button disabled={busy} onClick={prepare} size="sm">
                     {copy.prepare}
                   </Button>
                 ) : undefined
               }
               below={
-                ancestors.needs_admin.length > 0 && (
+                needsAdmin.length > 0 && (
                   <div className="mt-2 grid gap-1" data-testid="sandbox-needs-admin">
                     <span className="text-[0.7rem] text-muted-foreground">{copy.needsAdmin}</span>
                     <div className="flex items-start gap-2">
                       <pre className="min-w-0 flex-1 overflow-auto rounded bg-background/55 p-2 font-mono text-[0.68rem]">
-                        {ancestors.admin_command}
+                        {adminCommand}
                       </pre>
-                      <CopyButton label={copy.copyCommand} showLabel={false} text={ancestors.admin_command} />
+                      <CopyButton label={copy.copyCommand} showLabel={false} text={adminCommand} />
                     </div>
                   </div>
                 )

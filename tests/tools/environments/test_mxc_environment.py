@@ -208,6 +208,36 @@ def test_admin_prepare_command_grants_listing_rights_only():
     assert "(F)" not in cmd and "(M)" not in cmd
 
 
+_ICACLS_ROOT = "C:\\ NT AUTHORITY\\SYSTEM:(OI)(CI)(F)\n   BUILTIN\\Users:(OI)(CI)(RX)\n   NT AUTHORITY\\Authenticated Users:(M)\n"
+_ICACLS_PREPARED = "C:\\Users\\me\\Projects APPLICATION PACKAGE AUTHORITY\\ALL APPLICATION PACKAGES:(R)\n   BOX\\me:(OI)(CI)(F)\n"
+_ICACLS_OWNED = "C:\\Users\\me BOX\\me:(OI)(CI)(F)\n   NT AUTHORITY\\SYSTEM:(OI)(CI)(F)\n"
+
+
+def test_ancestor_readiness_reports_every_field_the_panel_reads(monkeypatch):
+    """The desktop dereferences ``needs_admin``/``admin_command`` whenever ``ready`` is False, so the
+    record must carry all four keys and classify admin-only folders from the current user's rights."""
+    listings = {"C:\\": _ICACLS_ROOT, "C:\\Users": _ICACLS_ROOT, "C:\\Users\\me": _ICACLS_OWNED,
+                "C:\\Users\\me\\Projects": _ICACLS_PREPARED}
+    monkeypatch.setenv("USERNAME", "me")
+    monkeypatch.setattr(mxc_host, "_icacls",
+                        lambda directory, *args, **kw: subprocess.CompletedProcess([], 0, listings[directory], ""))
+    monkeypatch.setattr(mxc_host, "workspace_ancestors", lambda path: list(listings))
+    record = mxc_host.ancestor_readiness("C:\\Users\\me\\Projects\\demo")
+    assert set(record) == {"ready", "missing", "needs_admin", "admin_command"}
+    assert record["ready"] is False
+    assert record["missing"] == ["C:\\", "C:\\Users", "C:\\Users\\me"]
+    assert record["needs_admin"] == ["C:\\", "C:\\Users"], "Full Control lets the user prepare their own folder"
+    assert 'icacls "C:\\"' in record["admin_command"] and "C:\\Users\\me" not in record["admin_command"]
+
+
+def test_ancestor_readiness_is_ready_when_every_ancestor_lists_for_appcontainers(monkeypatch):
+    monkeypatch.setattr(mxc_host, "_icacls",
+                        lambda directory, *args, **kw: subprocess.CompletedProcess([], 0, _ICACLS_PREPARED, ""))
+    monkeypatch.setattr(mxc_host, "workspace_ancestors", lambda path: ["C:\\", "C:\\Users\\me\\Projects"])
+    record = mxc_host.ancestor_readiness("C:\\Users\\me\\Projects\\demo")
+    assert record == {"ready": True, "missing": [], "needs_admin": [], "admin_command": ""}
+
+
 # ── wiring ───────────────────────────────────────────────────────────────────
 
 def test_backend_is_registered_and_is_not_a_container_backend():
