@@ -523,6 +523,37 @@ def host_network_withheld_toolsets(terminal_cfg: Optional[dict] = None) -> tuple
     return () if resolve_settings(cfg).policy.network else HOST_NETWORK_TOOLSETS
 
 
+OFFLINE_REASON = ("Network is off in the sandbox policy, so Hermes will not fetch URLs on the agent's behalf "
+                  "(Hermes desktop: Settings > Safety > Sandbox > Allow network access).")
+
+_offline_cache_lock = threading.Lock()
+_offline_cache: tuple[Optional[tuple], bool] = (None, False)
+
+
+def host_network_withheld() -> bool:
+    """Whether the sandbox policy currently keeps the agent offline (sandbox on, network off).
+
+    Consulted per URL by the shared website gate, so the verdict is cached on the config file's
+    identity and re-read only when the file changes."""
+    global _offline_cache
+    if not _IS_WINDOWS:
+        return False
+    try:
+        from hermes_cli.config import get_config_path
+        stat = os.stat(get_config_path())
+        signature: Optional[tuple] = (str(get_config_path()), stat.st_mtime_ns, stat.st_size)
+    except (OSError, ImportError):
+        signature = None
+    with _offline_cache_lock:
+        cached_signature, cached_value = _offline_cache
+        if signature is not None and cached_signature == signature:
+            return cached_value
+    value = bool(host_network_withheld_toolsets())
+    with _offline_cache_lock:
+        _offline_cache = (signature, value)
+    return value
+
+
 def status(*, provision_shell: bool = False, settings: Optional[MxcSettings] = None) -> dict:
     """One record describing whether the MXC backend can run here and how it is configured.
 

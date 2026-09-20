@@ -200,6 +200,57 @@ def test_tool_definitions_drop_web_and_browser_tools_when_the_sandbox_is_offline
     assert "web_search" in names and "browser_navigate" in names
 
 
+def test_offline_verdict_is_cached_on_the_config_file_identity(tmp_path, monkeypatch):
+    """The shared website gate asks per URL, so the config must not be re-parsed per call, but an
+    edit to the file must be seen."""
+    config = tmp_path / "config.yaml"
+    config.write_text("terminal:\n  backend: mxc\n  mxc_network: false\n", encoding="utf-8")
+    monkeypatch.setattr(mxc_host, "_IS_WINDOWS", True)
+    monkeypatch.setattr("hermes_cli.config.get_config_path", lambda: config)
+    calls = []
+
+    def fake_toolsets(terminal_cfg=None):
+        calls.append(1)
+        return ("web", "browser") if len(calls) == 1 else ()
+    monkeypatch.setattr(mxc_host, "host_network_withheld_toolsets", fake_toolsets)
+    mxc_host._offline_cache = (None, False)
+    assert mxc_host.host_network_withheld() is True
+    assert mxc_host.host_network_withheld() is True
+    assert len(calls) == 1, "same file identity: no re-read"
+    config.write_text("terminal:\n  backend: mxc\n  mxc_network: true\n\n", encoding="utf-8")
+    assert mxc_host.host_network_withheld() is False
+    assert len(calls) == 2
+
+
+def test_shared_website_gate_refuses_every_url_while_the_sandbox_is_offline(monkeypatch):
+    from tools.website_policy import check_website_access
+    monkeypatch.setattr(mxc_host, "host_network_withheld", lambda: True)
+    blocked = check_website_access("https://example.com/report.pdf")
+    assert blocked is not None and blocked["source"] == "sandbox" and "Allow network access" in blocked["message"]
+    monkeypatch.setattr(mxc_host, "host_network_withheld", lambda: False)
+    assert check_website_access("https://example.com/report.pdf") is None
+
+
+def test_url_context_reference_is_not_fetched_while_the_sandbox_is_offline(tmp_path, monkeypatch):
+    """A pasted link becomes an @url: reference the backend resolves before the turn; that fetch is
+    host-side too and must honour the same switch, with the reason visible to the model."""
+    from agent.context_references import preprocess_context_references
+    fetched = []
+
+    def fetcher(url):
+        fetched.append(url)
+        return "article body"
+    monkeypatch.setattr(mxc_host, "host_network_withheld", lambda: True)
+    result = preprocess_context_references(
+        "summarize @url:https://example.com/story", cwd=tmp_path, context_length=100_000, url_fetcher=fetcher)
+    assert fetched == []
+    assert any("not fetched" in w and "Allow network access" in w for w in result.warnings)
+    monkeypatch.setattr(mxc_host, "host_network_withheld", lambda: False)
+    result = preprocess_context_references(
+        "summarize @url:https://example.com/story", cwd=tmp_path, context_length=100_000, url_fetcher=fetcher)
+    assert fetched == ["https://example.com/story"] and "article body" in result.message
+
+
 # ── host settings and status ─────────────────────────────────────────────────
 
 def test_resolve_settings_reads_config_first_then_env_bridge(monkeypatch):
