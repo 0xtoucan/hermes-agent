@@ -990,7 +990,7 @@ _MXC_SANDBOX_HINT = (
     "process container on this host. The container sees the real filesystem but may only READ the folders granted "
     "in the sandbox policy and only WRITE inside the session's working directory (plus any read/write grants); "
     "everything else is denied by the OS, and network access is off unless the policy allows it (while it is off, "
-    "web search and browsing tools are withheld from you as well; the user can allow network in the same panel). "
+    "web search and browsing tools are refused as well; the user can allow network in the same panel). "
     "A denied action "
     "comes back with `Permission denied` plus a `[Sandbox]` note listing what is currently allowed. When that "
     "happens, do not look for a way around it: tell the user which folder or capability you need and ask them to "

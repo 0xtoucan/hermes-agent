@@ -186,20 +186,6 @@ def test_host_network_toolsets_are_withheld_only_when_the_sandbox_is_on_and_offl
     assert "web" in withheld and "browser" in withheld
 
 
-def test_tool_definitions_drop_web_and_browser_tools_when_the_sandbox_is_offline(monkeypatch):
-    """The network switch has to describe the whole agent: with the sandbox on and network off, the
-    model must not see host-side network tools at all (an egress the sandbox cannot see would make
-    the switch a formality). Terminal and file tools stay."""
-    import model_tools
-    monkeypatch.setattr(mxc_host, "host_network_withheld_toolsets", lambda terminal_cfg=None: ("web", "browser"))
-    names = model_tools._select_tool_names(["terminal", "file", "web", "browser"], None, True)
-    assert "terminal" in names and "read_file" in names
-    assert not any(n.startswith("web_") or n.startswith("browser_") for n in names)
-    monkeypatch.setattr(mxc_host, "host_network_withheld_toolsets", lambda terminal_cfg=None: ())
-    names = model_tools._select_tool_names(["terminal", "file", "web", "browser"], None, True)
-    assert "web_search" in names and "browser_navigate" in names
-
-
 def test_offline_verdict_is_cached_on_the_config_file_identity(tmp_path, monkeypatch):
     """The shared website gate asks per URL, so the config must not be re-parsed per call, but an
     edit to the file must be seen."""
@@ -265,49 +251,6 @@ def test_network_tools_are_refused_at_invocation_while_the_sandbox_is_offline(mo
     monkeypatch.setattr(mxc_host, "host_network_withheld_toolsets", lambda terminal_cfg=None: ())
     _, blocked = model_tools._pre_dispatch_guards("web_search", {"query": "q"}, True, model_tools._CallIds(None, None, None, None, None), [])
     assert blocked is None
-
-
-def test_turning_network_on_releases_the_web_tools_before_the_next_turn(monkeypatch):
-    """The switch flips mid-conversation: the released tools join the snapshot before the turn's
-    first API call, appended after the existing prefix; when it flips off, listed tools stay
-    (prefix preserved) and the invocation gate speaks."""
-    from types import SimpleNamespace
-    import model_tools
-    from agent.turn_context import _refresh_tools_for_sandbox_policy
-
-    def build_agent(withheld):
-        monkeypatch.setattr(mxc_host, "host_network_withheld_toolsets", lambda terminal_cfg=None: withheld)
-        defs = model_tools.get_tool_definitions(enabled_toolsets=["terminal", "file", "web"], quiet_mode=True)
-        return SimpleNamespace(
-            tools=defs, valid_tool_names={t["function"]["name"] for t in defs},
-            enabled_toolsets=["terminal", "file", "web"], disabled_toolsets=None, quiet_mode=True,
-            _sandbox_withheld_toolsets=withheld, _user_turn_count=1, _api_call_count=2,
-            _tool_snapshot_generation=0, _session_db=None, session_id=None)
-
-    # The web tools' own reachability probe (an API key) is not what is under test.
-    from tools.mcp_tool_agent import reprobe_tool_availability
-    from tools.registry import registry
-    for name in ("web_search", "web_extract"):
-        monkeypatch.setattr(registry.get_entry(name), "check_fn", lambda: True)
-    reprobe_tool_availability()
-    agent = build_agent(("web", "browser"))
-    assert "web_search" not in agent.valid_tool_names
-    monkeypatch.setattr(mxc_host, "host_network_withheld_toolsets", lambda terminal_cfg=None: ())
-    _refresh_tools_for_sandbox_policy(agent)
-    names = [t["function"]["name"] for t in agent.tools]
-    assert "web_search" in names and names.index("web_search") > names.index("terminal"), "released tools append after the prefix"
-    assert agent._sandbox_withheld_toolsets == ()
-
-    monkeypatch.setattr(mxc_host, "host_network_withheld_toolsets", lambda terminal_cfg=None: ("web", "browser"))
-    _refresh_tools_for_sandbox_policy(agent)
-    assert "web_search" in agent.valid_tool_names, "a live conversation keeps its listed tools"
-    assert agent._sandbox_withheld_toolsets == ("web", "browser")
-
-    fresh = build_agent(())
-    fresh._user_turn_count, fresh._api_call_count = 0, 0
-    monkeypatch.setattr(mxc_host, "host_network_withheld_toolsets", lambda terminal_cfg=None: ("web", "browser"))
-    _refresh_tools_for_sandbox_policy(fresh)
-    assert "web_search" not in fresh.valid_tool_names, "a conversation that has not started is rebuilt outright"
 
 
 # ── host settings and status ─────────────────────────────────────────────────

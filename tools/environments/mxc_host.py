@@ -509,13 +509,13 @@ def backend_enabled(terminal_cfg: Optional[dict] = None) -> bool:
 
 # Toolsets that reach the network from the Hermes process itself rather than from inside a
 # container. With the sandbox on and its network off, the switch has to mean "the agent is
-# offline", so these are withheld from the model too; an egress the sandbox cannot see would
+# offline", so calls to these are refused too; an egress the sandbox cannot see would
 # otherwise make the setting a formality.
 HOST_NETWORK_TOOLSETS = ("web", "browser")
 
 
 def host_network_withheld_toolsets(terminal_cfg: Optional[dict] = None) -> tuple[str, ...]:
-    """Toolsets to withhold from the model under the current sandbox policy: the host-network
+    """Toolsets whose calls are refused under the current sandbox policy: the host-network
     toolsets when the sandbox is on and its network is off, otherwise nothing."""
     cfg = terminal_cfg if terminal_cfg is not None else _terminal_section()
     if not backend_enabled(cfg):
