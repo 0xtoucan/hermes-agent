@@ -30,6 +30,20 @@ Find vulnerabilities that violate a real trust boundary, then give owners the so
 >   waves and verifiers as several tasks in ONE `delegate_task` call so they run in
 >   parallel; verifiers of a candidate must never be the hunter that found it (fresh
 >   task, no shared transcript — `delegate_task` gives that for free).
+> - **Hand prompts and results through files, not context.** A compliant hunter or
+>   verifier prompt (architecture + verbatim companion blocks + schema branches) is
+>   30–40 KB: write it to `<output-dir>/agents/<agent-id>/prompt.md` and put only
+>   "read this file first" plus the paths into `context`. Tell every child to write
+>   its final structured result to `<its scratch/>/result.json` as well as returning
+>   it — the returned summary is the parent's only other copy and long ones get
+>   clipped in transcripts. Agent ids: `hunter-w<wave>-<letter>`, `critic-w<wave>-<letter>`,
+>   `verifier-v<round>-<letter>` satisfy the id rule below.
+> - **Budget floor.** `quick` needs 6 children minimum (4 recon + 1 final critic
+>   + 1 verifier); every extra unit is one hunter and every surviving candidate one
+>   verifier, so a budget of 7 guarantees an `incomplete` run the moment a hunter
+>   returns two candidates. Start scoped first runs at 10–12. For `quick`, the
+>   final critic and the candidate verifiers may run in the same parallel
+>   `delegate_task` call (critic output only creates `deferred` units).
 > - **Companion files live in `references/`, validators in `scripts/`.** `<skill-dir>`
 >   is the directory containing this file; run
 >   `node <skill-dir>/scripts/validate-coverage-ledger.cjs <output-dir>/coverage-ledger.json`
@@ -40,14 +54,20 @@ Find vulnerabilities that violate a real trust boundary, then give owners the so
 >   allowlisted empty env, read-only target, resource limits), do NOT run
 >   target-controlled builds/tests/fixtures: keep such leads as `needs_validation`
 >   with the exact missing control, exactly as the upstream rules say. Static source
->   reading with `read_file`/`search_files` is always allowed.
+>   reading with `read_file`/`search_files` is always allowed. Concretely, for a
+>   no-sandbox run: promotion allowlist = none, every check `method: "source"`,
+>   verifiers may only return `needs_validation` or `rejected` (never `confirmed`
+>   from executed evidence), and the 11-step promotion block stays in the prompts
+>   as the contract that explains WHY nothing is promoted.
 > - **Output directory.** Default `~/security-audit-skill/<repo-name>/run-<N>`; never
->   `/tmp`, never inside the target unless the user selects an ignored path.
+>   `/tmp`, never inside the target unless the user selects an ignored path. Record
+>   `skill_dir` and the children spent so far in `run-metadata.json` (the validators
+>   do not check that file; keep it small and factual).
 > - **Guidance mode is the default.** A security question or "is this endpoint safe?"
 >   uses the relevant companion sections only; the full six-phase run (and any file
 >   creation) needs an explicit audit/pen-test/report request or a one-question
->   confirmation. Prefer `profile: quick` with a `budget` for first runs — one unit is
->   roughly one child agent, so a 20-unit ledger is a 20+ subagent spend.
+>   confirmation. Prefer `profile: quick` with an explicit `budget` for first runs — one
+>   unit is roughly one child agent, so a 20-unit ledger is a 20+ subagent spend.
 > - **Related skills.** `web-pentest` is for a RUNNING web app you are authorized to
 >   probe; this skill never probes deployed endpoints. `oss-forensics` handles
 >   post-compromise supply-chain investigation, not pre-release audits.
