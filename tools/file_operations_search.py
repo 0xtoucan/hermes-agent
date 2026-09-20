@@ -109,6 +109,17 @@ _ADMISSION_INTERRUPTED_ERROR = (
     "search on the same root. Retry when ready.")
 
 _SEARCH_TIMEOUT_MARKER_RE = re.compile(r"\n?\[Command timed out after \d+s\]\s*$")
+_ACCESS_REFUSAL_RE = re.compile(r"permission denied|access is denied|operation not permitted", re.I)
+
+
+def _access_refusal(probe_output: str, marker: str = "not_found") -> str:
+    """The environment's refusal text from an existence probe, or "" when the probe reports a
+    plain miss. The probe emits the OS error ahead of its *marker* line; anything a sandbox
+    appended (its policy note) rides along so the caller can show it verbatim."""
+    if not _ACCESS_REFUSAL_RE.search(probe_output):
+        return ""
+    lines = [line for line in probe_output.splitlines() if line.strip() and line.strip() != marker]
+    return "\n".join(lines).strip()
 
 
 def _search_stdout_and_limit(result: ExecuteResult) -> tuple[str, Optional[str]]:
@@ -485,11 +496,15 @@ class SearchMixin:
 
     def _path_exists_probe(self, path: str) -> ExecuteResult:
         """Existence probe; stdout contains "exists" or "not_found" (or the probe's
-        ``cwd_error`` when the exec wrapper itself failed)."""
+        ``cwd_error`` when the exec wrapper itself failed). When the path is not
+        reachable, the OS's own error for it precedes "not_found", so a permission
+        refusal (a sandbox policy, an unreadable directory) is distinguishable from a
+        path that does not exist."""
         if self._native_read_enabled():
             full = path if os.path.isabs(path) else os.path.join(getattr(self.env, "cwd", None) or self.cwd, path)
             return ExecuteResult(stdout="exists" if os.path.exists(full) else "not_found")
-        return self._exec(f"test -e {self._escape_shell_arg(path)} && echo exists || echo not_found")
+        quoted = self._escape_shell_arg(path)
+        return self._exec(f"test -e {quoted} && echo exists || {{ ls -d {quoted} 2>&1 >/dev/null | head -1; echo not_found; }}")
 
     def _dispatch_search(self, pattern: str, path: str, target: str,
                          file_glob: Optional[str], limit: int, offset: int,

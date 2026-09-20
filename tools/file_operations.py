@@ -29,7 +29,7 @@ from tools.file_operations_common import (
     _UTF8_BOM, _detect_line_ending, _has_bom, _normalize_line_endings, _strip_bom,
     _strip_terminal_fence_leaks, normalize_read_pagination, normalize_search_pagination)
 from tools.file_operations_lint import LINTERS_INPROC, LintMixin, _FAIL_CLOSED_INPROC_EXTS
-from tools.file_operations_search import SearchMixin
+from tools.file_operations_search import SearchMixin, _access_refusal
 
 logger = logging.getLogger(__name__)
 
@@ -363,12 +363,20 @@ class ShellFileOperations(LintMixin, SearchMixin, FileOperations):
         return path
 
     def _escape_shell_arg(self, arg: str) -> str:
-        """Single-quote ``arg`` for the shell. On Windows, native drive paths and
-        mixed MSYS leftovers are first rewritten to the Git Bash ``/c/Users/x``
-        form via the env-layer ``_bash_safe_path`` (bash eats backslashes; MSYS
-        mangles drive paths), so shell file ops and the terminal ``cd`` agree."""
-        from tools.environments.local import _bash_safe_path
-        return "'" + _bash_safe_path(arg).replace("'", "'\"'\"'") + "'"
+        """Single-quote ``arg`` for the shell in the environment's own path dialect. On
+        Windows a Git Bash shell wants the MSYS ``/c/Users/x`` form (bash eats backslashes;
+        MSYS mangles drive paths) while a native POSIX shell such as the sandbox's wants
+        ``C:/Users/x``; the environment declares which via ``windows_path_form`` so shell
+        file ops and the terminal ``cd`` agree. POSIX backends take paths as they are."""
+        from tools.environments.local import _IS_WINDOWS, _bash_safe_path, _msys_to_windows_path
+        form = getattr(self.env, "windows_path_form", None)
+        if not isinstance(form, str):
+            form = "msys" if _IS_WINDOWS else "posix"
+        if form == "msys":
+            arg = _bash_safe_path(arg)
+        elif form == "native" and arg:
+            arg = _msys_to_windows_path(arg).replace("\\", "/")
+        return "'" + arg.replace("'", "'\"'\"'") + "'"
 
     def _escape_native_tool_arg(self, arg: str) -> str:
         """Quote a path for a NATIVE Windows binary (rg, node, git ...): those don't
@@ -472,9 +480,14 @@ class ShellFileOperations(LintMixin, SearchMixin, FileOperations):
         stat_result = self._exec(
             f"if [ -f {arg} ]; then wc -c < {arg} 2>/dev/null; "
             f"elif [ -e {arg} ]; then echo {NOT_REGULAR_SENTINEL}; "
-            f"else echo {MISSING_SENTINEL}; fi")
+            f"else ls -d {arg} 2>&1 >/dev/null | head -1; echo {MISSING_SENTINEL}; fi")
         stat_output = _strip_terminal_fence_leaks(stat_result.stdout).strip()
-        if stat_output == MISSING_SENTINEL:
+        if MISSING_SENTINEL in stat_output:
+            # The OS error precedes the sentinel: a refusal (sandbox policy, unreadable directory)
+            # is not a missing file, and calling it one makes the model distrust a path it had right.
+            refused = _access_refusal(stat_output, marker=MISSING_SENTINEL)
+            if refused:
+                return 0, f"Access to {path} was refused:\n{refused}"
             return 0, "missing"
         if stat_output == NOT_REGULAR_SENTINEL:
             return 0, "not_regular"
@@ -1413,6 +1426,11 @@ class ShellFileOperations(LintMixin, SearchMixin, FileOperations):
             return SearchResult(error=(f"Terminal environment unavailable: could not stat {path} "
                                        "(the sandbox may still be starting or was removed). Retry shortly."))
         if "not_found" in exists_probe:
+            refused = _access_refusal(exists_probe)
+            if refused:
+                # The path may well exist; the environment refused to look. Saying "not found"
+                # sends the model hunting for a path it already had.
+                return SearchResult(error=f"Access to {path} was refused:\n{refused}")
             # Models often pass several paths in one string: search the parts that exist.
             multi = self._try_multi_path_search(
                 pattern, path, target, file_glob, limit, offset, output_mode, context, order)

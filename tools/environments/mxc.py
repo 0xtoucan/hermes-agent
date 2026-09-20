@@ -252,6 +252,9 @@ class MxcEnvironment(BaseEnvironment):
 
     # Not the host: the file tools' native fast paths must stay off (see module docstring).
     is_local = False
+    # Shell file operations quote paths for the sandbox's POSIX shell, which takes native drive
+    # paths with forward slashes (``C:/Users/x``), not the Git Bash ``/c/Users/x`` form.
+    windows_path_form = "native"
     _stdin_mode = "pipe"
     _snapshot_timeout = 30
     _sudo_nopasswd_probe_supported = False

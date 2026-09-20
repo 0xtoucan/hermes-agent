@@ -92,3 +92,28 @@ def test_composer_attachments_are_readable_but_the_rest_of_user_data_is_not(live
     tokens = (user_data / "connections.json").as_posix()
     result = live_env.execute(f"cat '{image}'; echo; cat '{tokens}' >/dev/null 2>&1; echo rc=$?")
     assert "PNG" in result["output"] and "rc=1" in result["output"]
+
+
+def test_search_files_outside_the_policy_reports_the_refusal_not_a_missing_path(live_env):
+    """The file tools route through the container; a folder the OS refuses to stat exists, so the
+    search must say it was refused (with the policy note), never "Path not found"."""
+    from tools.file_operations import ShellFileOperations
+    ops = ShellFileOperations(live_env)
+    result = ops.search("*", path=os.path.expanduser("~"), target="files")
+    assert result.error is not None
+    assert "refused" in result.error and "[Sandbox]" in result.error
+    assert "Path not found" not in result.error
+
+
+def test_file_tools_take_absolute_windows_paths_and_report_refusals(live_env):
+    """Absolute ``C:\\...`` paths are the model's default spelling; they must reach the sandbox shell
+    in its own dialect, and a refused read must not masquerade as a missing file."""
+    from tools.file_operations import ShellFileOperations
+    ops = ShellFileOperations(live_env)
+    target = os.path.join(live_env.workspace_root, "note.txt")
+    assert ops.write_file(target, "hello sandbox\n").error is None
+    read = ops.read_file(target)
+    assert read.error is None and "hello sandbox" in read.content
+    assert ops.search("hello", path=live_env.workspace_root).total_count == 1
+    refused = ops.read_file(os.path.join(os.path.expanduser("~"), "NTUSER.DAT"))
+    assert refused.error is not None and "refused" in refused.error and "File not found" not in refused.error

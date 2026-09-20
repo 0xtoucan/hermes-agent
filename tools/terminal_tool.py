@@ -1186,7 +1186,9 @@ def _pre_exec_block(
             logger.warning("Blocked dangerous workdir: %s (command: %s)",
                            workdir[:200], _safe_command_preview(command))
             raise _Rejected(_error_json(workdir_error, status="blocked"))
-    if env_type == "local":
+    # Host-filesystem backends (local, and the Windows MXC sandbox) run against the checkout that
+    # backs this interpreter, so both need the self-repo git-mutation guard.
+    if env_type in ("local", "mxc"):
         blocked = self_repo_block(command=command, cwd=cwd, workdir=workdir, session_key=session_key)
         if blocked:
             raise _Rejected(blocked)
