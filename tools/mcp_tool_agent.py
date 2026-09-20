@@ -219,6 +219,51 @@ def _reinject_authorized_dynamic_tools(agent, tools_list: list, name_set: set) -
     if message_agent_authorized(agent):
         tools_list.append(message_agent_tool_schema())
         name_set.add(MESSAGE_AGENT_TOOL_NAME)
+    # A registry-derived rebuild re-defers process_manage behind the bridge; keep the promotion.
+    if getattr(agent, "_process_manage_promoted", False):
+        _append_promoted_process_manage(agent, tools_list, name_set)
+
+
+PROCESS_MANAGE_TOOL_NAME = "process_manage"
+
+
+def _append_promoted_process_manage(agent, tools_list: list, name_set: set) -> bool:
+    """Tail-append the session-scoped ``process_manage`` schema unless already direct or out
+    of the session's toolset scope (the pre-assembly definitions are the scope ``tool_call``
+    validates against, so the promoted schema is byte-identical to a non-deferred one)."""
+    if PROCESS_MANAGE_TOOL_NAME in name_set:
+        return False
+    from model_tools import get_tool_definitions
+    raw_defs = get_tool_definitions(
+        enabled_toolsets=getattr(agent, "enabled_toolsets", None),
+        disabled_toolsets=getattr(agent, "disabled_toolsets", None),
+        quiet_mode=True, skip_tool_search_assembly=True) or []
+    tool_def = next((t for t in raw_defs if _def_name(t) == PROCESS_MANAGE_TOOL_NAME), None)
+    if tool_def is None:
+        return False
+    tools_list.append(tool_def)
+    name_set.add(PROCESS_MANAGE_TOOL_NAME)
+    return True
+
+
+def promote_process_manage(agent) -> bool:
+    """Make ``process_manage`` directly callable for the rest of the session once a foreground
+    ``terminal`` command yielded to the background. It is deferred behind the tool_search bridge
+    by default, and reaching it through ``tool_describe`` + ``tool_call`` cost two model turns
+    per yield. Same contract as a late-landing MCP tool (``_merge_preserving_prefix``): the
+    schema appends at the tail, existing bytes keep their slot, so the request prefix is
+    re-prefilled once and is stable afterwards. The gate is recorded on the agent so every
+    snapshot rebuild re-injects it. Returns True when the tool list changed."""
+    agent._process_manage_promoted = True
+    with _agent_tools_lock:
+        tools = _agent_tool_defs(agent)
+        names = {_def_name(t) for t in tools}
+        if not _append_promoted_process_manage(agent, tools, names):
+            return False
+        agent.tools = tools
+        agent.valid_tool_names = names
+    persist_agent_tool_names(agent)
+    return True
 
 
 def _reinject_post_build_tools(agent, tools_list: list, name_set: set) -> set:

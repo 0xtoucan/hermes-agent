@@ -1015,6 +1015,22 @@ def _emit_tool_complete_and_risk(agent, ref: _ToolCallRef, result, risk_metadata
         )
 
 
+def _promote_process_manage_after_yield(agent, function_name: str, function_result) -> None:
+    """A foreground ``terminal`` command that yielded to the background leaves the model needing
+    ``process_manage`` on its next step; promote it out of the tool_search bridge right away
+    (``tools.mcp_tool_agent.promote_process_manage``) instead of spending two turns on
+    ``tool_describe`` + ``tool_call``. The substring gate keeps JSON parsing off every result."""
+    if function_name != "terminal" or not isinstance(function_result, str) or "yielded_to_background" not in function_result:
+        return
+    try:
+        if json.loads(function_result).get("status") != "yielded_to_background":
+            return
+        from tools.mcp_tool_agent import promote_process_manage
+        promote_process_manage(agent)
+    except Exception:
+        logger.debug("process_manage promotion after yield skipped", exc_info=True)
+
+
 def _commit_tool_result(
     agent,
     messages: list,
@@ -1056,6 +1072,7 @@ def _commit_tool_result(
                 )
             except Exception as _ver_err:
                 logging.debug("file-mutation verifier record failed: %s", _ver_err)
+            _promote_process_manage_after_yield(agent, function_name, function_result)
         if agent.verbose_logging:
             logging.debug("Tool %s completed in %.2fs", function_name, tool_duration)
             _log_result = verbose_text(function_result)

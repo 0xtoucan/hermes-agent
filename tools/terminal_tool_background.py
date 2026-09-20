@@ -217,14 +217,14 @@ _SUBAGENT_NOTIFY_NOTE = (
 _YIELDED_NOTE = (
     "The user sent a message while this command was running, so it was moved to the "
     "background WITHOUT being killed and is still running. You will be notified when it "
-    "exits (notify_on_complete). Read the user's message and respond to it now; use "
-    "process(action='poll'|'wait'|'log', session_id=...) to check on this command."
+    "exits (notify_on_complete). Read the user's message and respond to it now; call "
+    "process_manage(action='wait'|'poll'|'log', session_id=...) directly to check on this command."
 )
 _ELAPSED_YIELD_NOTE = (
     "This command has been running for {seconds}s, so it was moved to the background WITHOUT being "
     "killed and is still running; the output above is partial. Do NOT re-run it. Continue with other "
-    "work now if you have any, then process(action='wait'|'poll'|'log', session_id=...) to collect the "
-    "rest of its output and exit code."
+    "work now if you have any, then call process_manage(action='wait'|'poll'|'log', session_id=...) "
+    "directly to collect the rest of its output and exit code."
 )
 
 

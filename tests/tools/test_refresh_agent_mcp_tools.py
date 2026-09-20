@@ -481,3 +481,29 @@ def test_snapshot_rebuild_never_grants_message_agent_to_unauthorized_sessions(
         assert _message_agent_schema_count(agent) == 0
         assert "message_agent" not in agent.valid_tool_names
         _assert_tool_snapshot_coherent(agent)
+
+
+@pytest.mark.parametrize("rebuild", ["compaction", "between_turns"])
+def test_promoted_process_manage_survives_snapshot_rebuilds(monkeypatch, rebuild):
+    """After a foreground terminal command yields, ``process_manage`` is promoted out of the
+    tool_search bridge; a registry-derived rebuild (which re-defers it) must keep it at the tail."""
+    import model_tools
+    from tools import registry as registry_mod
+
+    agent = _agent(["read_file", "terminal", "tool_call"])
+    assembled = [_tool(n) for n in ("read_file", "terminal", "tool_call")]
+    raw = assembled[:2] + [_tool("process_manage")]
+    monkeypatch.setattr(
+        model_tools, "get_tool_definitions",
+        lambda *a, skip_tool_search_assembly=False, **kw: list(raw if skip_tool_search_assembly else assembled),
+    )
+    entries = [types.SimpleNamespace(name=n, schema=_tool(n)["function"]) for n in ("read_file", "terminal", "process_manage")]
+    monkeypatch.setattr(registry_mod.registry, "get_all_entries", lambda: entries, raising=False)
+
+    assert _mcp_agent.promote_process_manage(agent) is True
+    assert _mcp_agent.promote_process_manage(agent) is False  # idempotent
+    for _ in range(2):
+        _mcp_agent.refresh_agent_mcp_tools(
+            agent, content_aware=rebuild == "compaction", preserve_prefix=rebuild == "between_turns")
+        assert _mcp_agent.agent_tool_names(agent) == ["read_file", "terminal", "tool_call", "process_manage"]
+        assert "process_manage" in agent.valid_tool_names
