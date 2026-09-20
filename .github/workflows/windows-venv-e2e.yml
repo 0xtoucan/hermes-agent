@@ -78,3 +78,10 @@ jobs:
           uv run --no-sync python -m pytest \
             tests/tools/test_process_registry_windows_live.py \
             -o addopts= -v -p no:cacheprovider
+
+      - name: b0919-L02 handoff A/B (temporary)
+        shell: bash
+        timeout-minutes: 15
+        run: |
+          set -uo pipefail
+          uv run --no-sync python -m pytest tests/hermes_cli/test_update_post_swap_handoff.py -o addopts= -v -p no:cacheprovider
