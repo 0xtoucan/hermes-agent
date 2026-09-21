@@ -149,7 +149,7 @@ class ToolLabel(Payload):
     emoji: str
     text: str
     name: str
-    preview: str = ""  # the call's primary argument, as the classic CLI shows it
+    preview: str = ""
 
 
 class TranscriptMessage(OpenModel):
@@ -167,7 +167,7 @@ class TranscriptMessage(OpenModel):
     name: str | None = None
     context: str | None = None
     args: dict[str, JsonValue] | None = None
-    labels: list[ToolLabel] | None = None  # bridged tool rows: one per inner call
+    labels: list[ToolLabel] | None = None
     reasoning: str | None = None
 
 

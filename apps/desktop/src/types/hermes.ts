@@ -1,6 +1,5 @@
 import type { ConnectionRequestPayload, ToolLabel } from '@hermes/shared'
 
-/** Tool-call id -> the labels of what that stored `tool_call` ran. */
 export type StoredToolCallLabels = Record<string, ToolLabel[]>
 
 export interface ConfigFieldSchema {
@@ -618,9 +617,7 @@ export interface SessionMessage {
    */
   args?: unknown
   codex_reasoning_items?: unknown
-  /** One label per inner call of a bridged `tool_call` row; the gateway phrases them. */
   labels?: ToolLabel[]
-  /** Tool-call id -> that call's labels, for an assistant row reloaded from storage. */
   tool_call_labels?: StoredToolCallLabels
   /** Responses-API assistant message items; text parts here are the
    *  user-visible reply when `content` persisted empty (#68321). */

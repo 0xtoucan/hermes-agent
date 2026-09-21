@@ -1,12 +1,3 @@
-"""Managed connectors (Nous tool gateway) on the connection operation.
-
-``connect`` mints a link for every target up front and stores it on the target; ``reconnect``
-reads status first and reinitiates only what is not connected (``force`` always reinitiates).
-With a connection card the call blocks until the operation settles and the result carries no URL;
-the card owns the links. With no card the result carries the URLs and returns at once, until
-PR3 delivers them as their own message. The watcher hook reads one route per pending target:
-that target's own account row, at 1 Hz."""
-
 from __future__ import annotations
 
 import json
@@ -52,14 +43,12 @@ NOTE = (
 
 
 def managed_client():
-    """The managed connector client created inside the caller's active profile scope."""
     from tools.connectors.gateway.client import ConnectorClient
 
     return ConnectorClient()
 
 
 def managed_kind(client: Any, action: str, force: bool) -> Kind:
-    """The managed operation hooks shared by model- and account-originated connections."""
     return Kind(prepare=_prepare(client, action, force), observe=lambda operation: _observe(client, operation), note=NOTE)
 
 
@@ -84,7 +73,6 @@ def mint(client: Any, operation: ConnectionOperation, names: List[str], *, reini
         if target is None:
             continue
         status = str(entry.get("status") or "")
-        # ConnectorClient.connections() returns field-name dumps, not aliases.
         detail = str(entry.get("status_reason") or "")
         connection_id = entry.get("connection_id")
         if status == "active":
@@ -181,11 +169,6 @@ def _observe(client: Any, operation: ConnectionOperation) -> None:
 
 
 def _mark_misrouted(operation: ConnectionOperation) -> None:
-    """NS-932, the failure path. The mint answers a bare ``failed`` for an unknown slug and for a
-    vendor error alike, so one hosted-list read decides: a name the gateway does not list, and the
-    bundled catalog does, was meant for the local MCP surface. Such a target stays a failed row and
-    carries the call that does work as its detail; every other target of the call is untouched.
-    A list the gateway cannot answer decides nothing."""
     unminted = [t for t in operation.targets
                 if t.state == TargetState.failed and not t.connection_id]
     if not unminted:
@@ -202,7 +185,6 @@ def _mark_misrouted(operation: ConnectionOperation) -> None:
         operation.refresh(target.name, connect_url=None, actor=Actor.backend_watcher,
                           detail=misrouted_to_hosted_error(target.name))
     if misrouted and len(misrouted) == len(operation.targets):
-        # Nothing was minted and nothing can be answered, so there is no card to open.
         operation.settle(SettleReason.all_resolved)
 
 

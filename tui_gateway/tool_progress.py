@@ -189,11 +189,6 @@ def _todo_state_from_history(history) -> dict | None:
 
 
 def _tool_labels(name: str, args: dict) -> list[dict] | None:
-    """Labels for the inner calls of a bridged ``tool_call``, or None for an ordinary tool.
-
-    Always sent: a renderer with one row per inner call needs them whatever the classic
-    CLI's ``display.friendly_tool_labels`` setting says.
-    """
     from agent.display import tool_labels_for_call
 
     return [label.as_payload() for label in tool_labels_for_call(name, args)] or None

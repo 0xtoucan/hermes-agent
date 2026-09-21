@@ -53,8 +53,6 @@ def _tool_defs_content_changed(agent, new_defs: list) -> bool:
 
 
 def _drop_side_agent_tools(agent, new_defs: list, new_names: set) -> tuple:
-    """A rebuild re-reads the registry, so the tools a side agent must not hold are dropped on
-    every publish, not only at build time."""
     from tools.connectors.turn import side_agent_tool_drops
     drops = side_agent_tool_drops(agent)
     if not drops:

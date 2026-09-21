@@ -746,9 +746,6 @@ class CLIModalMixin:
         _apply()
 
     def _connection_callback(self, payload):
-        """Open the panel and return at once. The caller starts the operation's watcher only after
-        this returns, and the watcher is what polls a hosted account, runs the deadline and sees
-        Ctrl+C. The panel's actions reach the operation through apply_answer on the UI thread."""
         if not isinstance(payload, dict):
             return None
         self._capture_modal_input_snapshot()
@@ -797,8 +794,6 @@ class CLIModalMixin:
         if target.get("kind") == "connector" and target.get("state") in {"failed", "expired"}:
             from tools.connectors.run import reissue
 
-            # The new link arrives through the change hook before reissue returns, and the hook
-            # sets the link step. Set the waiting phase first so it cannot overwrite that.
             state["phase"] = "waiting"
             if reissue(operation, [str(target.get("name") or "")]) is not None:
                 target["detail"] = "This connection cannot be started again. Cancel and ask the agent again."

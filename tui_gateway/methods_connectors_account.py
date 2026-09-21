@@ -1,5 +1,3 @@
-"""Profile-scoped connector RPCs that are not owned by a chat session."""
-
 from tui_gateway.contracts.connectors import (
     ConnectorAccountsParams,
     ConnectorAccountsRemoveParams,
@@ -17,7 +15,6 @@ _profile_scoped = _registry.profile_scoped
 
 def _account_method(params_model=None, *, invalid="", invalid_reason=ConnectorErrorReason.invalid_params,
                     unavailable, unavailable_message):
-    """Gate, validate, then answer fixed connector RPC errors."""
     def decorate(fn):
         def handler(rid, params):
             from pydantic import ValidationError
@@ -129,7 +126,6 @@ def _(rid, request):
     try:
         removed = PortalConnectorClient().delete_account(request.connection_id)
     except GatewayUnavailable as exc:
-        # Only the portal's own "no such account" removes the card; any other failure is an outage.
         if exc.code == "connection_not_found":
             return _connector_rpc_error(rid, 4041, ConnectorErrorReason.connection_not_found, "Connector account not found.")
         return _connector_rpc_error(rid, 5034, ConnectorErrorReason.accounts_unavailable, "Connector accounts are unavailable.")
@@ -207,7 +203,6 @@ def _(rid, request):
 
 
 def _policy_rule_fields(body):
-    """The fields a policy body carries for its mode. Unrestricted and deny-all carry none."""
     from tui_gateway.contracts.connectors import ConnectorPolicyTags
 
     if body.mode in ("unrestricted", "deny-all"):
@@ -232,7 +227,6 @@ def _contract_policy_body(body):
 
 
 def _contract_policy_effective(effective):
-    """The portal's effective policy for a client: the rules and its stamp, no provider or subject ids."""
     from tui_gateway.contracts import connectors as contract
 
     models = {
@@ -274,5 +268,4 @@ def _policy_error(exc, reasons):
 
 def register(server):
     bind_module(globals(), server, skip=("_",))
-    # Portal and tool gateway reads and writes can block, so these RPCs must run off the server loop.
     server._LONG_HANDLERS = server._LONG_HANDLERS | _registry.names()

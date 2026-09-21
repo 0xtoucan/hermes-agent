@@ -85,7 +85,6 @@ function view(sessionId: string): SessionView {
 }
 
 function renderOffer(request = REQUEST) {
-  // The card only ever renders an operation the store holds; Try again checks it is still there.
   setConnectionRequest(request)
 
   return render(

@@ -1,17 +1,15 @@
-"""Errors specific to connector tool listings from the portal."""
-
 from __future__ import annotations
 
 from tools.connectors.gateway.errors import ToolGatewayError
 
 
 class InvalidConnectorSlug(ValueError):
-    """A connector slug failed local validation before any portal request."""
+    pass
 
 
 class PortalConnectorUnavailable(ToolGatewayError):
-    """The portal cannot provide connector metadata right now."""
+    pass
 
 
 class PortalToolsUnavailable(PortalConnectorUnavailable):
-    """The portal cannot provide a connector's tool list right now."""
+    pass

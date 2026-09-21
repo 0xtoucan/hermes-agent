@@ -1,5 +1,3 @@
-"""Account-owned managed connector operations for the session-less Connectors page."""
-
 from __future__ import annotations
 
 import contextvars
@@ -41,7 +39,6 @@ def find_or_start_operation(
     action: str,
     profile_home: str | None,
 ) -> AccountOperationStart:
-    """Join the exact open managed operation, or atomically reserve and start a new one."""
     with _start_lock:
         if operation := _matching_open_operation(names, profile_home=profile_home):
             return AccountOperationStart(operation=operation, started=False)
@@ -75,7 +72,6 @@ def _run(start: AccountOperationStart, action: str) -> None:
             with_urls_in_result=False,
         )
     except Exception:
-        # A failure before ``drive_operation`` leaves a registered operation every later connect joins forever.
         live.close(start.operation)
         start.failed = True
     finally:
@@ -83,5 +79,4 @@ def _run(start: AccountOperationStart, action: str) -> None:
 
 
 def wait_for_prepare(start: AccountOperationStart) -> bool:
-    """Wait only for the initial mint, whose HTTP client has its own bounded timeout."""
     return start.done.wait(_PREPARE_WAIT_SECONDS)

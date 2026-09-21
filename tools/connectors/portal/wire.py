@@ -1,5 +1,3 @@
-"""Typed wire shapes for connector metadata from the portal."""
-
 from __future__ import annotations
 
 from typing import Literal

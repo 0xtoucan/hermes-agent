@@ -509,9 +509,6 @@ async def get_session_latest_descendant(session_id: str, profile: Optional[str] 
 
 
 def _stored_tool_call_labels(message: dict) -> dict:
-    """Call id -> the labels of what that stored ``tool_call`` ran, so a reloaded transcript
-    names the real calls. Only the bridge tools carry inner calls, so only they are parsed;
-    every other row is left alone and ``tool_calls`` stays untouched."""
     from agent.display import tool_labels_for_call
     from tools.tool_labels import BRIDGE_TOOL_NAMES
 
@@ -539,8 +536,6 @@ def _with_tool_call_labels(message: dict) -> dict:
 
 
 def _project_for_display(messages: list) -> list:
-    """Replace compaction summaries with their display-only projection, and name the calls a
-    stored ``tool_call`` row actually ran."""
     from agent.compaction_display import project_compaction_message_for_display
     from agent.context_compressor import is_compaction_summary_message
 

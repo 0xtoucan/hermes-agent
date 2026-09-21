@@ -42,7 +42,6 @@ class Kind:
 
 
 def reissue(operation: ConnectionOperation, names: Sequence[str]) -> Optional[str]:
-    """Restart failed or expired targets, or return why that cannot happen."""
     from tools.connectors.contract import Actor, TargetState, allowed
 
     targets = [operation.target(name) for name in names]
@@ -105,7 +104,6 @@ def drive_operation(
     tick_seconds: Optional[float] = None,
     with_urls_in_result: bool,
 ) -> str:
-    """Run an already-registered operation to settlement; the caller owns its registration."""
     try:
         kind.prepare(operation)
         operation.settle_if_all_resolved()

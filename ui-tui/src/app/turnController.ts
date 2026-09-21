@@ -29,9 +29,6 @@ import { pushSnapshot } from './spawnHistoryStore.js'
 import { archiveDoneTodos, getTurnState, patchTurnState, resetTurnState } from './turnStore.js'
 import { getUiState, patchUiState } from './uiStore.js'
 
-/** The finished trail rows for one tool call: one per inner call when the gateway phrased them,
- *  else the one name-and-preview row. The duration and the verbose Args / Result blocks belong to
- *  the call as a whole, so they sit on its last row, as in the classic CLI. */
 function toolTrailLines(
   done: ActiveTool | undefined,
   name: string,

@@ -313,9 +313,6 @@ export async function connectionOwnerFor(sessionId: string, method: string): Pro
   }
 }
 
-/** The store still holds this exact operation and it has not settled. A settled or unknown operation
- *  is dead: no card may send it an RPC, because the backend would answer for another one or open a
- *  second one nothing renders. */
 export const connectionRequestOpen = (
   request: ConnectionRequest
 ): request is ConnectionRequest & { sessionId: string } => {

@@ -363,7 +363,6 @@ def _background_agent_kwargs(agent, task_id: str) -> dict:
         # The side agent persists into the PARENT's store: a named-profile chat's ``bg_*`` rows
         # belong to that profile's state.db, not the launch handle.
         "platform": "tui", "session_db": getattr(agent, "_session_db", None) or _get_db(), "fallback_model": fallback,
-        # No card and no user to sign an app in: no manage_connections tool, and no link in a result.
         "side_agent": True}
 
 

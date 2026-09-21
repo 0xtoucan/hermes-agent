@@ -184,7 +184,6 @@ export const formatToolCall = (name: string, context = '') => {
 export const formatToolLabel = (label: ToolLabel) =>
   `${label.emoji} ${compactPreview(label.preview ? `${label.text}  ${label.preview}` : label.text, 72)}`
 
-/** The live line for a bridged call: its first inner call, plus how many follow. */
 export const formatToolLabels = (labels: readonly ToolLabel[]) => {
   const [first, ...rest] = labels
 

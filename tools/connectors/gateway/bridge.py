@@ -1,9 +1,3 @@
-"""Core boundary for connector search, descriptions, and remote execution.
-
-Search and description failures degrade to no remote results and name the reason on the leg;
-exceptions cannot escape this bridge because core dispatch bypasses registry error wrapping.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -17,7 +11,6 @@ from tools.connectors.gateway.names import parse_connector_name, vendor_slug_can
 
 logger = logging.getLogger(__name__)
 
-# The two reasons a hosted leg produced nothing that the model is allowed to hear about.
 SIGN_IN_EXPIRED = "sign_in_expired"
 UNREACHABLE = "unreachable"
 
@@ -33,25 +26,15 @@ __all__ = [
 
 @dataclass(frozen=True)
 class ConnectorLeg:
-    """One hosted search or describe call: the gateway payload, and why the leg produced nothing.
-
-    ``failure`` is None when the leg answered, when connectors are off for this user, when the
-    gateway is dark (a 404 is the shut gate, not an outage), and on a 403 (an entitlement the
-    account does not have reads as the same shut gate).
-    """
 
     payload: dict[str, Any] = field(default_factory=dict)
     failure: Optional[str] = None
 
 
-# The gateway codes that name a rejected token. A 403 is not here: it refuses an entitlement the
-# account does not have, and signing in again does not change that.
 _TOKEN_REJECTED_CODES = frozenset({"UNAUTHORIZED", "INVALID_TOKEN", "TOKEN_EXPIRED"})
 
 
 def _leg_failure(exc: Exception) -> Optional[str]:
-    """A rejected token is a sign-in the user must repeat. An entitlement refusal reads like the
-    shut gate and says nothing to the model. Everything else is an outage."""
     if isinstance(exc, GatewayAuthError):
         if exc.status == 401 or str(exc.code).upper() in _TOKEN_REJECTED_CODES:
             return SIGN_IN_EXPIRED
@@ -71,8 +54,6 @@ def connector_search_hits(
     availability: Optional[Callable[[], bool]] = None,
     client_factory: Optional[Callable[[], Any]] = None,
 ) -> ConnectorLeg:
-    """Return no hits on failure so local search behavior is unchanged (D32); the reason rides
-    along on the leg so the caller can tell an outage from no hits."""
     try:
         available = (availability or connectors_available)()
         if not available or not queries:
@@ -93,8 +74,6 @@ def connector_describe(
     availability: Optional[Callable[[], bool]] = None,
     client_factory: Optional[Callable[[], Any]] = None,
 ) -> ConnectorLeg:
-    """Return no schemas on failure so local descriptions are unchanged (D32); the reason rides
-    along on the leg so the caller can tell an outage from an unknown tool."""
     try:
         available = (availability or connectors_available)()
         if not available:

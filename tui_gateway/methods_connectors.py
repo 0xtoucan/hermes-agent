@@ -1,5 +1,3 @@
-"""Connector RPCs and the connection-operation bridge: a session owner is authorized by its transport, an account owner by its profile."""
-
 import contextlib
 import contextvars
 
@@ -7,7 +5,6 @@ from .method_ctx import HandlerRegistry, bind_module
 
 _registry = HandlerRegistry()
 method = _registry.method
-# List and connect can reach the tool gateway; responding can start MCP OAuth.
 _CONNECTOR_RPC_METHODS = frozenset({"connectors.list", "connectors.connect", "connection.respond"})
 _connector_rpc_origin: contextvars.ContextVar[tuple | None] = contextvars.ContextVar("connector_rpc_origin", default=None)
 
@@ -24,7 +21,6 @@ def _connector_rpc_error(rid, code, reason, message):
 
 
 def _connector_auth_error(rid, exc):
-    """One answer per auth failure, read from the upstream code: not a member, rejected sign-in, or refused."""
     from tui_gateway.contracts.connectors import ConnectorErrorReason
 
     if exc.code in {"no_access", "ORG_ACCESS_DENIED"}:
@@ -40,7 +36,6 @@ def _connector_auth_error(rid, exc):
 
 
 def _connector_guard(fn):
-    """Answer any unexpected failure on a connector RPC with the one fixed reply."""
     def handler(rid, params):
         from tools.connectors.gateway.errors import GatewayAuthError
         from tui_gateway.contracts.connectors import ConnectorErrorReason
@@ -180,7 +175,6 @@ def _connector_rows(rows):
     from tools.connectors.gateway.wire import ConnectorListItem
     from tui_gateway.connector_payload import connector_ui_payload
 
-    # status_reason is upstream text, so the rows get the same redaction as every other reply.
     return connector_ui_payload([
         ConnectorListItem.model_validate(row).model_dump(mode="json", by_alias=False)
         for row in rows
@@ -227,7 +221,6 @@ def _connector_rpc(rid, params, action):
     if request.owner.type == "account":
         with _account_scope(request):
             if closed := _account_gate_closed(rid):
-                # The list answers a closed gate the way the session path does; a connect refuses.
                 return _ok(rid, {"available": False, "connectors": []}) if action == "status" else closed
             return _account_connector_list(rid) if action == "status" else _account_connector_connect(rid, request)
 
@@ -302,7 +295,6 @@ def _account_home(request):
 @contextlib.contextmanager
 def _account_scope(request):
     with _session_profile_runtime_scope({"profile_home": _account_home(request)}):
-        # No chat session names the surface here, and the sign-in link only returns to this app when it is bound.
         tokens = _set_session_context("")
         try:
             yield
@@ -359,7 +351,6 @@ def _(rid, params):
     from tui_gateway.contracts.connectors import ConnectorErrorReason
     from tui_gateway.contracts.connectors_operation import ConnectionAnswer
 
-    # A bad envelope is INVALID_PARAMS; a card that claims an outcome is answered as an invalid ANSWER.
     envelope = {key: value for key, value in params.items() if key != "result"}
     request, session, error = _operation_params(rid, envelope)
     if error:
@@ -374,7 +365,6 @@ def _(rid, params):
     if request.owner.type == "account":
         with _account_scope(request):
             return _apply_connection_answer(rid, answer, operation)
-    # Applying the answer writes config.yaml or stores credentials on this thread, which carries no profile of its own.
     with _session_profile_runtime_scope({"profile_home": session.get("profile_home") or str(_hermes_home)}):
         return _apply_connection_answer(rid, answer, operation)
 
@@ -406,7 +396,6 @@ def _operation_view(operation):
 
 
 def _connection_update(operation, change, snapshot):
-    """Emit a session update to its owner, or broadcast an account-operation update globally."""
     from hermes_constants import get_process_hermes_home, hermes_home_key
     from tui_gateway import server
     from tui_gateway.connector_payload import connector_ui_payload
@@ -415,7 +404,6 @@ def _connection_update(operation, change, snapshot):
     if change:
         payload.update(change)
     if operation.session_key.startswith("account:"):
-        # The broadcast reaches every client, so the link and the account id are stripped here.
         payload["targets"] = [
             {key: value for key, value in target.items() if key not in ("connect_url", "connection_id")}
             for target in payload["targets"]

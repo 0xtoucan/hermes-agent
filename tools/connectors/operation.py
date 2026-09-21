@@ -210,20 +210,13 @@ class ConnectionOperation:
         return self._snapshot_locked(with_urls=with_urls)
 
     def snapshot(self, *, with_urls: bool = True) -> Dict[str, Any]:
-        """The renderer-safe operation snapshot without settled catalog enrichment."""
         with self._lock:
             return self._result_locked(with_urls=with_urls)
 
     def result(self, *, with_urls: bool = True) -> Dict[str, Any]:
-        """The settled model result, or the live snapshot before settlement.
-
-        Deferred MCP listings are model-only result data, and the account id is dropped here only.
-        Change frames and request payloads use the internal snapshots, so renderers keep both.
-        """
         with self._lock:
             result = self._result_locked(with_urls=with_urls)
         for target in result["targets"]:
-            # The vendor account id is the client's; the model would repeat it to the user.
             target.pop("connection_id", None)
         if result.get("settled_at") is None:
             return result
@@ -263,8 +256,5 @@ class ConnectionOperation:
 
 
 class DetachedOperation(ConnectionOperation):
-    """The operation behind a call with no connection card. It is never registered in ``live`` and
-    no client renders it, so it publishes no ``connection.update``: a frame would reach a session
-    whose renderer knows nothing about the operation."""
 
     on_change = None

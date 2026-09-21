@@ -57,7 +57,6 @@ def get(session_key: str, op_id: str, *, profile_home: Optional[str] = None) -> 
 
 
 def get_by_op_id(op_id: str, *, profile_home: Optional[str] = None) -> Optional[ConnectionOperation]:
-    """The profile-local operation whose opaque id is ``op_id``, whatever opened it."""
     profile_key = _profile_key(profile_home)
     with _lock:
         return next((operation for (key, _), operation in _open.items()
@@ -65,7 +64,6 @@ def get_by_op_id(op_id: str, *, profile_home: Optional[str] = None) -> Optional[
 
 
 def find_target(name: str, *, profile_home: Optional[str] = None) -> Optional[ConnectionOperation]:
-    """The profile-local open operation carrying this managed connector target."""
     profile_key = _profile_key(profile_home)
     with _lock:
         return next((operation for (key, _), operation in _open.items()

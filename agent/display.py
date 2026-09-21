@@ -437,11 +437,6 @@ def _preview_skill_view(args: dict, max_len: int) -> str | None:
 
 
 def _preview_bridge_call(tool_name: str):
-    """Preview a tool_search bridge call by what it actually runs, not by the bridge name.
-
-    With friendly labels off there are no labels, and the preview is the generic one
-    this tool had before: the primary argument, i.e. the raw bridged name.
-    """
     def _build(args: dict, max_len: int) -> str | None:
         labels = bridge_tool_labels(tool_name, args)
         if not labels:
@@ -483,7 +478,6 @@ def build_tool_preview(tool_name: str, args: dict, max_len: int | None = None) -
 
 
 def _primary_arg_preview(tool_name: str, args: dict, max_len: int) -> str | None:
-    """The generic preview: the tool's primary argument, else the first known fallback key."""
     key = _PRIMARY_ARGS.get(tool_name) or next((k for k in _FALLBACK_PREVIEW_KEYS if k in args), None)
     if not key or key not in args:
         return None
@@ -523,24 +517,16 @@ _TOOL_VERBS_NO_PREVIEW: frozenset[str] = frozenset({"skills_list", "session_sear
 # Verbs joined to the preview with " for " (search-style phrasing).
 _TOOL_VERBS_FOR_CONNECTOR: frozenset[str] = frozenset({"web_search", "search_files"})
 
-# Plain wording for the "preparing …" row: the bridge names are internal, the row is not.
 _BRIDGE_GENERATING = {
     "tool_call": "a tool call", "tool_search": "a tool search", "tool_describe": "tool details",
 }
 
 
 def bridge_generating_phrase(tool_name: str) -> str | None:
-    """What to say while a bridge call's arguments stream, or None for an ordinary tool."""
     return _BRIDGE_GENERATING.get(tool_name) if _friendly_tool_labels else None
 
 
 def tool_labels_for_call(tool_name: str, args: dict | None) -> list:
-    """Labels for the inner calls of a tool_search bridge call (``tools.tool_labels``).
-
-    Always phrased: a client whose rows are one per inner call needs them whatever the
-    classic CLI prints. Skin ``tool_emojis`` may override an inner call's emoji by its
-    real tool name.
-    """
     try:
         from tools.tool_labels import labels_for_call
         labels = labels_for_call(tool_name, args or {})
@@ -554,15 +540,10 @@ def tool_labels_for_call(tool_name: str, args: dict | None) -> list:
 
 
 def bridge_tool_labels(tool_name: str, args: dict | None) -> list:
-    """The same labels for the classic CLI's own rows, honouring ``display.friendly_tool_labels``.
-
-    Empty when friendly labels are off, so the raw bridge name renders as before.
-    """
     return tool_labels_for_call(tool_name, args) if _friendly_tool_labels else []
 
 
 def tool_row_emoji(tool_name: str, args: dict | None = None, default: str = "⚡") -> str:
-    """Emoji for one tool row; a bridge call takes its first inner call's emoji."""
     labels = bridge_tool_labels(tool_name, args) if args else []
     return labels[0].emoji if labels else get_tool_emoji(tool_name, default)
 
@@ -602,9 +583,6 @@ def build_status_phrase(tool_name: str, args: dict | None, max_len: int = 49) ->
 
 
 def build_tool_label(tool_name: str, args: dict, max_len: int | None = None) -> str | None:
-    """Human-phrased label ("Searching the web for ...") for curated built-ins; other
-    tools (or labels disabled) get the raw preview, so it is a drop-in for build_tool_preview.
-    A bridged call is named by its first inner call, plus how many follow."""
     labels = bridge_tool_labels(tool_name, args)
     if labels:
         label = labels[0]
@@ -1160,7 +1138,6 @@ _CUTE_LINES = {
 
 
 def _cute_bridge_rows(tool_name: str, args: dict) -> list[str] | None:
-    """One completion row per inner call of a bridged call, or None for an ordinary tool."""
     labels = bridge_tool_labels(tool_name, args)
     if not labels:
         return None
@@ -1172,7 +1149,6 @@ _BRIDGE_CALL_INDEX_RE = re.compile(r"calls\[(\d+)\]")
 
 
 def _entry_failure_suffix(entry: Any) -> str:
-    """One batch entry's own failure, in the words the entry itself gives."""
     if not isinstance(entry, dict):
         return ""
     error = entry.get("error")
@@ -1184,12 +1160,6 @@ def _entry_failure_suffix(entry: Any) -> str:
 
 
 def _bridge_row_suffixes(rows: int, result: Any, call_suffix: str) -> list[str]:
-    """Put each failure on the row of the call it belongs to.
-
-    A batch answers one result per entry, so each entry's own error lands on its own row.
-    A refusal of the whole call names the entry it tripped over (``calls[2]``); that row
-    carries it. Anything else still lands on the last row, where the duration is.
-    """
     suffixes = [""] * rows
     data = result if isinstance(result, dict) else safe_json_loads(result)
     entries = data.get("results") if isinstance(data, dict) else None
@@ -1208,9 +1178,6 @@ def _bridge_row_suffixes(rows: int, result: Any, call_suffix: str) -> list[str]:
 
 
 def _get_cute_tool_message(tool_name: str, args: dict, duration: float, result: str | None = None) -> str:
-    """Tool completion line for CLI quiet mode: ``| {emoji} {verb:9} {detail}  {duration}``, plus a
-    failure suffix from :func:`_detect_tool_failure`; the leading ``┊`` becomes the skin's tool prefix.
-    A bridged ``tool_call`` renders one such row per inner call and carries the duration on the last."""
     args = redact_tool_args_for_display(tool_name, args) or args
     is_failure, failure_suffix = _detect_tool_failure(tool_name, result)
     render = _CUTE_LINES.get(tool_name)
@@ -1222,7 +1189,6 @@ def _get_cute_tool_message(tool_name: str, args: dict, duration: float, result: 
         suffixes = _bridge_row_suffixes(len(rows), result, failure_suffix if is_failure else "")
     rows = [*rows[:-1], f"{rows[-1]}  {duration:.1f}s"]
     prefix = get_skin_tool_prefix()
-    # Callers print the message behind a two-space gutter; continuation rows carry it themselves.
     return "\n  ".join(f"{row}{suffix}".replace("┊", prefix, 1) for row, suffix in zip(rows, suffixes))
 
 

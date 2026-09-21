@@ -251,7 +251,7 @@ class ToolStartPayload(Payload):
     args: dict[str, JsonValue] | None = None
     args_text: str | None = None
     preview: str | None = None
-    labels: list[ToolLabel] | None = None  # one per inner call of a bridged tool_call
+    labels: list[ToolLabel] | None = None
 
 
 event("tool.start", ToolStartPayload, doc="A tool call began (stable id + full args).")
@@ -270,7 +270,7 @@ class ToolCompletePayload(Payload):
     inline_diff: str | None = None
     todos: list[JsonValue] | None = None
     revision: int | None = None
-    labels: list[ToolLabel] | None = None  # one per inner call of a bridged tool_call
+    labels: list[ToolLabel] | None = None
 
 
 event("tool.complete", ToolCompletePayload, doc="A tool call finished: parsed result, summary, optional diff / todo snapshot.")

@@ -29,29 +29,21 @@ interface ConnectionSetupOverlayProps {
   t: Theme
 }
 
-/** Which of the card's shapes the focused row is in. */
 type Phase = 'authorized' | 'browser' | 'form' | 'retry' | 'working'
 
-/** The row an answer named, the state it was in, and the frame the card was on. */
 interface AnsweredRow {
   name: string
   seq: number
   state: ConnectionTargetState
 }
 
-// How long one answer may hold its row's control. The gateway answers in milliseconds, so this only
-// ever fires on a transition the backend emits no frame for; Esc must not stay dead after one.
 const SENDING_TIMEOUT_MS = 5_000
 
-/** What the card's two outgoing calls answer with. */
 type SendResult = ConnectionRespondResult | ConnectorsConnectResult
 
-// A settled operation is dead: no control on it, and no RPC that names it. One answer is in flight
-// at a time, so a held key sends once.
 const mayAnswer = (operation: ConnectionOperationSnapshot | null, sid: null | string, busy: boolean): boolean =>
   Boolean(operation) && Boolean(sid) && !busy && !isSettledOperation(operation?.opId ?? '')
 
-/** In flight until the answered row moves, or until any later frame for the operation lands. */
 const isSending = (operation: ConnectionOperationSnapshot | null, answered: AnsweredRow | null): boolean => {
   if (!answered || !operation || operation.seq > answered.seq) {
     return false
@@ -71,14 +63,11 @@ interface InputKey {
   upArrow: boolean
 }
 
-// `not_connected` is stamped by the backend when the operation settles, so a row in that state is
-// never a row the user still has to answer.
 const RESOLVED_STATES = ['connected', 'skipped', 'not_connected']
 
 const isUnresolved = (target: ConnectionOperationTarget): boolean =>
   !RESOLVED_STATES.includes(target.state) || (target.state === 'connected' && Boolean(target.discovery_error))
 
-// The row's own verb, so the card never says "Set up" for an install, an enable or a reconnect.
 const VERB = {
   authorize: 'Authorize',
   connect: 'Connect',
@@ -93,9 +82,6 @@ const phaseOf = (target: ConnectionOperationTarget): Phase => {
   }
 
   if (target.state === 'failed' || target.state === 'expired') {
-    // A failed install declares its credentials again (`tools/connectors/mcp.py::_fail_install`), so
-    // the form reopens over the draft the user typed and one wrong character can be corrected. A row
-    // with no fields has nothing to correct and offers Try again instead.
     return target.required_env?.length ? 'form' : 'retry'
   }
 
@@ -182,9 +168,7 @@ interface NavHandlers {
   setFocus: (update: (value: number) => number) => void
 }
 
-/** Focus movement and the selector, once Esc and the phase keys have had their say. */
 function handleNavKey(key: InputKey, h: NavHandlers): void {
-  // Shifted arrows belong to the transcript scroller, never to the card.
   const up = key.upArrow && !key.shift
   const down = key.downArrow && !key.shift
   const back = () => (h.row - 1 + h.rows) % h.rows
@@ -218,7 +202,6 @@ function Selector({ action, focused, primary, t }: SelectorProps) {
   )
 }
 
-/** The props every phase that draws a target row shares. */
 interface PhaseProps {
   more: number
   notice: string
@@ -309,8 +292,6 @@ interface FormPhaseProps extends PhaseProps {
 
 function FormPhase(p: FormPhaseProps) {
   const { t, target } = p
-  // A reopened form says what went wrong above the fields, so the value to correct is read after
-  // the reason. A first attempt has nothing to report until it fails.
   const reopened = hasFailed(target)
 
   return (

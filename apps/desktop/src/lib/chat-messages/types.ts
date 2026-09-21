@@ -70,7 +70,6 @@ export type GatewayEventPayload = {
   arguments?: unknown
   context?: string
   input?: unknown
-  /** One label per inner call of a bridged `tool_call`; the gateway phrases them. */
   labels?: ToolLabel[]
   preview?: string
   result?: unknown

@@ -1,5 +1,3 @@
-"""A per-profile on-disk cache for portal connector-tool listings."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
@@ -103,7 +101,6 @@ def read_tools(
     refresh: bool = False,
     now: Callable[[], float] = time.time,
 ) -> ToolsRead:
-    """Read a fresh list locally, otherwise conditionally refresh it with the portal."""
     validate_slug(slug)
     member_key = _member_key(client.authorization_token())
     if member_key is None:

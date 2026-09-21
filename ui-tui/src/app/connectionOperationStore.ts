@@ -21,9 +21,6 @@ export interface ConnectionOverlayState {
 
 export const $connectionOperation = atom<ConnectionOperationSnapshot | null>(null)
 
-// A settled operation can never reopen its card, and neither can one the user closed with Esc. Both
-// lists are capped so a long session cannot grow them without bound; an id that falls off the end is
-// far older than any frame still in flight.
 const OPERATION_MEMORY = 64
 const settledOperationIds: string[] = []
 const dismissedOperationIds: string[] = []
@@ -44,7 +41,6 @@ export const isSettledOperation = (opId: string): boolean => settledOperationIds
 
 export const isDismissedOperation = (opId: string): boolean => dismissedOperationIds.includes(opId)
 
-/** The one word the transcript records per app when the operation settles. */
 const outcomeWord = (target: ConnectionOperationTarget): string => {
   if (target.state === 'connected') {
     return 'connected'
@@ -61,8 +57,6 @@ export function applyConnectionRequest(payload: ConnectionRequestPayload): void 
   const current = $connectionOperation.get()
   const older = current?.opId === payload.op_id && payload.seq <= current.seq
 
-  // A resume replays the request with the seq the client already holds. The snapshot stays, but the
-  // overlay flag is set either way: turn idle clears flow overlays, and the card has to come back.
   if (!older) {
     $connectionOperation.set({
       deadlineAt: payload.deadline_at,
@@ -76,14 +70,10 @@ export function applyConnectionRequest(payload: ConnectionRequestPayload): void 
   patchOverlayState({ connection: { opId: payload.op_id } })
 }
 
-/** Returns one transcript line per app when this frame settled the operation, else nothing. */
 export function applyConnectionUpdate(payload: ConnectionUpdatePayload): string[] {
   const current = $connectionOperation.get()
   const shown = current !== null && current.opId === payload.op_id
 
-  // The settlement is read first and remembered even for an operation the client no longer shows,
-  // so that card can never reopen. A card the user closed with Esc still reports how each app ended;
-  // one left behind by a session switch settles silently.
   if (payload.settled) {
     remember(settledOperationIds, payload.op_id)
 

@@ -368,8 +368,6 @@ def test_search_drops_remote_group_with_mismatched_use_case_echo():
 
 
 def test_search_keeps_local_results_and_names_the_hosted_failure():
-    """D32 still holds for the local leg: the same local results, byte for byte. A failed hosted
-    leg only adds ``connectors``, so the model reads an outage as an outage."""
     def exploding_search(queries):
         raise RuntimeError("gateway exploded")
 
@@ -454,8 +452,6 @@ def test_describe_connector_names_fall_to_not_found_when_dark_and_to_connectors_
     def exploding_describe(names):
         raise RuntimeError("gateway exploded")
 
-    # The leg never answered for this name. not_found plus its "re-run tool_search" hint would
-    # say the tool is gone, so the name is reported on the connectors field instead.
     failed = json.loads(
         dispatch_tool_describe(
             {"names": [composed]},
@@ -752,7 +748,7 @@ def test_connector_describe_prefers_each_names_prefixed_candidate():
 
 def test_connector_describe_is_empty_on_unavailable_and_names_the_failure_reason():
     off = connector_describe(["connectors__g__T"], availability=lambda: False)
-    assert off == ConnectorLeg()  # the shut gate says nothing to the model
+    assert off == ConnectorLeg()
 
     def boom():
         raise RuntimeError("boom")

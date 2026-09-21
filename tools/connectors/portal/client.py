@@ -1,5 +1,3 @@
-"""HTTP client for portal connector management and metadata routes."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -46,7 +44,7 @@ class Transport(Protocol):
 
 @dataclass(frozen=True)
 class NotModified:
-    """The portal confirmed that the caller's cached listing remains current."""
+    pass
 
 
 def validate_slug(slug: str) -> None:
@@ -68,7 +66,6 @@ def _default_header_provider(_url: str) -> dict[str, str]:
 
 
 class PortalConnectorClient:
-    """Manage accounts and fetch connector metadata without retries or response-body logging."""
 
     def __init__(
         self,
@@ -106,7 +103,6 @@ class PortalConnectorClient:
         try:
             response, status = self._request("GET", f"/api/v1/connectors/{slug}/tools", headers=headers)
         except ToolGatewayError as exc:
-            # A 404 without the portal's own code is a missing route, not a missing connector.
             missing_route = isinstance(exc, GatewayUnavailable) and exc.code != "connector_not_found"
             if type(exc) is not ToolGatewayError and not missing_route:
                 raise
@@ -133,7 +129,6 @@ class PortalConnectorClient:
         return [account.model_dump(by_alias=True) for account in inventory.accounts]
 
     def delete_account(self, connection_id: str) -> dict[str, Any]:
-        """Use the portal's membership checks and disconnect audit; never retry a removal."""
         path = f"/api/v1/connectors/accounts/{quote(connection_id, safe='')}"
         response, status = self._request("DELETE", path)
         removed = self._parse(RemovedConnectorAccount, response, status, PortalConnectorUnavailable, "portal accounts unavailable")

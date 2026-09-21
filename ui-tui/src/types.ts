@@ -3,7 +3,6 @@ import type { ProjectInfo, SessionLiveInfo, SubagentStatus, ToolLabel } from '@h
 export interface ActiveTool {
   context?: string
   id: string
-  /** What the bridge actually runs, one per inner call; the gateway names them. */
   labels?: ToolLabel[]
   name: string
   verboseArgs?: string

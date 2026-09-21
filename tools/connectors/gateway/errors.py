@@ -125,12 +125,6 @@ def render_connection_required(
     hint: Optional[str] = None,
     surface: str = LINK,
 ) -> dict[str, Any]:
-    """Single shared CONNECTION_REQUIRED shape, told apart by the turn's connection surface. With a
-    card the link stays on the panel and the model is told a connect card is available; a side agent
-    gets neither and reports back to the main agent; a headless run relays the link.
-
-    Only a headless run passes the gateway's own hint through. That hint is written for a surface
-    that shows the link, so on the other two surfaces it would tell the model to relay one."""
     payload: dict[str, Any] = {
         "code": "CONNECTION_REQUIRED",
         "message": message

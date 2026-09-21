@@ -41,8 +41,6 @@ def _connection_required_entry():
 
 
 def test_connection_required_with_a_card_or_in_a_side_agent_carries_no_link():
-    # Neither surface may carry the gateway's own hint: it is written for a surface that shows
-    # the link, so it would tell the model to relay one it does not have.
     with scoped_connection_surface(CARD):
         error = _connection_required_entry()
     assert error["connector"] == "gmail"

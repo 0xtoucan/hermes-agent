@@ -1,12 +1,3 @@
-"""MCP targets of ``manage_connections``: the backend installs, enables and authorizes; the card is
-a projection of the operation and may only say approved, skipped or continue.
-
-An MCP target runs the same ``run.py`` lifecycle a managed connector runs. ``prepare`` starts an
-OAuth flow, or records the credentials an install still needs; the card's approval starts the
-install or the enable; ``observe`` reads the outcome on every tick. A turn with no connection card
-runs every action at once and receives the authorization URL in the result.
-"""
-
 from __future__ import annotations
 
 import contextlib
@@ -73,8 +64,6 @@ def validate_mcp_names(action: str, names: List[str]) -> Optional[str]:
     unknown = [n for n in names if n not in allowed]
     if not unknown:
         return None
-    # NS-932, failure path only: a name NEITHER MCP surface knows may be a hosted connector slug.
-    # A catalog entry that is only not installed yet keeps the install/enable answer below.
     foreign = [n for n in unknown if n not in catalog and n not in configured]
     if foreign:
         hosted = hosted_names() or set()

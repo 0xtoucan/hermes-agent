@@ -438,14 +438,6 @@ def _string_list_arg(args: Dict[str, Any], key: str, *, dedupe: bool, max_items:
 def dispatch_tool_search(args: Dict[str, Any], *, current_tool_defs: List[Dict[str, Any]],
                          config: Optional[ToolSearchConfig] = None,
                          connector_search: Optional[Any] = None) -> str:
-    """Execute the ``tool_search`` bridge tool -> JSON ``{queries, total_available,
-    results: [{query, matches: [names]}], tools: {name: {source, source_name, description,
-    required}}}``. ``limit`` is the total PER QUERY across local and connector tools: the
-    gateway's hits for a query join the local catalog as documents and one BM25 pass ranks
-    them together, so a connector tool that answers the query is never starved by local
-    tools that share one word with it. Empty groups get ``available_sources`` + ``hint`` so
-    a lexical miss is not mistaken for a missing capability. A hosted leg that failed adds
-    ``connectors`` so the same mistake is not made about an app the gateway could not answer for."""
     config = config or load_config()
     queries, err = _string_list_arg(args, "queries", dedupe=False, max_items=_MAX_QUERIES_PER_CALL,
                                     retry_hint="Retry with fewer, more targeted queries.")
@@ -489,11 +481,6 @@ def dispatch_tool_search(args: Dict[str, Any], *, current_tool_defs: List[Dict[s
 def dispatch_tool_describe(args: Dict[str, Any], *, current_tool_defs: List[Dict[str, Any]],
                            config: Optional[ToolSearchConfig] = None,
                            connector_describe: Optional[Any] = None) -> str:
-    """Execute the ``tool_describe`` bridge tool -> JSON ``{tools: {name: {description,
-    parameters}}, not_found: [...]  (unknown / not in this assembly; never fails the call),
-    errors: {name: msg}  (registered but non-deferrable)}``. Duplicates dedupe silently. When the
-    hosted leg failed, the connector names it could not answer for move out of ``not_found`` into
-    ``connectors``, which says the leg is unavailable rather than the tool gone."""
     config = config or load_config_readonly()
     names, err = _string_list_arg(
         args, "names", dedupe=True, max_items=_MAX_DESCRIBE_NAMES_PER_CALL,
@@ -518,7 +505,6 @@ def dispatch_tool_describe(args: Dict[str, Any], *, current_tool_defs: List[Dict
             tools[name] = {"description": str(remote_fn.get("description", "")),
                            "parameters": remote_fn.get("parameters", {})}
         elif is_connector_name(name):
-            # The leg never answered for this name, so not_found would be a second, opposite claim.
             (undescribed if hosted_failure else not_found).append(name)
         elif _registry_entry(name) is not None and not is_deferrable_tool_name(
             name, load_config_readonly().effective_defer_tools):

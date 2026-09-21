@@ -1321,8 +1321,6 @@ class AIAgent(
         args = (assistant_message, messages, effective_task_id, api_call_count)
         self._executing_tools = True  # allow _vprint during tool execution even with stream consumers
         try:
-            # The connector dispatch path never sees the agent, so the batch declares the turn's
-            # connection surface here; the tool workers inherit it with the rest of the context.
             with scoped_connection_surface(agent_connection_surface(self)):
                 if len(tool_calls) <= 1:
                     self._execute_tool_calls_sequential(*args)

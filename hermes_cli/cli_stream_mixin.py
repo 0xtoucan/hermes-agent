@@ -656,7 +656,6 @@ class CLIStreamMixin:
             return
         announced.add(tool_name)
         from agent.display import bridge_generating_phrase, get_tool_emoji
-        # The bridge names are internal; say plainly what is being prepared.
         what = bridge_generating_phrase(tool_name) or tool_name
         _cprint(f"  ┊ {get_tool_emoji(tool_name, default='⚡')} preparing {what}…")
 

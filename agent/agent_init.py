@@ -1073,7 +1073,6 @@ def _load_tools(agent, enabled_toolsets, disabled_toolsets):
     # A finite -q run has no later session to learn for: no skill authoring tool (agent/oneshot_footprint.py).
     from agent.oneshot_footprint import prune_oneshot_tools
     agent.tools = prune_oneshot_tools(agent.tools or [])
-    # A side agent has no user to sign in and no card to do it on; only the main agent connects.
     from tools.connectors.turn import side_agent_tool_drops
     drops = side_agent_tool_drops(agent)
     if drops:
@@ -2286,7 +2285,6 @@ _PASSTHROUGH_PARAMS = (
     "enabled_toolsets", "disabled_toolsets",
     # Model response configuration (None = provider/model default)
     "max_tokens", "reasoning_config", "service_tier",
-    # Declared by the call sites that build a subagent or a background turn.
     "side_agent",
 )
 # Gateway identity params stored as ``agent._<name>``. gateway_session_key is the stable
@@ -2343,23 +2341,6 @@ def init_agent(
     requested_provider: str = None, capabilities: Optional[Dict[str, bool]] = None, cwd: Optional[str] = None,
     side_agent: bool = False,
 ):
-    """Initialize the AI Agent (body of :meth:`AIAgent.__init__`).
-
-    Non-obvious parameters:
-      max_iterations: default unlimited (sys.maxsize); the budget is shared with subagents.
-      requested_provider: provider identity before runtime canonicalization.
-      cwd: logical session workspace, available to memory providers during construction;
-        None or empty leaves the runtime cwd resolver unpinned.
-      openrouter_min_coding_score: coding-score floor for ``openrouter/pareto-code`` only.
-      side_agent: a subagent or a background turn, which has no user to sign in. It gets no
-        manage_connections tool, and a connector call on an unconnected app gets no link.
-      clarify_callback: ``(question, choices) -> str``; None → the clarify tool errors.
-      reasoning_config: None → ``{"enabled": True, "effort": "medium"}`` on OpenRouter.
-      prefill_messages: priming history. Anthropic Sonnet/Opus 4.6+ 400 on a trailing
-        assistant message — use structured outputs there instead.
-      skip_context_files: skip SOUL.md/.hermes.md/AGENTS.md/CLAUDE.md/.cursorrules injection;
-        load_soul_identity keeps ~/.hermes/SOUL.md as identity regardless.
-    """
     _install_safe_stdio()
 
     _params = locals()

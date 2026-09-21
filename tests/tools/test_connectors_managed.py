@@ -209,9 +209,6 @@ def test_respond_from_the_card_skips_a_target_and_wakes_the_loop():
 
 
 def test_mint_failure_detail_survives_and_only_an_unlisted_catalog_name_is_misrouted():
-    """NS-932: the mint reports a vendor error and an unknown slug as the same bare ``failed``, so
-    the hosted list decides. A listed name keeps the vendor's text, an unlisted catalog name carries
-    the MCP call, and a target that did mint is untouched by either."""
     gw = GatewayFake(mint_status="failed", status_reason="vendor: bad scope")
     with patch("tools.connectors.operation.OPERATION_DEADLINE_SECONDS", 0.05), \
          patch("tools.connectors.managed.catalog_names", return_value={"notion"}), \
@@ -219,9 +216,9 @@ def test_mint_failure_detail_survives_and_only_an_unlisted_catalog_name_is_misro
         out = _run({"action": "connect", "connectors": ["gmail", "notion"]}, gw,
                    callback=_desktop_callback(), tick=0.01)
     by = {t["name"]: t for t in out["targets"]}
-    assert by["gmail"]["state"] == "not_connected"  # failed is unresolved; deadline stamped it
+    assert by["gmail"]["state"] == "not_connected"
     assert by["gmail"]["detail"] == "vendor: bad scope"
-    assert by["notion"]["detail"] == "vendor: bad scope"  # the gateway lists it: an ordinary failure
+    assert by["notion"]["detail"] == "vendor: bad scope"
 
     gw = GatewayFake(flips={"gmail": 1}, mint_overrides={"notion": "failed"})
     card = _desktop_callback()
@@ -230,7 +227,7 @@ def test_mint_failure_detail_survives_and_only_an_unlisted_catalog_name_is_misro
          patch("tools.connectors.managed.hosted_names", return_value={"gmail"}):
         out = _run({"action": "connect", "connectors": ["gmail", "notion"]}, gw, callback=card, tick=0.01)
     by = {t["name"]: t for t in out["targets"]}
-    assert len(gw.mints) == 1 and card.seen  # one mint, and the card opened for the minted target
+    assert len(gw.mints) == 1 and card.seen
     assert by["gmail"]["state"] == "connected"
     assert by["notion"]["detail"].startswith("notion is a local MCP server")
 
@@ -240,7 +237,7 @@ def test_mint_failure_detail_survives_and_only_an_unlisted_catalog_name_is_misro
          patch("tools.connectors.managed.catalog_names", return_value={"notion"}), \
          patch("tools.connectors.managed.hosted_names", return_value=set()):
         out = _run({"action": "connect", "connectors": ["notion"]}, gw, callback=card, tick=0.01)
-    assert card.seen == [] and out["settled_by"] == "all_resolved"  # every target misrouted: no card
+    assert card.seen == [] and out["settled_by"] == "all_resolved"
     assert out["targets"][0]["detail"].startswith("notion is a local MCP server")
 
     gw = GatewayFake(mint_status="failed", status_reason="gateway hiccup")
@@ -249,7 +246,7 @@ def test_mint_failure_detail_survives_and_only_an_unlisted_catalog_name_is_misro
          patch("tools.connectors.managed.hosted_names", return_value=None):
         out = _run({"action": "connect", "connectors": ["notion"]}, gw,
                    callback=_desktop_callback(), tick=0.01)
-    assert out["targets"][0]["detail"] == "gateway hiccup"  # a list that cannot answer decides nothing
+    assert out["targets"][0]["detail"] == "gateway hiccup"
 
 
 # ---------------------------------------------------------------------------

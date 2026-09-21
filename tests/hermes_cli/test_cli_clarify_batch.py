@@ -237,9 +237,6 @@ class TestClarifyBatchPanel:
         thread.join(timeout=2)
         assert result["value"] == "a"
 
-        # The connection modal opens and hands the agent thread back at once: the operation's
-        # watcher starts only after the callback returns. Connect sends the approved target and
-        # env directly to the backend, while rendering masks secrets.
         cli._connection_state = None
         cli._capture_modal_input_snapshot = MagicMock()
         cli._restore_modal_input_snapshot = MagicMock()

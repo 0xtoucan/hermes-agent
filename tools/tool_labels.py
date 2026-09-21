@@ -1,12 +1,3 @@
-"""Human labels for every call that runs through the tool_search bridge.
-
-One label per inner call of a ``tool_call``: hosted connector tools
-(``connectors__<connector>__<TOOL>``), MCP server tools (``mcp__<server>__<tool>``)
-and local deferred tools all resolve here, so the classic CLI, the Ink TUI and the
-desktop render the same phrase from the same parse. ``tool_search`` and
-``tool_describe`` get a label of their own so no bridge row shows a raw name.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -24,7 +15,6 @@ SEARCH_EMOJI = "🔎"
 DESCRIBE_EMOJI = "📖"
 DEFAULT_TOOL_EMOJI = "⚡"
 
-# Vendor slugs whose display name is not the plain word split of the slug.
 _APP_TITLES = {
     "discord": "Discord",
     "figma": "Figma",
@@ -42,7 +32,6 @@ _APP_TITLES = {
     "todoist": "Todoist",
 }
 
-# The tool_search bridge's own tool names: the only calls that carry inner calls.
 BRIDGE_TOOL_NAMES = frozenset({"tool_call", "tool_search", "tool_describe"})
 
 __all__ = [
@@ -52,18 +41,16 @@ __all__ = [
 
 @dataclass(frozen=True)
 class ToolLabel:
-    """What one inner call of a bridged ``tool_call`` is, in words."""
 
-    kind: str  # "connector" | "mcp" | "tool"
+    kind: str
     app: str
     action: str
     emoji: str
     name: str
-    preview: str = ""  # the call's primary argument, the same one the classic CLI shows
+    preview: str = ""
 
     @property
     def text(self) -> str:
-        """The one-line phrase a client renders when it has no columns of its own."""
         return f"{self.app} · {self.action}" if self.action else self.app
 
     def as_payload(self) -> Dict[str, str]:
@@ -72,7 +59,6 @@ class ToolLabel:
 
 
 def app_title(slug: str) -> str:
-    """Display name for a connector slug or MCP server name."""
     key = (slug or "").strip()
     known = _APP_TITLES.get(key.lower())
     if known:
@@ -82,7 +68,6 @@ def app_title(slug: str) -> str:
 
 
 def _action_phrase(tool: str, app_slug: str = "") -> str:
-    """``GMAIL_SEND_EMAIL`` -> ``send email``; the vendor's own app prefix is dropped."""
     text = (tool or "").strip()
     prefix = f"{app_slug.replace('-', '_').upper()}_"
     if app_slug and text.upper().startswith(prefix):
@@ -100,7 +85,6 @@ def _registry_emoji(name: str) -> str:
 
 
 def _arg_preview(name: str, arguments: Any) -> str:
-    """The primary-argument preview the classic CLI shows for this tool, or empty."""
     if not isinstance(arguments, dict) or not arguments:
         return ""
     try:
@@ -112,7 +96,6 @@ def _arg_preview(name: str, arguments: Any) -> str:
 
 
 def _local_tool_label(name: str, arguments: Any) -> ToolLabel:
-    """A registered (non-bridged) tool: the curated friendly verb is its display name."""
     verb = ""
     try:
         from agent.display import get_tool_verb
@@ -124,13 +107,11 @@ def _local_tool_label(name: str, arguments: Any) -> ToolLabel:
 
 
 def _unnamed_label(arguments: Any) -> ToolLabel:
-    """A batch entry whose name did not arrive: say so, and show what did."""
     return ToolLabel(kind="tool", app="Unnamed call", action="", emoji=DEFAULT_TOOL_EMOJI,
                      name="", preview=_arg_preview("", arguments))
 
 
 def label_for_tool_name(name: str, arguments: Any = None) -> Optional[ToolLabel]:
-    """One label for one tool name as the model wrote it, or None when it is not a name."""
     if not isinstance(name, str) or not name.strip():
         return None
     connector = parse_connector_name(name)
@@ -147,7 +128,6 @@ def label_for_tool_name(name: str, arguments: Any = None) -> Optional[ToolLabel]
 
 
 def _bridge_labels(function_name: str, args: Dict[str, Any]) -> List[ToolLabel]:
-    """``tool_search`` / ``tool_describe``: a small plain label, never the raw name."""
     if function_name == "tool_search":
         queries = args.get("queries")
         queries = [queries] if isinstance(queries, str) else queries
@@ -163,12 +143,6 @@ def _bridge_labels(function_name: str, args: Dict[str, Any]) -> List[ToolLabel]:
 
 
 def labels_for_call(function_name: str, function_args: Any) -> List[ToolLabel]:
-    """Labels for one model-issued call, in call order. Empty when nothing is bridged.
-
-    A ``tool_call`` batch yields exactly one label per entry, in order, so a consumer
-    can read entries and results by the label's index. A bare connector or MCP name
-    (a session where those tools are not deferred) yields one.
-    """
     args = function_args if isinstance(function_args, dict) else {}
     if function_name in ("tool_search", "tool_describe"):
         return _bridge_labels(function_name, args)

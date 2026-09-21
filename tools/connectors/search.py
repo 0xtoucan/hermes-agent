@@ -1,9 +1,3 @@
-"""Remote connector adapter for tool search and descriptions.
-
-Failures return no connector results so local search behavior is unchanged, and name the reason
-so the bridge tools can say the hosted leg is unavailable instead of silently looking empty.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -22,10 +16,6 @@ def connections_in_scope(tool_defs: Iterable[Dict[str, Any]]) -> bool:
 
 def connectors_unavailable(failure: str, *, verb: str,
                            names: Optional[List[str]] = None) -> Dict[str, Any]:
-    """The ``connectors`` field of a bridge result. It exists only when the hosted leg failed, so
-    the model reads an outage as an outage and not as an app the user never connected. ``names``
-    are the connector tools this result could not answer for; they belong here and not in
-    ``not_found``, which would tell the model the opposite."""
     hint = (f"Hosted connector tools could not be {verb} right now. "
             "Do not conclude the app is missing.")
     if failure == SIGN_IN_EXPIRED:
@@ -51,8 +41,6 @@ def connector_entries_by_group(
     queries: List[str],
     connector_search: Optional[Any] = None,
 ) -> Tuple[List[List[CatalogEntry]], Optional[str]]:
-    """Correlate remote response groups by position, never their wire index. The second element
-    is the hosted leg's failure reason, or None when it answered or was never attempted."""
     per_query: List[List[CatalogEntry]] = [[] for _ in queries]
     try:
         if connector_search is None:
@@ -64,7 +52,6 @@ def connector_entries_by_group(
         schemas = hits.get("schemas")
         groups = hits.get("results")
         if not isinstance(schemas, dict) or not isinstance(groups, list):
-            # An answered leg with the wrong shape is an outage; an empty payload is the shut gate.
             return per_query, (UNREACHABLE if hits else None)
         for position, group in enumerate(groups[: len(queries)]):
             if not isinstance(group, dict):
@@ -105,7 +92,6 @@ def remote_schemas_for(
     current_tool_defs: List[Dict[str, Any]],
     connector_describe: Optional[Any] = None,
 ) -> Tuple[Dict[str, Dict[str, Any]], Optional[str]]:
-    """Remote schemas for the connector names, plus the hosted leg's failure reason or None."""
     connector_names = [n for n in names if is_connector_name(n)]
     if not connector_names or not connections_in_scope(current_tool_defs):
         return {}, None

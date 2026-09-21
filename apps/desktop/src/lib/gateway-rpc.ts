@@ -16,7 +16,6 @@ export function isMissingRpcMethod(error: unknown): boolean {
   return /method not found|-32601|unknown method|no such method/i.test(message)
 }
 
-/** True when the backend rejected renamed RPC parameters because client and backend versions differ. */
 export function isOutOfSyncRpcParams(error: Error | string): boolean {
   return /out of sync \(different versions\)/i.test(error.toString())
 }

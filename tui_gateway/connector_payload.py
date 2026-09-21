@@ -8,8 +8,6 @@ from agent.redact import _key_has_secret_keyword, redact_sensitive_text
 
 def connector_ui_payload(value):
     if isinstance(value, dict):
-        # A boolean carries no credential, and ``required_env[].secret`` is one: redacting the flag
-        # made every field render masked on the card.
         return {key: ("[REDACTED]" if (not isinstance(item, bool)
                       and (_key_has_secret_keyword(key)
                            or key.lower() in {"authorization", "proxy-authorization", "cookie", "set-cookie",

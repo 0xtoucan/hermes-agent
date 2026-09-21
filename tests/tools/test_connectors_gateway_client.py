@@ -238,8 +238,6 @@ def test_connection_required_stays_inside_the_200_envelope():
 
 
 def test_search_hits_empty_on_unavailable_dark_gateway_and_names_a_real_failure():
-    """The shut gate and a dark gateway say nothing to the model; an outage and a rejected token
-    name themselves, so tool_search can tell the model the hosted leg is unavailable."""
     assert connector_search_hits(
         [{"use_case": "send mail"}], availability=lambda: False
     ) == ConnectorLeg()
@@ -283,8 +281,6 @@ def test_search_hits_empty_on_unavailable_dark_gateway_and_names_a_real_failure(
     def forbidden_factory():
         raise GatewayAuthError("no entitlement", code="FORBIDDEN", status=403)
 
-    # A 403 refuses an entitlement the account does not have. Signing in again changes nothing,
-    # so the leg reads as the shut gate and the model is told nothing.
     assert (
         connector_search_hits(
             [{"use_case": "send mail"}],
