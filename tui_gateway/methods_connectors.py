@@ -211,43 +211,32 @@ def _connector_rpc(rid, params, action):
 
 
 def _reissue(rid, operation, args):
-    from tools.connectors.contract import TargetState, allowed
+    from tools.connectors.run import (
+        LINK_STILL_VALID,
+        MIXED_KINDS,
+        NOT_ALLOWED,
+        REFUSED,
+        SETTLED,
+        UNKNOWN_TARGET,
+        reissue,
+    )
     from tui_gateway.connector_payload import connector_ui_payload
     from tui_gateway.contracts.connectors import ConnectorErrorReason
 
-    targets = [operation.target(name) for name in args["connectors"]]
-    if any(target is None for target in targets):
+    reason = reissue(operation, args["connectors"])
+    if reason == UNKNOWN_TARGET:
         return _connector_rpc_error(rid, 4004, ConnectorErrorReason.unknown_target, "No such target on the open operation.")
-    if len({target.kind for target in targets}) != 1:
+    if reason == MIXED_KINDS:
         return _connector_rpc_error(rid, 4000, ConnectorErrorReason.invalid_params, "One target kind per request.")
-    stale = [target.name for target in targets if target.state in (TargetState.failed, TargetState.expired)]
-    if len(stale) != len(targets):
+    if reason == LINK_STILL_VALID:
         return _connector_rpc_error(rid, 4002, ConnectorErrorReason.link_still_valid, "Reopen the stored link.")
-    if operation.settled:
+    if reason == SETTLED:
         return _connector_rpc_error(rid, 4002, ConnectorErrorReason.reissue_refused, "The operation has settled.")
-    if any(allowed(target.kind, target.state, TargetState.initiated) is None for target in targets):
+    if reason == NOT_ALLOWED:
         return _connector_rpc_error(rid, 4002, ConnectorErrorReason.reissue_refused, "This target cannot be run again.")
-    error = _REISSUE_BY_KIND[targets[0].kind](operation, stale)
-    if error:
+    if reason == REFUSED:
         return _connector_rpc_error(rid, 4002, ConnectorErrorReason.reissue_refused, "The target cannot be run again.")
     return _ok(rid, connector_ui_payload(_operation_view(operation)))
-
-
-def _remint_managed(operation, names):
-    from tools.connectors.contract import Actor
-    from tools.connectors.managed import managed_client, mint
-
-    mint(managed_client(), operation, names, reinitiate=True, actor=Actor.user)
-    return None
-
-
-def _rerun_mcp(operation, names):
-    from tools.connectors.mcp import retry
-
-    return retry(operation, names)
-
-
-_REISSUE_BY_KIND = {"connector": _remint_managed, "mcp": _rerun_mcp}
 
 
 def _operation_params(rid, params):

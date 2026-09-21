@@ -794,6 +794,17 @@ class CLIModalMixin:
             self._connection_close()
             return
         target = state["target"]
+        if target.get("kind") == "connector" and target.get("state") in {"failed", "expired"}:
+            from tools.connectors.run import reissue
+
+            # The new link arrives through the change hook before reissue returns, and the hook
+            # sets the link step. Set the waiting phase first so it cannot overwrite that.
+            state["phase"] = "waiting"
+            if reissue(operation, [str(target.get("name") or "")]) is not None:
+                target["detail"] = "This connection cannot be started again. Cancel and ask the agent again."
+                state["phase"] = "failed"
+            self._paint_now()
+            return
         if target.get("state") in {"pending", "failed", "expired"}:
             # Connect on a failed row is the same attempt with the values now in the draft.
             self._connection_answer(approve=True)
