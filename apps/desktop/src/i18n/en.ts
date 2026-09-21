@@ -944,7 +944,7 @@ export const en: Translations = {
       statusUnavailable: 'Not available',
       toggleLabel: 'Sandbox agent actions',
       toggleDescription:
-        'Run every command in a kernel-enforced container. Takes effect on the next command; start a new conversation afterwards so the agent is briefed about the sandbox.',
+        'Run every command in a kernel-enforced container. Takes effect on the next command in every conversation, including ones already under way.',
       shellNote: 'The sandbox shell is downloaded the first time you turn this on.',
       workspaceRule:
         'Each conversation can write only inside its own project folder, shown in the composer; a conversation without a project folder works in the Hermes folder under your user profile. Everything else is read-only or denied unless listed below. Images and text you paste into the composer are always readable.',

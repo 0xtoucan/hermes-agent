@@ -37,9 +37,9 @@ of a second, so Hermes starts a new one for every single command.
 In Hermes Desktop, open **Settings → Safety** and find **Windows sandbox**. The panel shows
 whether this machine can run MXC and, if not, why. Flip **Sandbox agent actions** on. That sets
 `terminal.backend` to `mxc`, provisions the shell if needed, and takes effect on the agent's next
-command in every session; nothing needs restarting. Start a new conversation afterwards: the
-agent's briefing about its environment is fixed for the life of a conversation, and a fresh one
-tells it about the sandbox, the POSIX shell, and how to handle a refusal.
+command in every session; nothing needs restarting. A conversation that is already under way is
+told about the change on its next command: the note carries the sandbox rules, the POSIX shell,
+and how to handle a refusal, and the same happens in reverse when you turn the sandbox off.
 
 From the command line the equivalent is:
 

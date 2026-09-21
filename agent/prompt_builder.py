@@ -1071,11 +1071,32 @@ def _embedder_environment_hint() -> str:
         (_config_readonly("agent.environment_hint").get("agent", {}) or {}).get("environment_hint", "")).strip()
 
 
+def active_terminal_backend() -> str:
+    """The ``terminal.backend`` in force for the current scope (``local`` when unset)."""
+    return (_tenv_read("TERMINAL_ENV") or "local").strip().lower()
+
+
+def terminal_backend_switch_note(previous: str, current: str) -> str:
+    """Re-briefing for a conversation whose terminal backend changed after its system prompt was
+    built. The prompt is byte-stable for the life of a conversation, so this rides the first tool
+    result under the new backend instead: what changed, then the new backend's own shell notes."""
+    if current == "mxc":
+        lead = ("[Environment changed] The Windows sandbox was turned on. From this point every command runs "
+                "inside an MXC process container; the notes below replace the shell notes in your briefing.")
+        return f"\n\n{lead}\n{_MXC_SANDBOX_HINT}"
+    if previous == "mxc" and current == "local":
+        lead = ("[Environment changed] The Windows sandbox was turned off. Commands now run directly on this "
+                "host with the user's permissions; there is no sandbox policy to ask about.")
+        shell = _WINDOWS_BASH_SHELL_HINT if sys.platform == "win32" and not is_wsl() else ""
+        return f"\n\n{lead}\n{shell}".rstrip()
+    return f"\n\n[Environment changed] The terminal backend is now `{current}` (it was `{previous}`)."
+
+
 def build_environment_hints() -> str:
     """Execution-environment block: local backends get host OS/home/cwd; remote/sandbox
     backends get ONLY the backend's own state (the agent's tools cannot touch the host).
     WSL and embedder hints are appended."""
-    backend = (_tenv_read("TERMINAL_ENV") or "local").strip().lower()
+    backend = active_terminal_backend()
     is_remote_backend = backend in _REMOTE_TERMINAL_BACKENDS or _plugin_backend_is_remote(backend)
     if backend == "mxc":
         hints = _mxc_backend_hints()

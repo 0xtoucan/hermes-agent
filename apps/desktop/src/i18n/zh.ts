@@ -1148,7 +1148,7 @@ export const zh = defineLocale({
       statusDegraded: '可用（受限）',
       statusUnavailable: '不可用',
       toggleLabel: '沙箱化智能体操作',
-      toggleDescription: '在内核强制隔离的容器中运行每条命令。下一条命令起生效；之后请开始新对话，以便向智能体说明沙箱环境。',
+      toggleDescription: '在内核强制隔离的容器中运行每条命令。自下一条命令起在所有对话中生效，包括正在进行的对话。',
       shellNote: '首次开启时会下载沙箱 shell。',
       workspaceRule: '每个会话只能在其自己的项目文件夹内写入（显示在输入框旁）；没有项目文件夹的会话在用户目录下的 Hermes 文件夹中工作。除下方列出的文件夹外，其他位置均为只读或被拒绝。粘贴到输入框的图片和文本始终可读。',
       foldersTitle: '其他文件夹',

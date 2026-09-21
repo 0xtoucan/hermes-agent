@@ -156,6 +156,10 @@ class BaseEnvironment(ABC):
     # (LocalEnvironment); controller-host facts then describe the execution target.
     is_local: bool = False
 
+    # The ``terminal.backend`` name this environment implements, so a caller holding an instance
+    # can tell which backend is in force without importing every backend class.
+    backend_name: str = ""
+
     # Snapshot creation timeout (override for slow cold-starts).
     _snapshot_timeout: int = 30
 
