@@ -16,6 +16,8 @@ import { ListRow, Pill } from './primitives'
 // status route and every edit goes back through its policy route, so the panel never keeps a
 // policy of its own: what the user sees is exactly what the next sandboxed command gets.
 
+const SANDBOX_STATUS_TICK_MS = 4000
+
 function statusPill(status: SandboxStatus, labels: { available: string; degraded: string; unavailable: string }) {
   if (!status.available) {
     return <Pill tone="muted">{labels.unavailable}</Pill>
@@ -100,6 +102,28 @@ export function SandboxPanel({ workspace }: { workspace?: string } = {}) {
 
     return () => void (activeRef.current = false)
   }, [refresh])
+
+  // The container tally is a running count of work happening in other panes, so while the
+  // sandbox is on and this panel is visible it re-reads the status on a slow tick; a hidden
+  // window pauses the tick and a returning one refreshes at once.
+  const enabled = status?.enabled ?? false
+  useEffect(() => {
+    if (!enabled) {
+      return
+    }
+    const tick = () => {
+      if (document.visibilityState === 'visible') {
+        void refresh()
+      }
+    }
+    const timer = window.setInterval(tick, SANDBOX_STATUS_TICK_MS)
+    document.addEventListener('visibilitychange', tick)
+
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', tick)
+    }
+  }, [enabled, refresh])
 
   const mutate = useCallback(
     async (work: () => Promise<SandboxStatus>, failureTitle: string) => {

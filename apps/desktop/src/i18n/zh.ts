@@ -1160,7 +1160,7 @@ export const zh = defineLocale({
       modeReadWrite: '读写',
       networkLabel: '允许网络访问',
       networkDescription: '默认关闭：智能体处于离线状态。沙箱中的命令无法访问互联网或本机服务，网页搜索与浏览工具也会被停用，直到你开启此项。',
-      containers: count => `本会话已启动 ${count} 个容器`,
+      containers: count => `自 Hermes 启动以来已启动 ${count} 个容器`,
       recheck: '重新检查',
       prepareTitle: '为 git 准备工作区',
       prepareDescription: (workspace: string) =>

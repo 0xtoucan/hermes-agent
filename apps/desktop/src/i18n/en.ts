@@ -958,7 +958,7 @@ export const en: Translations = {
       networkLabel: 'Allow network access',
       networkDescription:
         "Off by default: the agent is offline. Sandboxed commands cannot reach the internet or this machine's services, and web search and browsing tools are refused until you turn this on.",
-      containers: count => (count === 1 ? '1 container started this session' : `${count} containers started this session`),
+      containers: count => (count === 1 ? '1 container started since Hermes launched' : `${count} containers started since Hermes launched`),
       recheck: 'Recheck',
       prepareTitle: 'Prepare workspace for git',
       prepareDescription: (workspace: string) =>
