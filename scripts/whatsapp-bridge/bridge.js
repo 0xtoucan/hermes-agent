@@ -13,6 +13,7 @@
  *   POST /send-location  - Send location pin { chatId, latitude, longitude, name?, address? }
  *   POST /typing         - Send typing indicator { chatId }
  *   POST /presence       - Set composing/paused presence { chatId, state }
+ *   POST /read           - Mark accepted inbound message read { key }
  *   GET  /chat/:id       - Get chat info
  *   GET  /health         - Health check
  *
