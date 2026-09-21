@@ -746,7 +746,9 @@ class CLIModalMixin:
         _apply()
 
     def _connection_callback(self, payload):
-        """Collect the first setup decision, then return while operation updates repaint the panel."""
+        """Open the panel and return at once. The caller starts the operation's watcher only after
+        this returns, and the watcher is what polls a hosted account, runs the deadline and sees
+        Ctrl+C. The panel's actions reach the operation through apply_answer on the UI thread."""
         if not isinstance(payload, dict):
             return None
         self._capture_modal_input_snapshot()
@@ -757,12 +759,9 @@ class CLIModalMixin:
             return None
         state["owns_hook"] = installed
         state["tool_thread_id"] = threading.current_thread().ident
-        if state["phase"] == "waiting":
-            return None
-        response_queue = queue.Queue()
-        state["response_queue"] = response_queue
-        self._ring_bell(prompt=True, context="connection setup")
-        return response_queue.get()
+        if state["phase"] != "waiting":
+            self._ring_bell(prompt=True, context="connection setup")
+        return None
 
     def _connection_answer(self, *, approve: bool) -> None:
         state = self._connection_state
@@ -784,10 +783,6 @@ class CLIModalMixin:
         # waiting phase first so it cannot overwrite that.
         state["phase"] = "waiting"
         apply_answer(operation, json.dumps({"targets": [answer]}))
-        response_queue = state.get("response_queue")
-        if response_queue is not None:
-            response_queue.put(answer["status"])
-            state.pop("response_queue", None)
         self._paint_now()
 
     def _connection_retry(self) -> None:
