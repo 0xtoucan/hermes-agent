@@ -62,6 +62,7 @@ export interface Translations {
   connectors: {
     title: string
     connect: string
+    open: string
     skip: string
     cancel: string
     retry: string
