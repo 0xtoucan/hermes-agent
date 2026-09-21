@@ -2042,7 +2042,6 @@ to the public equivalent or the new module. Test monkeypatch seams are likewise 
 | `list_custom_endpoints` | moved-lazy | `hermes_cli.web_routers.config_env` |
 | `list_hooks` | moved-lazy | `hermes_cli.web_routers.ops` |
 | `list_managed_files` | moved-lazy | `hermes_cli.web_routers.files` |
-| `list_mcp_catalog` | moved-lazy | `hermes_cli.web_routers.mcp` |
 | `list_mcp_servers` | moved-lazy | `hermes_cli.web_routers.mcp` |
 | `list_oauth_providers` | moved-lazy | `hermes_cli.web_routers.oauth` |
 | `list_pairing` | moved-lazy | `hermes_cli.web_routers.ops` |

@@ -6424,12 +6424,6 @@
   },
   {
    "facade": "hermes_cli.web_server",
-   "name": "list_mcp_catalog",
-   "kind": "moved-lazy",
-   "target": "hermes_cli.web_routers.mcp"
-  },
-  {
-   "facade": "hermes_cli.web_server",
    "name": "list_mcp_servers",
    "kind": "moved-lazy",
    "target": "hermes_cli.web_routers.mcp"

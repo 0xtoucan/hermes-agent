@@ -1748,7 +1748,6 @@ _PLUGIN_COMPAT_LAZY = {
     'list_custom_endpoints': ('hermes_cli.web_routers.config_env', 'list_custom_endpoints'),
     'list_hooks': ('hermes_cli.web_routers.ops', 'list_hooks'),
     'list_managed_files': ('hermes_cli.web_routers.files', 'list_managed_files'),
-    'list_mcp_catalog': ('hermes_cli.web_routers.mcp', 'list_mcp_catalog'),
     'list_mcp_servers': ('hermes_cli.web_routers.mcp', 'list_mcp_servers'),
     'list_oauth_providers': ('hermes_cli.web_routers.oauth', 'list_oauth_providers'),
     'list_pairing': ('hermes_cli.web_routers.ops', 'list_pairing'),
