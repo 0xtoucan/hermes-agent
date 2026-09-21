@@ -76,3 +76,14 @@ def test_resume_fallback_and_stored_rows_are_re_homed_too(sandboxed, monkeypatch
     finally:
         with server._sessions_lock:
             server._sessions.pop(sid, None)
+
+
+def test_terminal_task_cwd_keeps_the_rehomed_session_folder_over_the_process_fallback(sandboxed, monkeypatch):
+    """The sandbox runs on the host's filesystem, so the session's tracked folder (the one the policy
+    re-homed it to) is what its commands must start in. Preferring the process-wide TERMINAL_CWD, as
+    the remote backends do, would send every command back to the very folder the policy refused."""
+    refused, default = sandboxed
+    monkeypatch.setenv("TERMINAL_CWD", str(refused))
+    monkeypatch.setattr(server, "_workdir_terminal_cfg", lambda key: "")
+    session = {"cwd": str(default), "explicit_cwd": False, "source": "desktop"}
+    assert server._terminal_task_cwd_with_source(session) == (str(default), "session")

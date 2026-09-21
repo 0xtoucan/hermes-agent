@@ -617,15 +617,9 @@ function ToolEntry({ part }: ToolEntryProps) {
           </span>
         </DisclosureRow>
       </div>
-      {/* A policy refusal is the user's decision to make, so it stays visible on the collapsed
-          card rather than waiting behind the disclosure like ordinary output. */}
-      {!isPending && view.sandbox && view.sandbox.denied.length > 0 && (
-        <div className={cn('min-w-0 max-w-full px-1.5 pb-1.5', open ? 'pt-1.5' : 'pt-1')}>
-          <SandboxDenialCallout sandbox={view.sandbox} />
-        </div>
-      )}
       {open && (
         <div className="relative grid w-full min-w-0 max-w-full gap-1.5 overflow-hidden p-1.5">
+          {view.sandbox && view.sandbox.denied.length > 0 && <SandboxDenialCallout sandbox={view.sandbox} />}
           {copyAction.text && (
             <CopyButton
               appearance="inline"
@@ -969,10 +963,12 @@ const ToolRun: FC<PropsWithChildren<{ endIndex: number; startIndex: number }>> =
   startIndex
 }) => {
   const messageRunning = useAuiState(selectMessageRunning)
+
   const { completedAt, count, entryIds, key, live, startedAt, summary, approvalActivity } = useToolRun(
     startIndex,
     endIndex
   )
+
   const sessionId = useStore(useSessionView().$runtimeId)
   const approval = useStore(useMemo(() => sessionApprovalRequest(sessionId), [sessionId]))
   const currentTurn = useAuiState(state => isCurrentTurnMessage(state.thread.messages, state.message.id))

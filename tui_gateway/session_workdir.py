@@ -63,9 +63,11 @@ def _terminal_task_cwd(session: dict | None) -> str:
 def _terminal_task_cwd_with_source(session: dict | None) -> tuple[str, str]:
     """``(cwd, source)``: ``"session"`` for THIS session's workspace (``explicit_cwd``/tracked dir), ``"process"`` for
     the global ``TERMINAL_CWD``/``terminal.cwd`` fallback — under per-session docker isolation that is a PREVIOUS
-    session's launch artifact, so terminal_tool refuses it as a bind-mount source."""
+    session's launch artifact, so terminal_tool refuses it as a bind-mount source. Backends that run on the host's
+    own filesystem (local, the Windows sandbox) keep the session's tracked directory: for the sandbox that is the
+    folder the policy re-homed the session to, and the process-wide fallback may be exactly the folder it refused."""
     backend = _effective_terminal_backend()
-    if backend != "local":
+    if backend not in _HOST_FILESYSTEM_BACKENDS:
         # THIS session's explicit workspace beats the LAST session's env var.
         if session and session.get("explicit_cwd") and session.get("cwd"):
             return str(session["cwd"]), "session"
@@ -125,7 +127,12 @@ def _heal_dead_cwd(cwd: str) -> str:
 
 def _is_local_terminal_backend() -> bool:
     backend = (os.environ.get("TERMINAL_ENV") or "").strip().lower()
-    return not backend or backend == "local"
+    return not backend or backend in _HOST_FILESYSTEM_BACKENDS
+
+
+# Backends whose commands see the host's own filesystem, so a session's tracked directory is a real
+# folder on this machine (healable, and authoritative over the process-wide fallback).
+_HOST_FILESYSTEM_BACKENDS = frozenset({"local", "mxc"})
 
 
 def _effective_terminal_backend() -> str:

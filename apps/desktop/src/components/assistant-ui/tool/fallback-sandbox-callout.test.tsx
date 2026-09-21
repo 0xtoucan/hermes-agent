@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { ComponentProps } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -35,24 +35,35 @@ function renderRow(result: unknown, toolName = 'search_files') {
   render(<ToolFallback {...props} />)
 }
 
+const expandCard = () => {
+  const toggle = screen.getAllByRole('button').find(button => button.hasAttribute('aria-expanded'))
+  expect(toggle).toBeTruthy()
+  fireEvent.click(toggle as Element)
+}
+
 afterEach(() => {
   cleanup()
 })
 
 describe('sandbox refusal on a tool card', () => {
-  // The refusal is the user's decision point, so it must be visible on the card as rendered,
-  // without first opening the disclosure where ordinary output lives.
-  it('shows the grant callout on the collapsed card for a refused file tool', () => {
+  // Refusals are frequent and often incidental (a probe of a parent folder), so the grant
+  // callout lives with the rest of the output behind the disclosure; the collapsed card shows
+  // the badge and the "blocked" subtitle only.
+  it('keeps the grant callout behind the disclosure for a refused file tool', () => {
     renderRow({ error: REFUSAL })
+
+    expect(screen.queryByTestId('sandbox-denial')).toBeNull()
+    expect(screen.getByTestId('sandbox-pill').textContent).toBe('MXC')
+
+    expandCard()
 
     const callout = screen.getByTestId('sandbox-denial')
     expect(callout.textContent).toContain('C:\\Users\\me\\mxc')
     expect(screen.getByRole('button', { name: 'Allow reading' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Allow read & write' })).toBeTruthy()
-    expect(screen.getByTestId('sandbox-pill').textContent).toBe('MXC')
   })
 
-  it('shows the callout for a refused terminal command carrying the structured field', () => {
+  it('shows the callout with the output for a refused terminal command carrying the structured field', () => {
     renderRow(
       {
         output: 'cp: cannot create C:/Users/me/Documents/x: Permission denied',
@@ -62,6 +73,7 @@ describe('sandbox refusal on a tool card', () => {
       'terminal'
     )
 
+    // Terminal cards open by default, so the callout is already in view with the output.
     expect(screen.getByTestId('sandbox-denial').textContent).toContain('C:\\Users\\me\\Documents\\x')
   })
 
