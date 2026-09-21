@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { atom } from 'nanostores'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -12,8 +12,17 @@ import type { SandboxStatus } from '@/types/hermes'
 import { SandboxPill } from './sandbox-pill'
 
 vi.mock('@/api/sandbox', () => ({
-  getSandboxStatus: vi.fn(() => new Promise(() => undefined))
+  getSandboxStatus: vi.fn(() => new Promise(() => undefined)),
+  updateSandboxPolicy: vi.fn()
 }))
+
+import { updateSandboxPolicy } from '@/api/sandbox'
+const updateMock = vi.mocked(updateSandboxPolicy)
+
+const hover = async (element: HTMLElement) => {
+  fireEvent.mouseEnter(element)
+  await waitFor(() => expect(screen.queryByTestId('sandbox-pill-state')).not.toBeNull())
+}
 
 const status = (over: Partial<SandboxStatus> = {}): SandboxStatus =>
   ({
@@ -77,9 +86,7 @@ describe('SandboxPill', () => {
     const pill = screen.getByTestId('sandbox-pill')
     expect(pill.getAttribute('data-state-sandbox')).toBe('on')
 
-    await act(async () => {
-      fireEvent.click(pill)
-    })
+    await hover(pill)
 
     expect(screen.getByTestId('sandbox-pill-state').textContent).toBe(en.composer.sandbox.on)
     expect(screen.getByText(/Users[\\/]me[\\/]Hermes|~[\\/]Hermes/)).toBeTruthy()
@@ -92,9 +99,7 @@ describe('SandboxPill', () => {
     const pill = screen.getByTestId('sandbox-pill')
     expect(pill.getAttribute('data-state-sandbox')).toBe('off')
 
-    await act(async () => {
-      fireEvent.click(pill)
-    })
+    await hover(pill)
 
     expect(screen.getByText(en.composer.sandbox.descriptionOff)).toBeTruthy()
     const before = $routeRequest.get()?.seq ?? 0
@@ -106,5 +111,19 @@ describe('SandboxPill', () => {
     const request = $routeRequest.get()
     expect(request?.seq).toBeGreaterThan(before)
     expect(request?.path).toBe('/settings?tab=config:safety')
+  })
+
+  it('clicking the shield flips the sandbox through the policy route and every surface sees it', async () => {
+    $sandboxStatus.set(status({ enabled: false }))
+    updateMock.mockResolvedValueOnce(status({ enabled: true }))
+    mount()
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('sandbox-pill'))
+    })
+
+    expect(updateMock).toHaveBeenCalledWith({ enabled: true })
+    expect($sandboxStatus.get()?.enabled).toBe(true)
+    expect(screen.getByTestId('sandbox-pill').getAttribute('data-state-sandbox')).toBe('on')
   })
 })

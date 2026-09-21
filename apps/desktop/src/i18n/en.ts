@@ -2992,7 +2992,9 @@ export const en: Translations = {
       networkOn: 'Network access is allowed.',
       networkOff: 'Network access is off.',
       isolated: 'The clipboard, the registry and other running programs are off-limits.',
-      openSettings: 'Open sandbox settings'
+      openSettings: 'Open sandbox settings',
+      turnOnFailed: 'Could not turn on the sandbox',
+      turnOffFailed: 'Could not turn off the sandbox'
     },
     wakingProfile: profile => `Waking up ${profile}…`,
     placeholderStarting: 'Starting Hermes...',

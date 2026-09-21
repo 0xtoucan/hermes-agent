@@ -1,6 +1,6 @@
 import { atom } from 'nanostores'
 
-import { getSandboxStatus } from '@/api/sandbox'
+import { getSandboxStatus, updateSandboxPolicy } from '@/api/sandbox'
 import type { SandboxStatus } from '@/types/hermes'
 
 // The Windows sandbox (MXC) verdict for the profile in view. The backend's status route is
@@ -11,6 +11,20 @@ export const $sandboxStatus = atom<SandboxStatus | null>(null)
 
 export function publishSandboxStatus(status: SandboxStatus): void {
   $sandboxStatus.set(status)
+}
+
+/** Flip the sandbox for the profile in view; the returned verdict is published for every surface. */
+export async function toggleSandbox(): Promise<SandboxStatus | null> {
+  const current = $sandboxStatus.get()
+
+  if (!current) {
+    return null
+  }
+
+  const next = await updateSandboxPolicy({ enabled: !current.enabled })
+  $sandboxStatus.set(next)
+
+  return next
 }
 
 /** Re-read the verdict; failures leave the last known value in place and never throw. */

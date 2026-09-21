@@ -3,13 +3,14 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { useSessionView } from '@/app/chat/session-view'
 import { Button } from '@/components/ui/button'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { useI18n } from '@/i18n'
 import { displayPath } from '@/lib/display-path'
 import { ShieldLock } from '@/lib/icons'
 import { cn } from '@/lib/utils'
+import { notifyError } from '@/store/notifications'
 import { requestRoute } from '@/store/recovery-requests'
-import { $sandboxStatus, refreshSandboxStatus } from '@/store/sandbox'
+import { $sandboxStatus, refreshSandboxStatus, toggleSandbox } from '@/store/sandbox'
 
 import { ACTIVE_ICON_BTN, GHOST_ICON_BTN } from './control-classes'
 
@@ -30,6 +31,7 @@ export function SandboxPill({ disabled }: { disabled: boolean }) {
   const view = useSessionView()
   const cwd = useStore(view.$cwd)
   const [open, setOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
   const timer = useRef<number | null>(null)
 
   const schedule = useCallback((next: boolean, delay: number) => {
@@ -69,15 +71,34 @@ export function SandboxPill({ disabled }: { disabled: boolean }) {
     onMouseLeave: () => schedule(false, CLOSE_DELAY_MS)
   }
 
+  // Click flips the sandbox; the card is hover-only, so it explains without getting in the way.
+  const toggle = async () => {
+    if (busy) {
+      return
+    }
+
+    setBusy(true)
+
+    try {
+      await toggleSandbox()
+    } catch (err) {
+      notifyError(err, enabled ? copy.turnOffFailed : copy.turnOnFailed)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <Popover onOpenChange={setOpen} open={open}>
-      <PopoverTrigger asChild>
+      <PopoverAnchor asChild>
         <Button
           aria-label={title}
+          aria-pressed={enabled}
           className={cn(GHOST_ICON_BTN, enabled && ACTIVE_ICON_BTN)}
           data-state-sandbox={enabled ? 'on' : 'off'}
           data-testid="sandbox-pill"
-          disabled={disabled}
+          disabled={disabled || busy}
+          onClick={() => void toggle()}
           size="icon"
           type="button"
           variant="ghost"
@@ -85,8 +106,16 @@ export function SandboxPill({ disabled }: { disabled: boolean }) {
         >
           <ShieldLock className="size-3.5" />
         </Button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-72 p-3" side="top" sideOffset={8} {...hoverProps}>
+      </PopoverAnchor>
+      <PopoverContent
+        align="end"
+        className="w-72 p-3"
+        onCloseAutoFocus={event => event.preventDefault()}
+        onOpenAutoFocus={event => event.preventDefault()}
+        side="top"
+        sideOffset={8}
+        {...hoverProps}
+      >
         <div className="grid gap-2">
           <div className="flex items-center justify-between gap-2">
             <span className="text-sm font-medium">{copy.heading}</span>

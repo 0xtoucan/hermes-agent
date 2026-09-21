@@ -2597,6 +2597,8 @@ export interface Translations {
       networkOff: string
       isolated: string
       openSettings: string
+      turnOnFailed: string
+      turnOffFailed: string
     }
     wakingProfile: (profile: string) => string
     placeholderStarting: string

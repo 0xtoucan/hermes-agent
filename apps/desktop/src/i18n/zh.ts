@@ -3123,7 +3123,9 @@ export const zh = defineLocale({
       networkOn: '已允许网络访问。',
       networkOff: '网络访问已关闭。',
       isolated: '剪贴板、注册表和其他运行中的程序均不可访问。',
-      openSettings: '打开沙箱设置'
+      openSettings: '打开沙箱设置',
+      turnOnFailed: '无法开启沙箱',
+      turnOffFailed: '无法关闭沙箱'
     },
     wakingProfile: profile => `正在唤醒 ${profile}…`,
     placeholderStarting: '正在启动 Hermes…',
