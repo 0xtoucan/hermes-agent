@@ -873,7 +873,7 @@ export interface ConnectionOperationStatus {
   targets: ConnectionOperationTarget[]
 }
 /** ``tools/connectors/contract.py::SettleReason``. */
-export type ConnectionSettleReason = 'all_resolved' | 'continue' | 'deadline' | 'interrupt' | 'unavailable'
+export type ConnectionSettleReason = 'all_resolved' | 'continue' | 'deadline' | 'interrupt'
 /** ``Target.snapshot``: the link minted up front rides here, never in the model result. ``extra`` keys a leg records (``tools``, ``hint``) are typed here as they appear. */
 export interface ConnectionOperationTarget {
   name: string
@@ -893,7 +893,7 @@ export interface ConnectionOperationTarget {
 export type ConnectionTargetKind = 'connector' | 'mcp'
 export type ConnectionTargetAction = 'authorize' | 'connect' | 'enable' | 'install' | 'reconnect'
 /** ``tools/connectors/contract.py::TargetState``. */
-export type ConnectionTargetState = 'pending' | 'initiated' | 'connected' | 'skipped' | 'failed' | 'expired' | 'unavailable' | 'not_connected'
+export type ConnectionTargetState = 'pending' | 'initiated' | 'connected' | 'skipped' | 'failed' | 'expired' | 'not_connected'
 /** One credential an MCP install still needs; the card renders a field per entry and sends the values back with the approval. */
 export interface ConnectionTargetEnvField {
   name: string
@@ -903,7 +903,7 @@ export interface ConnectionTargetEnvField {
   prompt?: string | null
 }
 export interface ConnectionWakeResult {
-  status: string
+  status: 'ok'
 }
 export interface ConnectionRespondParams {
   profile?: string | null
@@ -926,7 +926,7 @@ export interface ConnectionAnswerTarget {
 /** What the card says about one row: ``tools/connectors/mcp.py::apply_answer``. */
 export type ConnectionAnswerStatus = 'approved' | 'skipped'
 export interface ConnectionRespondResult {
-  status: string
+  status: 'ok'
   settled: boolean
 }
 export interface ConnectorsListParams {
@@ -937,15 +937,13 @@ export interface ConnectorsListResult {
   available: boolean
   connectors: ConnectorRow[]
 }
-/** One ``manage_connections`` status entry after ``connector_ui_payload`` redaction; the connector service owns the closed key set, so unknown metadata passes through. */
 export interface ConnectorRow {
-  connector?: string
-  connected?: boolean | null
-  enabled?: boolean | null
-  connectionStatus?: string | null
-  name?: string | null
-  description?: string | null
-  [key: string]: unknown
+  connector: string
+  enabled: boolean
+  connected: boolean
+  connection_status: 'pending' | 'active' | 'failed' | 'expired' | 'revoked' | 'inactive' | null
+  status_reason: string | null
+  gateway_disabled_tools: string[]
 }
 export interface ConnectorsConnectParams {
   profile?: string | null
@@ -962,7 +960,7 @@ export interface ConnectorsConnectResult {
   settled_at?: number | null
   settled_by?: ConnectionSettleReason | null
   targets: ConnectionOperationTarget[]
-  status?: string | null
+  status?: 'initiated' | 'settled' | null
   note?: string | null
 }
 export interface ConnectorToolsParams {
@@ -3688,7 +3686,6 @@ export interface McpCatalogResult {
 export interface McpCatalogEntry {
   name: string
   description: string
-  connector?: string | null
   installed: boolean
   enabled: boolean
   requires: string[]
@@ -4364,6 +4361,7 @@ export interface RequestCancelPayload {
   method: string
   reason: string
 }
+export type ConnectorErrorReason = 'INVALID_PARAMS' | 'NOT_OWNER' | 'UNSUPPORTED_RUNTIME' | 'CONNECTOR_REQUEST_FAILED' | 'INVALID_CONNECTOR_RESPONSE' | 'UNKNOWN_TARGET' | 'LINK_STILL_VALID' | 'REISSUE_REFUSED' | 'UNKNOWN_OPERATION' | 'INVALID_ANSWER' | 'NEEDS_NOUS_AUTH' | 'CONNECTOR_NOT_FOUND' | 'TOOLS_UNAVAILABLE' | 'CONNECTORS_UNAVAILABLE' | 'CATALOG_UNAVAILABLE' | 'ACCOUNTS_UNAVAILABLE' | 'CONNECTION_NOT_FOUND' | 'POLICY_UNAVAILABLE' | 'POLICY_CONFLICT' | 'FORBIDDEN_SCOPE' | 'ORG_REQUIRED' | 'ORG_ACCESS_DENIED' | 'INVALID_POLICY'
 
 // ── Client→server methods ──
 export interface RpcMethods {

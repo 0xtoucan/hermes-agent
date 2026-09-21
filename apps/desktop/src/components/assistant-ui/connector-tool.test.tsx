@@ -12,7 +12,7 @@ import {
   type ConnectionTarget,
   setConnectionRequest
 } from '@/store/connection-request'
-import { $gateway, setPrimaryGateway } from '@/store/gateway'
+import { $gateway, setPrimaryGateway, setPrimaryGatewayConnectionId } from '@/store/gateway'
 import { $notifications } from '@/store/notifications'
 import { _resetSessionOwnerHintsForTests, setSessionOwnerHint } from '@/store/session'
 
@@ -207,8 +207,9 @@ describe('ConnectorTool operation card', () => {
 
   it('Continue settles the whole operation', async () => {
     const request = vi.fn().mockResolvedValue({ status: 'ok' })
-    // SAFETY: the store calls only `request`; the rest of the client is never touched in these tests.
-    $gateway.set({ request } as never)
+    // SAFETY: the card calls only `request`; the rest of the client is never touched in this test.
+    setPrimaryGateway({ request } as never)
+    setPrimaryGatewayConnectionId('connection-1')
 
     renderConnector()
 

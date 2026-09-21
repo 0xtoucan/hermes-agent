@@ -7,7 +7,7 @@ from typing import Annotated, Literal
 from pydantic import Field
 
 from .base import Result, WireEnum
-from .common import ConnectorOwner, OpenModel, ProfileParams
+from .common import ConnectorOwner, ProfileParams
 from .connectors_operation import ConnectionOperationStatus
 from .registry import method
 
@@ -44,16 +44,13 @@ class ConnectorsListParams(ProfileParams):
     owner: ConnectorOwner
 
 
-class ConnectorRow(OpenModel):
-    """One ``manage_connections`` status entry after ``connector_ui_payload`` redaction; the
-    connector service owns the closed key set, so unknown metadata passes through."""
-
-    connector: str = ""
-    connected: bool | None = None
-    enabled: bool | None = None
-    connectionStatus: str | None = None
-    name: str | None = None
-    description: str | None = None
+class ConnectorRow(Result):
+    connector: str
+    enabled: bool
+    connected: bool
+    connection_status: Literal["pending", "active", "failed", "expired", "revoked", "inactive"] | None
+    status_reason: str | None
+    gateway_disabled_tools: list[str]
 
 
 class ConnectorsListResult(Result):
@@ -78,7 +75,7 @@ class ConnectorsConnectParams(ProfileParams):
 class ConnectorsConnectResult(ConnectionOperationStatus):
     """``methods_connectors._reissue`` / ``managed._off_desktop_result``: the operation the connect opened; ``status``/``note`` ride along from the tool result."""
 
-    status: str | None = None
+    status: Literal["initiated", "settled"] | None = None
     note: str | None = None
 
 

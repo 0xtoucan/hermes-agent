@@ -8886,6 +8886,7 @@
         "additionalProperties": false,
         "properties": {
           "status": {
+            "const": "ok",
             "title": "Status",
             "type": "string"
           },
@@ -8907,8 +8908,7 @@
           "all_resolved",
           "continue",
           "deadline",
-          "interrupt",
-          "unavailable"
+          "interrupt"
         ],
         "title": "ConnectionSettleReason",
         "type": "string"
@@ -8983,7 +8983,6 @@
           "skipped",
           "failed",
           "expired",
-          "unavailable",
           "not_connected"
         ],
         "title": "ConnectionTargetState",
@@ -9130,6 +9129,7 @@
         "additionalProperties": false,
         "properties": {
           "status": {
+            "const": "ok",
             "title": "Status",
             "type": "string"
           }
@@ -9913,39 +9913,40 @@
         "type": "object"
       },
       "ConnectorRow": {
-        "additionalProperties": true,
-        "description": "One ``manage_connections`` status entry after ``connector_ui_payload`` redaction; the\nconnector service owns the closed key set, so unknown metadata passes through.",
+        "additionalProperties": false,
         "properties": {
           "connector": {
-            "default": "",
             "title": "Connector",
             "type": "string"
           },
-          "connected": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Connected"
-          },
           "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "connected": {
+            "title": "Connected",
+            "type": "boolean"
+          },
+          "connection_status": {
             "anyOf": [
               {
-                "type": "boolean"
+                "enum": [
+                  "pending",
+                  "active",
+                  "failed",
+                  "expired",
+                  "revoked",
+                  "inactive"
+                ],
+                "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "default": null,
-            "title": "Enabled"
+            "title": "Connection Status"
           },
-          "connectionStatus": {
+          "status_reason": {
             "anyOf": [
               {
                 "type": "string"
@@ -9954,34 +9955,24 @@
                 "type": "null"
               }
             ],
-            "default": null,
-            "title": "Connectionstatus"
+            "title": "Status Reason"
           },
-          "name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Name"
-          },
-          "description": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Description"
+          "gateway_disabled_tools": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Gateway Disabled Tools",
+            "type": "array"
           }
         },
+        "required": [
+          "connector",
+          "enabled",
+          "connected",
+          "connection_status",
+          "status_reason",
+          "gateway_disabled_tools"
+        ],
         "title": "ConnectorRow",
         "type": "object"
       },
@@ -10260,6 +10251,10 @@
           "status": {
             "anyOf": [
               {
+                "enum": [
+                  "initiated",
+                  "settled"
+                ],
                 "type": "string"
               },
               {
@@ -15128,18 +15123,6 @@
           "description": {
             "title": "Description",
             "type": "string"
-          },
-          "connector": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Connector"
           },
           "installed": {
             "title": "Installed",
@@ -34977,6 +34960,34 @@
         },
         "title": "_SessionScoped",
         "type": "object"
+      },
+      "ConnectorErrorReason": {
+        "type": "string",
+        "enum": [
+          "INVALID_PARAMS",
+          "NOT_OWNER",
+          "UNSUPPORTED_RUNTIME",
+          "CONNECTOR_REQUEST_FAILED",
+          "INVALID_CONNECTOR_RESPONSE",
+          "UNKNOWN_TARGET",
+          "LINK_STILL_VALID",
+          "REISSUE_REFUSED",
+          "UNKNOWN_OPERATION",
+          "INVALID_ANSWER",
+          "NEEDS_NOUS_AUTH",
+          "CONNECTOR_NOT_FOUND",
+          "TOOLS_UNAVAILABLE",
+          "CONNECTORS_UNAVAILABLE",
+          "CATALOG_UNAVAILABLE",
+          "ACCOUNTS_UNAVAILABLE",
+          "CONNECTION_NOT_FOUND",
+          "POLICY_UNAVAILABLE",
+          "POLICY_CONFLICT",
+          "FORBIDDEN_SCOPE",
+          "ORG_REQUIRED",
+          "ORG_ACCESS_DENIED",
+          "INVALID_POLICY"
+        ]
       }
     }
   },

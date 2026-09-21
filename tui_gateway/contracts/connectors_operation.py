@@ -9,6 +9,8 @@ projection: every frame carries the full target snapshot, and the renderer never
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import Field
 
 from .base import Params, Payload, Result, WireEnum
@@ -38,7 +40,6 @@ class ConnectionTargetState(WireEnum):
     skipped = "skipped"
     failed = "failed"
     expired = "expired"
-    unavailable = "unavailable"
     not_connected = "not_connected"
 
 
@@ -57,7 +58,6 @@ class ConnectionSettleReason(WireEnum):
     continue_ = "continue"
     deadline = "deadline"
     interrupt = "interrupt"
-    unavailable = "unavailable"
 
 
 class ConnectionTargetEnvField(Payload):
@@ -148,7 +148,7 @@ method("connectors.operation.status", params=ConnectionOperationParams, result=C
 
 
 class ConnectionWakeResult(Result):
-    status: str
+    status: Literal["ok"]
 
 
 method("connectors.operation.wake", params=ConnectionOperationParams, result=ConnectionWakeResult,
@@ -185,7 +185,7 @@ class ConnectionRespondParams(ConnectionOperationParams):
 
 
 class ConnectionRespondResult(Result):
-    status: str
+    status: Literal["ok"]
     settled: bool
 
 

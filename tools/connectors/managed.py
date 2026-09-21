@@ -82,8 +82,9 @@ def mint(client: Any, operation: ConnectionOperation, names: List[str], *, reini
         if target is None:
             continue
         status = str(entry.get("status") or "")
-        detail = str(entry.get("status_reason") or entry.get("statusReason") or "")
-        connection_id = entry.get("connection_id") or entry.get("connectionId")
+        # ConnectorClient.connections() returns field-name dumps, not aliases.
+        detail = str(entry.get("status_reason") or "")
+        connection_id = entry.get("connection_id")
         if status == "active":
             operation.transition(name, TargetState.initiated, actor)
             operation.transition(name, TargetState.connected, Actor.backend_watcher, connection_id=connection_id)
@@ -93,7 +94,7 @@ def mint(client: Any, operation: ConnectionOperation, names: List[str], *, reini
                                "only the card or the deadline can end the row", name)
             operation.transition(
                 name, TargetState.initiated, actor,
-                connect_url=entry.get("connect_url"), connection_id=connection_id, attempt=entry.get("attempt"),
+                connect_url=entry.get("connect_url"), connection_id=connection_id,
                 detail=detail,
             )
         elif target.state == TargetState.failed:

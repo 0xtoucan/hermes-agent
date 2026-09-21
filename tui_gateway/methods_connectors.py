@@ -7,8 +7,8 @@ from .method_ctx import HandlerRegistry, bind_module
 
 _registry = HandlerRegistry()
 method = _registry.method
-# Only these two reach the tool gateway; status, wake and respond answer inline from memory.
-_CONNECTOR_RPC_METHODS = frozenset({"connectors.list", "connectors.connect"})
+# List and connect can reach the tool gateway; responding can start MCP OAuth.
+_CONNECTOR_RPC_METHODS = frozenset({"connectors.list", "connectors.connect", "connection.respond"})
 _connector_rpc_origin: contextvars.ContextVar[tuple | None] = contextvars.ContextVar("connector_rpc_origin", default=None)
 
 
@@ -47,6 +47,8 @@ def _connector_guard(fn):
 
         try:
             return fn(rid, params)
+        except ProfileUnavailableError:
+            raise
         except GatewayAuthError as exc:
             return _connector_auth_error(rid, exc)
         except Exception:
@@ -146,8 +148,12 @@ def _session_connector_rpc(rid, request, session, action):
     args = {"action": "reconnect" if action == "connect" and request.reconnect else action}
     if action == "connect":
         args["connectors"] = request.connectors
-    if action == "connect" and (
-            operation := live.current(session["session_key"], profile_home=session.get("profile_home"))) is not None:
+    if action == "connect":
+        operation = live.current(session["session_key"], profile_home=session.get("profile_home"))
+        if operation is None:
+            return _connector_rpc_error(
+                rid, 4004, ConnectorErrorReason.unknown_operation, "No open connection operation for this session."
+            )
         return _reissue(rid, operation, args)
     raw = model_tools.handle_function_call(
         "manage_connections",
@@ -164,17 +170,27 @@ def _session_connector_rpc(rid, request, session, action):
     if action == "status":
         if not isinstance(data.get("connectors"), list) or any(not isinstance(row, dict) for row in data["connectors"]):
             return _connector_rpc_error(rid, 5034, ConnectorErrorReason.invalid_connector_response, "Connector service returned an invalid response.")
-        return _ok(rid, {"available": True, "connectors": connector_ui_payload(data["connectors"])})
+        return _ok(rid, {"available": True, "connectors": _connector_rows(data["connectors"])})
     if not isinstance(data.get("targets"), list):
         return _connector_rpc_error(rid, 5034, ConnectorErrorReason.invalid_connector_response, "Connector service returned no authorization results.")
     return _ok(rid, connector_ui_payload(data))
 
 
-def _account_connector_list(rid):
-    from tools.connectors.managed import managed_client
+def _connector_rows(rows):
+    from tools.connectors.gateway.wire import ConnectorListItem
     from tui_gateway.connector_payload import connector_ui_payload
 
-    return _ok(rid, {"available": True, "connectors": connector_ui_payload(managed_client().list_connectors())})
+    # status_reason is upstream text, so the rows get the same redaction as every other reply.
+    return connector_ui_payload([
+        ConnectorListItem.model_validate(row).model_dump(mode="json", by_alias=False)
+        for row in rows
+    ])
+
+
+def _account_connector_list(rid):
+    from tools.connectors.managed import managed_client
+
+    return _ok(rid, {"available": True, "connectors": _connector_rows(managed_client().list_connectors())})
 
 
 def _account_connector_connect(rid, request):
@@ -192,7 +208,9 @@ def _account_connector_connect(rid, request):
             if any(target.state in (TargetState.failed, TargetState.expired) for target in targets):
                 return _reissue(rid, start.operation, {"connectors": request.connectors})
             return _ok(rid, connector_ui_payload(_operation_view(start.operation)))
-        if not account.wait_for_prepare(start) or start.failed:
+        if not account.wait_for_prepare(start):
+            return _ok(rid, connector_ui_payload(_operation_view(start.operation)))
+        if start.failed:
             return _connector_rpc_error(rid, 5034, ConnectorErrorReason.connector_request_failed, "Connector request failed. Try again explicitly.")
         return _ok(rid, connector_ui_payload(_operation_view(start.operation)))
     except ValueError:
@@ -384,12 +402,14 @@ def _snapshot_view(snapshot):
 
 
 def _operation_view(operation):
-    return _snapshot_view(operation.result())
+    return _snapshot_view(operation.snapshot())
 
 
 def _connection_update(operation, change, snapshot):
     """Emit a session update to its owner, or broadcast an account-operation update globally."""
+    from hermes_constants import get_process_hermes_home, hermes_home_key
     from tui_gateway import server
+    from tui_gateway.connector_payload import connector_ui_payload
 
     payload = _snapshot_view(snapshot)
     if change:
@@ -401,13 +421,21 @@ def _connection_update(operation, change, snapshot):
             for target in payload["targets"]
         ]
         payload["owner"] = {"type": "account"}
-        server._broadcast_global_event("connection.update", payload)
+        server._broadcast_global_event("connection.update", connector_ui_payload(payload))
         return
     with server._sessions_lock:
-        sid = next((sid for sid, session in server._sessions.items() if session.get("session_key") == operation.session_key), None)
+        sid = next(
+            (
+                sid
+                for sid, session in server._sessions.items()
+                if session.get("session_key") == operation.session_key
+                and hermes_home_key(session.get("profile_home") or get_process_hermes_home()) == operation.profile_key
+            ),
+            None,
+        )
     if sid is not None:
         payload["owner"] = {"type": "session", "session_id": sid}
-        server._emit("connection.update", sid, payload)
+        server._emit("connection.update", sid, connector_ui_payload(payload))
 
 
 def _install_update_hook():

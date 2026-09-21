@@ -38,7 +38,7 @@ interface InputKey {
 }
 
 const isUnresolved = (target: ConnectionOperationTarget): boolean =>
-  !['connected', 'skipped', 'expired', 'unavailable'].includes(target.state) || Boolean(target.discovery_error)
+  !['connected', 'skipped', 'expired'].includes(target.state) || Boolean(target.discovery_error)
 
 const initialDraft = (fields: ConnectionTargetEnvField[]): Record<string, string> =>
   Object.fromEntries(fields.map(field => [field.name, field.secret ? '' : field.default]))

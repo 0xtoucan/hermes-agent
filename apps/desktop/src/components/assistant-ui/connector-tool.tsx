@@ -1,11 +1,10 @@
 import type { ToolCallMessagePartProps } from '@assistant-ui/react'
-import type { ConnectionTargetState } from '@hermes/shared'
+import type { ConnectionTargetState, ConnectorsConnectResult } from '@hermes/shared'
 import { useStore } from '@nanostores/react'
 import { type RefObject, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useSessionView } from '@/app/chat/session-view'
 import { sessionRoute } from '@/app/routes'
-import { resolveSessionOwner } from '@/app/session/hooks/use-session-actions/utils'
 import { ToolFallback } from '@/components/assistant-ui/tool/fallback'
 import { Button } from '@/components/ui/button'
 import { ConnectorCard, ConnectorRow, type ConnectorRowMark, ConnectorSummary } from '@/components/ui/connector-card'
@@ -21,6 +20,8 @@ import {
 } from '@/lib/connector-tools'
 import {
   $connectionRequests,
+  type ConnectionOwner,
+  connectionOwnerFor,
   type ConnectionRequest,
   type ConnectionTarget,
   continueConnectionRequest,
@@ -28,37 +29,11 @@ import {
 } from '@/store/connection-request'
 import { requestGatewayForAgent } from '@/store/gateway'
 import { notifyError } from '@/store/notifications'
-import { $activeGatewayProfile } from '@/store/profile'
-import { assertSessionOwnerResolved } from '@/store/session-owner-resolution'
-import { isSessionOwnerRoute } from '@/store/session-request-router'
-
-/** Which backend owns the session whose operation this card drives. */
-export interface ConnectorOwner {
-  connectionId: null | string
-  profile: string
-}
-
-/** Resolve that owner for one stored session, or null when it cannot be resolved. */
-async function connectionOwnerFor(sessionId: string, method: string): Promise<ConnectorOwner | null> {
-  const ambientProfile = $activeGatewayProfile.get()
-
-  try {
-    const scope = await resolveSessionOwner(sessionId)
-    assertSessionOwnerResolved(scope, { method, sessionId })
-
-    return {
-      connectionId: isSessionOwnerRoute(scope) ? scope.connectionId : null,
-      profile: isSessionOwnerRoute(scope) ? scope.profile : scope || ambientProfile
-    }
-  } catch {
-    return null
-  }
-}
 
 /** Resolve that owner. Null until it resolves and null when it cannot: a card RPC must reach the
  *  gateway that holds the operation, never whichever one the window happens to have in front. */
-export function useConnectionOwner(sessionId: null | string, active: boolean): ConnectorOwner | null {
-  const [owner, setOwner] = useState<ConnectorOwner | null>(null)
+export function useConnectionOwner(sessionId: null | string, active: boolean): ConnectionOwner | null {
+  const [owner, setOwner] = useState<ConnectionOwner | null>(null)
 
   useEffect(() => {
     if (!sessionId || !active) {
@@ -123,7 +98,7 @@ export async function openConnectionDoneLink(
 /** Try again for one target of the open operation: one RPC, and the fresh link when the backend
  *  minted one. The backend re-mints only what is actually dead. */
 export async function reissueConnectionTarget(
-  owner: ConnectorOwner,
+  owner: ConnectionOwner,
   request: ConnectionRequest,
   name: string
 ): Promise<null | string> {
@@ -131,7 +106,7 @@ export async function reissueConnectionTarget(
     return null
   }
 
-  const reply = await requestGatewayForAgent<ToolCallMessagePartProps['result']>(
+  const reply = await requestGatewayForAgent<ConnectorsConnectResult>(
     owner.connectionId,
     owner.profile,
     'connectors.connect',
@@ -143,8 +118,7 @@ export async function reissueConnectionTarget(
     45000
   )
 
-  const rows = recordOf(reply).targets
-  const minted = Array.isArray(rows) ? rows.map(recordOf).find(row => connectorText(row.name) === name) : undefined
+  const minted = reply.targets.find(target => target.name === name)
 
   return connectorAuthorizationUrl(minted?.connect_url)
 }
@@ -230,8 +204,7 @@ export const CONNECTOR_CARD_PHASES = {
   initiated: { mark: 'waiting', resolved: false, settled: notConnected, verb: 'open' },
   not_connected: { mark: 'idle', resolved: false, settled: notConnected, verb: 'none' },
   pending: { mark: 'idle', resolved: false, settled: notConnected, verb: 'open' },
-  skipped: { mark: 'idle', resolved: true, settled: skipped, verb: 'none' },
-  unavailable: { mark: 'idle', resolved: true, settled: notConnected, verb: 'none' }
+  skipped: { mark: 'idle', resolved: true, settled: skipped, verb: 'none' }
 } satisfies Record<ConnectionTargetState, ConnectorCardPhase>
 
 // A disabled verb (a working row, a waiting row with no link yet) refuses focus, and the keyboard
@@ -292,7 +265,7 @@ export const MARK_LABEL = {
 } satisfies Record<ConnectorRowMark, (copy: ConnectorCopy) => string>
 
 interface ConnectorOfferProps {
-  owner: ConnectorOwner
+  owner: ConnectionOwner
   request: ConnectionRequest
 }
 

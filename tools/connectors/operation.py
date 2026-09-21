@@ -209,6 +209,11 @@ class ConnectionOperation:
             return dict(self._settled_snapshot, targets=targets)
         return self._snapshot_locked(with_urls=with_urls)
 
+    def snapshot(self, *, with_urls: bool = True) -> Dict[str, Any]:
+        """The renderer-safe operation snapshot without settled catalog enrichment."""
+        with self._lock:
+            return self._result_locked(with_urls=with_urls)
+
     def result(self, *, with_urls: bool = True) -> Dict[str, Any]:
         """The settled model result, or the live snapshot before settlement.
 
