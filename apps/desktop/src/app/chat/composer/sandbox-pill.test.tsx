@@ -60,8 +60,13 @@ afterEach(() => {
 })
 
 describe('SandboxPill', () => {
-  it('is absent where the backend cannot sandbox at all', () => {
+  it('is absent where the backend cannot sandbox at all, or the kit is not in place', () => {
     $sandboxStatus.set(status({ platform_supported: false }))
+    const first = mount()
+    expect(screen.queryByTestId('sandbox-pill')).toBeNull()
+    first.unmount()
+
+    $sandboxStatus.set(status({ available: false, reason: 'wxc-exec not found' }))
     mount()
     expect(screen.queryByTestId('sandbox-pill')).toBeNull()
   })

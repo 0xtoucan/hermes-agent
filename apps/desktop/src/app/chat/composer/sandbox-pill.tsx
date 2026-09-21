@@ -20,9 +20,9 @@ const CLOSE_DELAY_MS = 250
 /**
  * Composer sandbox indicator: whether commands from THIS conversation run inside a Windows
  * (MXC) container, with a hover card that says what that means for the folder in front of the
- * user and offers the way into the policy. Rendered only where the backend can sandbox at all
- * (a Windows host); the verdict comes from `$sandboxStatus`, the cache of the backend's status
- * route, so the pill and the Settings panel can never disagree.
+ * user and offers the way into the policy. Rendered only where the backend reports the sandbox as
+ * available (a Windows host with the MXC kit and shell); the verdict comes from `$sandboxStatus`,
+ * the cache of the backend's status route, so the pill and the Settings panel can never disagree.
  */
 export function SandboxPill({ disabled }: { disabled: boolean }) {
   const copy = useI18n().t.composer.sandbox
@@ -55,7 +55,9 @@ export function SandboxPill({ disabled }: { disabled: boolean }) {
     }
   }, [open])
 
-  if (!status?.platform_supported) {
+  // Present only where the Settings panel would read "Available": a Windows host with the MXC kit
+  // and the sandbox shell in place. Elsewhere there is nothing to turn on, so nothing to show.
+  if (!status?.platform_supported || !status.available) {
     return null
   }
 
