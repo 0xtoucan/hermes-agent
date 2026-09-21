@@ -116,6 +116,17 @@ class AppSpec:
 
 
 @dataclass
+class LaunchSpec:
+    per_os: Dict[str, str] = field(default_factory=dict)
+
+    def for_os(self, os_family: str) -> Optional[str]:
+        return self.per_os.get(os_family)
+
+
+Visibility = str  # "public" | "guest_onboarding"
+
+
+@dataclass
 class RequiresSpec:
     """What the MCP needs before it is offered. Separate from ``app`` on purpose: one is data, one is policy."""
 
@@ -136,6 +147,8 @@ class CatalogEntry:
     suggest: Optional[SuggestSpec] = None
     app: Optional[AppSpec] = None
     requires: RequiresSpec = field(default_factory=RequiresSpec)
+    launch: Optional[LaunchSpec] = None
+    visibility: Visibility = "public"
     manifest_path: Path = field(default_factory=Path)
 
     # The slice ``hermes_platform.resolver.availability`` reads.
@@ -149,6 +162,13 @@ class CatalogEntry:
 
     def app_for(self, os_family: str) -> Optional["AppDef"]:
         return self.app.for_os(os_family) if self.app else None
+
+    def launch_for(self, os_family: str) -> Optional[str]:
+        return self.launch.for_os(os_family) if self.launch else None
+
+    @property
+    def app_based(self) -> bool:
+        return self.requires.app and self.app is not None
 
 
 class CatalogError(Exception):
@@ -414,6 +434,40 @@ def _parse_install(path: Path, install_raw: Any) -> Optional[InstallSpec]:
     return InstallSpec(type=i_type, url=url, ref=ref, bootstrap=[str(c) for c in bootstrap])
 
 
+_VISIBILITIES = ("public", "guest_onboarding")
+
+
+def _parse_visibility(path: Path, raw: Any) -> Visibility:
+    if raw is None:
+        return "public"
+    if raw not in _VISIBILITIES:
+        raise CatalogError(f"{path}: visibility must be one of {_VISIBILITIES}")
+    return raw
+
+
+def _parse_launch(path: Path, raw: Any, app: Optional[AppSpec]) -> Optional[LaunchSpec]:
+    if raw is None:
+        return None
+    _require_mapping(path, "launch", raw)
+    if app is None:
+        raise CatalogError(f"{path}: launch needs an 'app' block")
+    per_os: Dict[str, str] = {}
+    for osf, block in raw.items():
+        if osf not in _APP_OS_FAMILIES:
+            raise CatalogError(f"{path}: launch.{osf} is not one of {sorted(_APP_OS_FAMILIES)}")
+        if app.for_os(osf) is None:
+            raise CatalogError(f"{path}: launch.{osf} has no matching app.{osf}")
+        _require_mapping(path, f"launch.{osf}", block)
+        command = block.get("command")
+        if not isinstance(command, str) or not command.strip():
+            raise CatalogError(f"{path}: launch.{osf}.command is required")
+        if not _location_is_rooted(command.strip(), osf):
+            raise CatalogError(
+                f"{path}: launch.{osf}.command must be absolute or start with ~ / %VAR% / $VAR, without '..' or a URL scheme")
+        per_os[osf] = command.strip()
+    return LaunchSpec(per_os=per_os)
+
+
 def _parse_manifest(path: Path) -> CatalogEntry:
     """Read and validate a manifest.yaml. Raise CatalogError on any problem."""
     try:
@@ -445,11 +499,13 @@ def _parse_manifest(path: Path) -> CatalogEntry:
     install = _parse_install(path, data.get("install"))
     app = _parse_app(path, name, data.get("app"))
     requires = _parse_requires(path, data.get("requires"), app)
+    launch = _parse_launch(path, data.get("launch"), app)
+    visibility = _parse_visibility(path, data.get("visibility"))
     return CatalogEntry(
         name=name, description=description, source=str(data.get("source") or "").strip(),
         transport=transport, auth=auth, tools=tools, install=install,
         post_install=str(data.get("post_install") or ""), suggest=suggest,
-        app=app, requires=requires, manifest_path=path,
+        app=app, requires=requires, launch=launch, visibility=visibility, manifest_path=path,
     )
 
 
@@ -528,7 +584,7 @@ def list_catalog() -> List[CatalogEntry]:
     sig = _catalog_signature(root)
     if _CATALOG_CACHE is not None and _CATALOG_CACHE[0] == sig:
         _CATALOG_DIAGNOSTICS[:] = _CATALOG_CACHE[2]
-        return list(_CATALOG_CACHE[1])
+        return _visible(_CATALOG_CACHE[1])
     entries: List[CatalogEntry] = []
     diagnostics: List[tuple] = []
     for child in sorted(root.iterdir()):
@@ -543,7 +599,18 @@ def list_catalog() -> List[CatalogEntry]:
             diagnostics.append((child.name, "future_manifest" if future else "invalid", msg))
     _CATALOG_DIAGNOSTICS[:] = diagnostics
     _CATALOG_CACHE = (sig, entries, diagnostics)
-    return list(entries)
+    return _visible(entries)
+
+
+def _visible(entries: List[CatalogEntry]) -> List[CatalogEntry]:
+    """``guest_enabled`` is read here and nowhere else in the catalog."""
+    if all(e.visibility == "public" for e in entries):
+        return list(entries)
+    from hermes_cli.anon_auth import guest_enabled
+
+    if guest_enabled():
+        return list(entries)
+    return [e for e in entries if e.visibility == "public"]
 
 
 
@@ -553,11 +620,20 @@ def catalog_diagnostics() -> List[tuple]:
     return list(_CATALOG_DIAGNOSTICS)
 
 
-def get_entry(name: str) -> Optional[CatalogEntry]:
-    """Look up a single entry by name. ``official/<name>`` prefix accepted."""
+def get_entry(name: str, *, include_hidden: bool = False) -> Optional[CatalogEntry]:
+    """Look up a single entry by name. ``official/<name>`` prefix accepted.
+
+    ``include_hidden`` is for code that already holds a reference to the entry (a configured server's
+    ``catalog_name``) and must not mistake a gated entry for an unknown one."""
     if name.startswith("official/"):
         name = name[len("official/"):]
-    return next((e for e in list_catalog() if e.name == name), None)
+    entries = _all_entries() if include_hidden else list_catalog()
+    return next((e for e in entries if e.name == name), None)
+
+
+def _all_entries() -> List[CatalogEntry]:
+    list_catalog()
+    return list(_CATALOG_CACHE[1]) if _CATALOG_CACHE is not None else []
 
 
 def installed_servers() -> Dict[str, dict]:
@@ -702,6 +778,9 @@ def _build_server_config(entry: CatalogEntry, install_dir: Optional[Path]) -> di
             from hermes_cli.mcp_config import _bearer_auth_headers
 
             cfg["headers"] = _bearer_auth_headers(entry.name)
+    if entry.app_based:
+        # The transport finds the manifest's runtime file by this name; the url stays the manifest default.
+        cfg["catalog_name"] = entry.name
     return cfg
 
 
