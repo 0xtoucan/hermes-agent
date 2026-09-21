@@ -1163,12 +1163,6 @@ export const zh = defineLocale({
       networkDescription: '默认关闭：智能体处于离线状态。沙箱中的命令无法访问互联网或本机服务，网页搜索与浏览工具也会被停用，直到你开启此项。',
       containers: count => `自 Hermes 启动以来已启动 ${count} 个容器`,
       recheck: '重新检查',
-      prepareTitle: '为 git 准备工作区',
-      prepareDescription: (workspace: string) =>
-        `Git 通过父文件夹解析 ${workspace}，因此容器必须能看到这些文件夹的名称。准备操作只为这些文件夹添加名称可见权限；文件内容保持私密。`,
-      prepare: '准备',
-      needsAdmin: '请在管理员提示符中完成：',
-      copyCommand: '复制命令',
       enableFailed: '无法开启沙箱',
       updateFailed: '无法更新沙箱策略'
     },

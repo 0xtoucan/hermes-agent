@@ -134,7 +134,9 @@ describe('SandboxPanel', () => {
     expect(mocks.update).toHaveBeenCalledWith({ network: true })
   })
 
-  it('surfaces the administrator command when ancestors need elevation', async () => {
+  it('never renders a per-workspace git preparation step, whatever the ancestors report', async () => {
+    // Git under a profile folder needs an administrator-owned ancestor prepared; that is a
+    // machine setup step documented in the user guide, not a card in Settings.
     mocks.getStatus.mockResolvedValue(
       status({
         enabled: true,
@@ -148,31 +150,9 @@ describe('SandboxPanel', () => {
     )
     render(<SandboxPanel />)
 
-    const block = await screen.findByTestId('sandbox-needs-admin')
-    expect(block.textContent).toContain('icacls "C:\\" /grant ...')
-    expect(screen.queryByRole('button', { name: en.settings.sandbox.prepare })).toBeNull()
-  })
-
-  it('prepares user-owned ancestors in place', async () => {
-    mocks.getStatus.mockResolvedValue(
-      status({
-        enabled: true,
-        workspace: `${PROJECTS}\\demo`,
-        workspace_ancestors: { ready: false, missing: [PROJECTS], needs_admin: [], admin_command: '' }
-      })
-    )
-    mocks.prepare.mockResolvedValue(status({ enabled: true }))
-    render(<SandboxPanel />)
-
-    const prepare = await screen.findByRole('button', { name: en.settings.sandbox.prepare })
-    expect(screen.getByText(en.settings.sandbox.prepareDescription(`${PROJECTS}\\demo`))).toBeTruthy()
-    await act(async () => {
-      fireEvent.click(prepare)
-    })
-
-    expect(mocks.prepare).toHaveBeenCalledWith(`${PROJECTS}\\demo`)
-    // Once the ancestors are ready the card has nothing left to do and goes away.
-    await waitFor(() => expect(screen.queryByRole('button', { name: en.settings.sandbox.prepare })).toBeNull())
+    await screen.findByTestId('sandbox-workspace-rule')
+    expect(screen.queryByText(/icacls/)).toBeNull()
+    expect(mocks.prepare).not.toHaveBeenCalled()
   })
 
   it('states the per-conversation rule instead of showing one tab\'s folder as policy', async () => {

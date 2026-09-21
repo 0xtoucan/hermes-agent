@@ -106,19 +106,79 @@ tool card is marked **Blocked by sandbox policy** and offers **Allow reading** a
 drafts a short "please try again" message into the composer, so one Enter resumes the task with
 the new permission in force.
 
-## Git and nested workspaces
+## Git inside the sandbox
 
-Git for Windows resolves the working directory by walking the folder's ancestors, and a container
-can only do that when it is allowed to see those ancestors' names. A workspace directly under the
-drive root (for example `C:\Demo`) works as soon as the drive is prepared. For a nested workspace
-such as `C:\Users\you\Projects\demo`, the Sandbox panel shows **Prepare workspace for git**.
-Preparing adds a names-and-attributes permission for sandbox processes to each ancestor folder;
-it grants no access to any file's contents. Folders you own are prepared in place. Folders that
-belong to the system, typically `C:\` and `C:\Users`, need an administrator once; the panel shows
-the exact `icacls` command to paste into an elevated prompt.
+Git is the one common tool that fails inside a container when the workspace sits under a profile
+folder. This section explains why, what to do about it today, and what the permanent fix looks
+like; it is written for both the person hitting the error and whoever picks the work back up.
 
-Python, PowerShell, `cmd`, Node and the Hermes file tools do not have this dependency and work in
-any workspace.
+**The symptom.** Any `git` command in a workspace such as `C:\Users\you\Hermes\project` fails with
+`fatal: Unable to read current working directory: Permission denied`, and the `[Sandbox]` note on
+the result names the workspace's parent folders as what was denied. Python, PowerShell, `cmd`,
+Node and the Hermes file tools work in the same folder. A workspace directly under the drive root
+(`C:\Demo`) works with git too.
+
+**Why git is different.** Git for Windows does not trust the process's current directory string;
+it canonicalizes the path by reading the attributes of every folder from the drive root down to
+the workspace. An AppContainer process may open a folder only if the folder's DACL grants the
+right both to the user's ordinary identity and to a SID the container carries, so `Everyone` or
+`Users` entries do not help. `wxc-host-prep prepare-system-drive` handles the drive root (it adds
+object-only `Rc,S,REA,RA` entries for `ALL APPLICATION PACKAGES` and `ALL RESTRICTED APPLICATION
+PACKAGES` on `C:\`, deliberately without `RD` so containers cannot list the root). Nothing does
+the same for `C:\Users` or for the user's profile folder, and the traverse-only capability entries
+Windows places there are one right short: traversing a folder is not reading its attributes.
+Inheriting the drive-root grant downward is not an option, because an inheritable entry on `C:\`
+would make every folder and file on the disk visible to every container.
+
+**What to do today.** The missing rights are needed on each ancestor of the workspace, and only
+`C:\Users` is administrator-owned, so it is one elevated command per machine:
+
+```
+icacls "C:\Users" /grant "*S-1-15-2-1:(RA,REA,RC,S)" "*S-1-15-2-2:(RA,REA,RC,S)"
+```
+
+This adds a non-inherited, attributes-only entry to the `C:\Users` folder object; nothing beneath
+it changes, other users' profiles stay closed to containers, and `icacls "C:\Users" /remove
+"*S-1-15-2-1" "*S-1-15-2-2"` undoes it. Then give the same rights to your own profile folder and
+to the folders between it and the workspace (`C:\Users\you`, `C:\Users\you\Hermes`); you own
+these, so no elevation is needed. On the current Windows build `icacls` against the profile root
+itself hangs without applying anything; the .NET path works instead, from a normal PowerShell:
+
+```powershell
+$dir = Get-Item -LiteralPath "C:\Users\you"
+$acl = $dir.GetAccessControl("Access")
+foreach ($sid in "S-1-15-2-1", "S-1-15-2-2") {
+  $id = New-Object System.Security.Principal.SecurityIdentifier($sid)
+  $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+    $id, "ReadAttributes, ReadExtendedAttributes, ReadPermissions, Synchronize", "None", "None", "Allow")))
+}
+$dir.SetAccessControl($acl)
+```
+
+`Set-Acl` fails here with a `SeSecurityPrivilege` error because it also tries to write the audit
+list; `SetAccessControl` on the `DirectoryInfo` writes only the DACL. The attributes-only right
+set mirrors what `prepare-system-drive` grants on `C:\`, which git traverses without trouble, so
+it is the expected minimum; the `C:\Users` half has not been exercised end to end yet because it
+needs elevation, so verify with `git status` in a profile-folder workspace after applying it.
+Adding `ListDirectory` (`RD`) is the fallback if attributes alone turn out not to suffice; it
+also lets containers list the folder's child names, which on `C:\Users` means the account names
+on the machine.
+
+**Why there is no button for this.** An earlier build showed a "Prepare workspace for git" card
+in the Sandbox panel with the command to copy. It was removed: the in-place half hung on the
+profile folder, the elevated half is a machine setup step rather than a per-workspace one, and a
+command nobody recognizes is not a control. The status route still reports the ancestors
+(`workspace_ancestors` with `missing`, `needs_admin` and `admin_command`) and
+`tools/environments/mxc_host.py` still has `ancestor_readiness` and `prepare_ancestors`, so a
+future control can be built without re-deriving any of this.
+
+**The permanent fix belongs in the kit.** `wxc-exec` knows every granted path when it creates a
+container and could ensure attribute rights on the ancestors itself; alternatively `wxc-host-prep`
+could extend what it does for `C:\` to `C:\Users` and the invoking user's profile root. Either
+removes the administrator step for everyone. If Hermes ends up owning it instead, the shape that
+fits is one elevated "finish setup" step that runs `prepare-system-drive` and the `C:\Users` grant
+together behind a single UAC prompt, plus silent preparation of user-owned ancestors when a
+workspace is created, using the .NET path rather than `icacls`.
 
 ## Limitations
 
@@ -159,10 +219,12 @@ For a machine that will show the sandbox to an audience, the following order avo
 
 1. Confirm the Windows build supports process containers: `wxc-exec.exe --probe` should report a
    `base-container` tier with no warnings.
-2. Run `wxc-host-prep.exe prepare-system-drive` once from an elevated prompt.
+2. Run `wxc-host-prep.exe prepare-system-drive` once from an elevated prompt. If the demonstration
+   will use git in a workspace under a profile folder, also run the `C:\Users` grant from "Git
+   inside the sandbox" above, and prepare your own profile folder as described there.
 3. Install Hermes Desktop and a local model, and confirm a normal conversation works.
 4. Create the demonstration workspace directly under the drive root, for example `C:\Demo`, and
-   open it as the session's project folder.
+   open it as the session's project folder; git works there with no further preparation.
 5. Turn on the sandbox in **Settings → Safety** while online, so the shell downloads.
 6. Run one task that stays inside the workspace and one that reaches outside it, and grant the
    folder from the tool card, so every path has been exercised before the audience arrives.

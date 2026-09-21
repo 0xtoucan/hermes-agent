@@ -833,11 +833,6 @@ export interface Translations {
       networkDescription: string
       containers: (count: number) => string
       recheck: string
-      prepareTitle: string
-      prepareDescription: (workspace: string) => string
-      prepare: string
-      needsAdmin: string
-      copyCommand: string
       enableFailed: string
       updateFailed: string
     }

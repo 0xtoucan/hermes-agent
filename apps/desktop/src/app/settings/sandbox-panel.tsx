@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
-import { CopyButton } from '@/components/ui/copy-button'
 import { Switch } from '@/components/ui/switch'
-import { getSandboxStatus, prepareSandboxWorkspace, updateSandboxPolicy } from '@/hermes'
+import { getSandboxStatus, updateSandboxPolicy } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { AlertTriangle, Loader2, Plus, RefreshCw, ShieldLock, Trash2 } from '@/lib/icons'
 import { notifyError } from '@/store/notifications'
@@ -192,8 +191,6 @@ export function SandboxPanel({ workspace }: { workspace?: string } = {}) {
     )
   }
 
-  const prepare = () => void mutate(() => prepareSandboxWorkspace(status?.workspace), copy.updateFailed)
-
   if (loading) {
     return (
       <div className="flex items-center gap-2 px-1 text-xs text-muted-foreground" data-testid="sandbox-panel-loading">
@@ -205,10 +202,6 @@ export function SandboxPanel({ workspace }: { workspace?: string } = {}) {
   if (!status || !status.platform_supported) {
     return null
   }
-
-  const ancestors = status.workspace_ancestors
-  const needsAdmin = ancestors?.needs_admin ?? []
-  const adminCommand = ancestors?.admin_command ?? ''
 
   const grants: { path: string; mode: SandboxGrantMode }[] = [
     ...(status.policy?.readwrite_paths ?? []).map(path => ({ path, mode: 'readwrite' as const })),
@@ -269,33 +262,6 @@ export function SandboxPanel({ workspace }: { workspace?: string } = {}) {
             {copy.workspaceRule}
           </p>
           <p className="px-1 text-[0.72rem] text-muted-foreground">{copy.isolationRule}</p>
-
-          {ancestors && !ancestors.ready && (
-            <ListRow
-              action={
-                needsAdmin.length === 0 ? (
-                  <Button disabled={busy} onClick={prepare} size="sm">
-                    {copy.prepare}
-                  </Button>
-                ) : undefined
-              }
-              below={
-                needsAdmin.length > 0 && (
-                  <div className="mt-2 grid gap-1" data-testid="sandbox-needs-admin">
-                    <span className="text-[0.7rem] text-muted-foreground">{copy.needsAdmin}</span>
-                    <div className="flex items-start gap-2">
-                      <pre className="min-w-0 flex-1 overflow-auto rounded bg-background/55 p-2 font-mono text-[0.68rem]">
-                        {adminCommand}
-                      </pre>
-                      <CopyButton label={copy.copyCommand} showLabel={false} text={adminCommand} />
-                    </div>
-                  </div>
-                )
-              }
-              description={copy.prepareDescription(status.workspace ?? '')}
-              title={copy.prepareTitle}
-            />
-          )}
 
           <ListRow
             below={

@@ -962,12 +962,6 @@ export const en: Translations = {
         "Off by default: the agent is offline. Sandboxed commands cannot reach the internet or this machine's services, and web search and browsing tools are refused until you turn this on.",
       containers: count => (count === 1 ? '1 container started since Hermes launched' : `${count} containers started since Hermes launched`),
       recheck: 'Recheck',
-      prepareTitle: 'Prepare workspace for git',
-      prepareDescription: (workspace: string) =>
-        `Git resolves ${workspace} through its parent folders, so the container must be able to see their names. Preparing adds a names-only permission to those folders; file contents stay private.`,
-      prepare: 'Prepare',
-      needsAdmin: 'Finish in an administrator prompt:',
-      copyCommand: 'Copy command',
       enableFailed: 'Could not turn on the sandbox',
       updateFailed: 'Could not update the sandbox policy'
     },
