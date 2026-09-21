@@ -8,6 +8,7 @@
  * Endpoints (matches gateway/platforms/whatsapp.py expectations):
  *   GET  /messages       - Long-poll for new incoming messages
  *   POST /send           - Send a message { chatId, message, replyTo?, mentions? }
+ *   POST /send-buttons   - Send confirmation poll or text fallback { chatId, message, buttons, replyTo? }
  *   POST /edit           - Edit a sent message { chatId, messageId, message }
  *   POST /send-media     - Send media natively { chatId, filePath, mediaType?, caption?, fileName?, mentions? }
  *   POST /send-location  - Send location pin { chatId, latitude, longitude, name?, address? }
@@ -38,6 +39,7 @@ import { classifyOwnerMessageGate } from './owner_message_gate.js';
 import {
   addMentions,
   buildPollPayload,
+  buildReplyButtonDelivery,
   createReconnectScheduler,
   createVersionResolver,
   buildLocationPayload,
@@ -53,6 +55,7 @@ import {
   normalizeWhatsAppId,
   pollCreationMessageFromPayload,
   pollUpdateForAggregation,
+  resolveReplyButtonPollSelection,
 } from './bridge_helpers.js';
 
 // Parse CLI args
@@ -198,16 +201,15 @@ function splitLongMessage(message, maxLength = MAX_MESSAGE_LENGTH) {
   return chunks;
 }
 
-function rememberSentMessage(sent, payload) {
+function rememberSentMessage(sent, payload, bridgeMetadata = null) {
   if (!sent?.key?.id) return;
-  if (sent.message) {
-    messageStore.remember(sent);
-    return;
-  }
-  const syntheticMessage = pollCreationMessageFromPayload(payload);
-  if (syntheticMessage) {
-    messageStore.remember({ ...sent, message: syntheticMessage });
-  }
+  const message = sent.message || pollCreationMessageFromPayload(payload);
+  if (!message) return;
+  messageStore.remember({
+    ...sent,
+    message,
+    ...(bridgeMetadata ? { bridgeMetadata } : {}),
+  });
 }
 
 function trackSentMessageId(sent) {
@@ -309,7 +311,7 @@ function logPollUpdateDiagnostic({ sourcePath, pollId, pollCreation, pollUpdates
   } catch {}
 }
 
-function enqueuePollUpdateEvent({ key, update, selectedOptions, aggregation }) {
+function enqueuePollUpdateEvent({ key, update, selectedOptions, aggregation, replyButtonOptionMap }) {
   const chatId = normalizeWhatsAppId(key?.remoteJid || update?.pollUpdates?.[0]?.pollUpdateMessageKey?.remoteJid || '');
   const senderId = normalizeWhatsAppId(
     key?.participant
@@ -329,7 +331,8 @@ function enqueuePollUpdateEvent({ key, update, selectedOptions, aggregation }) {
     }
     return;
   }
-  const chosenText = selectedOptions.length ? selectedOptions.join(', ') : `[Poll update${pollId ? `: ${pollId}` : ''}]`;
+  const selection = resolveReplyButtonPollSelection(selectedOptions, replyButtonOptionMap);
+  const chosenText = selection.body || `[Poll update${pollId ? `: ${pollId}` : ''}]`;
   const dedupeId = `poll:${pollId}:${senderId}:${selectedOptions.join('|')}`;
   if (recentlyProcessedPollUpdates.has(dedupeId)) return;
   recentlyProcessedPollUpdates.remember(dedupeId);
@@ -363,6 +366,13 @@ function enqueuePollUpdateEvent({ key, update, selectedOptions, aggregation }) {
     botIds: [],
     timestamp: Math.floor(Date.now() / 1000),
   };
+  if (selection.structuredReplyId) {
+    event.buttonReplyId = selection.structuredReplyId;
+    event.buttonReplyText = selection.selectedText;
+    event.buttonReplyType = 'poll_vote';
+    event.pollReplyId = selection.structuredReplyId;
+    event.pollReplyText = selection.selectedText;
+  }
   messageQueue.push(event);
   if (messageQueue.length > MAX_QUEUE_SIZE) {
     messageQueue.shift();
@@ -513,7 +523,13 @@ async function startSocket() {
         selectedOptions,
         aggregation,
       });
-      enqueuePollUpdateEvent({ key, update: { ...update, pollUpdates }, selectedOptions, aggregation });
+      enqueuePollUpdateEvent({
+        key,
+        update: { ...update, pollUpdates },
+        selectedOptions,
+        aggregation,
+        replyButtonOptionMap: pollCreation?.bridgeMetadata?.replyButtonOptionMap,
+      });
     }
   });
 
@@ -719,6 +735,7 @@ async function startSocket() {
           update: { pollUpdates },
           selectedOptions,
           aggregation,
+          replyButtonOptionMap: pollCreation?.bridgeMetadata?.replyButtonOptionMap,
         });
         continue;
       }
@@ -871,6 +888,65 @@ app.post('/send', async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Backward-compatible Marta reply actions. WhatsApp clients no longer render
+// Baileys interactive buttons reliably, so confirmation becomes a poll and
+// all other actions become an explicit text instruction.
+app.post('/send-buttons', async (req, res) => {
+  if (!sock || connectionState !== 'connected') {
+    return res.status(503).json({ error: 'Not connected to WhatsApp' });
+  }
+
+  const { chatId, message, buttons, replyTo } = req.body;
+  if (!chatId || !message) {
+    return res.status(400).json({ error: 'chatId, message, and at least one button are required' });
+  }
+
+  let delivery;
+  try {
+    delivery = buildReplyButtonDelivery(message, buttons);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+
+  try {
+    const messageIds = [];
+    if (delivery.buttonMode === 'poll') {
+      const payload = buildPollPayload({
+        question: formatOutgoingMessage(delivery.message),
+        options: delivery.options,
+        selectableCount: 1,
+      });
+      const { options } = buildTextSendPayload('', { replyTo, messageStore });
+      const sent = await sendWithTimeout(chatId, payload, options);
+      trackSentMessageId(sent);
+      rememberSentMessage(sent, payload, { replyButtonOptionMap: delivery.optionMap });
+      if (sent?.key?.id) messageIds.push(sent.key.id);
+    } else {
+      const chunks = splitLongMessage(formatOutgoingMessage(delivery.message));
+      for (let i = 0; i < chunks.length; i += 1) {
+        const { content, options } = buildTextSendPayload(chunks[i], {
+          replyTo: i === 0 ? replyTo : undefined,
+          messageStore,
+        });
+        const sent = await sendWithTimeout(chatId, content, options);
+        trackSentMessageId(sent);
+        messageStore.remember(sent);
+        if (sent?.key?.id) messageIds.push(sent.key.id);
+        if (i < chunks.length - 1) await sleep(CHUNK_DELAY_MS);
+      }
+    }
+
+    return res.json({
+      success: true,
+      buttonMode: delivery.buttonMode,
+      messageId: messageIds[messageIds.length - 1],
+      messageIds,
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
   }
 });
 

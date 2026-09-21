@@ -15,6 +15,7 @@ import { getAggregateVotesInPollMessage } from '@whiskeysockets/baileys';
 import {
   addMentions,
   buildPollPayload,
+  buildReplyButtonDelivery,
   buildTextSendPayload,
   createBoundedMessageStore,
   appendMediaFailureNote,
@@ -24,7 +25,69 @@ import {
   normalizePresenceState,
   pollCreationMessageFromPayload,
   pollUpdateForAggregation,
+  resolveReplyButtonPollSelection,
 } from './bridge_helpers.js';
+
+// -- backward-compatible reply buttons ----------------------------------
+{
+  const delivery = buildReplyButtonDelivery(
+    '*Son estos tus datos?*\n\nNombre: Ana\n\nSi está todo bien, tocá Confirmar para seguir.',
+    [{ id: 'confirmar', text: 'Acepto datos y términos' }],
+  );
+  assert.deepEqual(delivery, {
+    buttonMode: 'poll',
+    message: '*Son estos tus datos?*\n\nNombre: Ana',
+    options: ['Acepto datos y términos', 'No'],
+    optionMap: {
+      'acepto datos y terminos': 'confirmar',
+      no: 'no',
+    },
+  });
+
+  const payload = buildPollPayload({
+    question: delivery.message,
+    options: delivery.options,
+    selectableCount: 1,
+  });
+  const creation = pollCreationMessageFromPayload(payload);
+  assert.deepEqual(
+    creation.pollCreationMessageV3.options.map(option => option.optionName),
+    ['Acepto datos y términos', 'No'],
+  );
+  assert.deepEqual(
+    resolveReplyButtonPollSelection(['Acepto datos y términos'], delivery.optionMap),
+    {
+      body: 'confirmar',
+      structuredReplyId: 'confirmar',
+      selectedText: 'Acepto datos y términos',
+    },
+  );
+  assert.equal(resolveReplyButtonPollSelection(['No'], delivery.optionMap).body, 'no');
+  assert.deepEqual(resolveReplyButtonPollSelection(['Opción A']), {
+    body: 'Opción A',
+    structuredReplyId: '',
+    selectedText: 'Opción A',
+  });
+  console.log('  ✓ Marta confirmation buttons remain a single-choice consent poll');
+}
+
+{
+  assert.deepEqual(
+    buildReplyButtonDelivery(
+      'Cuando quieras, tocá Ver carta (PDF).',
+      [{ value: 'chart', label: 'Ver carta (PDF)' }],
+    ),
+    {
+      buttonMode: 'text_fallback',
+      message: 'Cuando quieras, escribí Ver carta (PDF).',
+    },
+  );
+  assert.throws(
+    () => buildReplyButtonDelivery('Elegí una opción', [{ id: '', text: '' }]),
+    /at least one button/,
+  );
+  console.log('  ✓ non-confirmation buttons keep an actionable text fallback');
+}
 
 // -- explicit presence states --------------------------------------------
 {
