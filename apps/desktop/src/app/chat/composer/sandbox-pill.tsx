@@ -94,7 +94,7 @@ export function SandboxPill({ disabled }: { disabled: boolean }) {
         <Button
           aria-label={title}
           aria-pressed={enabled}
-          className={cn(GHOST_ICON_BTN, enabled && ACTIVE_ICON_BTN)}
+          className={cn('relative', GHOST_ICON_BTN, enabled && ACTIVE_ICON_BTN)}
           data-state-sandbox={enabled ? 'on' : 'off'}
           data-testid="sandbox-pill"
           disabled={disabled || busy}
@@ -104,6 +104,9 @@ export function SandboxPill({ disabled }: { disabled: boolean }) {
           variant="ghost"
           {...hoverProps}
         >
+          {/* The travelling blue-to-orange arc the Nous Portal row wears: the sandbox being on
+              is the one state in the composer worth more than a tint. */}
+          {enabled && <span aria-hidden className="arc-border arc-nous" data-testid="sandbox-pill-arc" />}
           <ShieldLock className="size-3.5" />
         </Button>
       </PopoverAnchor>

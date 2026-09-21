@@ -85,6 +85,7 @@ describe('SandboxPill', () => {
     mount('C:\\Users\\me\\Hermes')
     const pill = screen.getByTestId('sandbox-pill')
     expect(pill.getAttribute('data-state-sandbox')).toBe('on')
+    expect(screen.getByTestId('sandbox-pill-arc')).toBeTruthy()
 
     await hover(pill)
 
@@ -98,6 +99,7 @@ describe('SandboxPill', () => {
     mount()
     const pill = screen.getByTestId('sandbox-pill')
     expect(pill.getAttribute('data-state-sandbox')).toBe('off')
+    expect(screen.queryByTestId('sandbox-pill-arc')).toBeNull()
 
     await hover(pill)
 
