@@ -64,8 +64,12 @@ def append_output_contract(context: Optional[str], schema: Dict[str, Any]) -> st
     return f"{base}\n\n{block}" if base else block
 
 
-def _first_decodable_span(source: str) -> Optional[str]:
+def first_json_value_span(source: str, openers: str = "{[") -> Optional[str]:
     """Outermost JSON value starting at the earliest opener that decodes, or ``None``.
+
+    ``openers`` narrows which brackets start a candidate (``"{"`` for callers that need an object).
+    Shared by the goal judge and Kanban specify parsers, whose first-``{``/last-``}`` slicing broke
+    on trailing prose with braces (and, for the judge's non-greedy regex, on any nested object).
 
     Every ``{``/``[`` is tried in document order with ``JSONDecoder.raw_decode``, which stops at
     the END of the first complete value. Attempts are capped so a bracket-dense blob (a diff, a
@@ -73,7 +77,7 @@ def _first_decodable_span(source: str) -> Optional[str]:
     """
     attempts = 0
     for index, char in enumerate(source):
-        if char not in "{[":
+        if char not in openers:
             continue
         attempts += 1
         if attempts > _MAX_JSON_SCAN_ATTEMPTS:
@@ -103,7 +107,7 @@ def extract_json_candidate(text: str) -> str:
         raw = raw.strip()
         if raw.lower().startswith("json\n"):
             raw = raw.split("\n", 1)[1]
-    span = _first_decodable_span(raw)
+    span = first_json_value_span(raw)
     if span is not None:
         return span
     # Nothing decodes whole: hand the retry prompt the earliest-opening bracket slice, so the
