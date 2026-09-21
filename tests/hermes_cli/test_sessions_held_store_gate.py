@@ -85,10 +85,13 @@ def test_store_rewrites_refuse_and_name_the_holder_until_forced(action, state_db
     assert f"PID {foreign_holder.pid} (" in out
     assert f"Refusing `hermes sessions {action}`" in out and "--force" in out
     # The gate scans the store the command actually opened, not some other resolver's file: no
-    # `hermes sessions` subcommand can point the command at another database, so the default
-    # resolver IS the operated-on path, and the refusal names it.
+    # GATED subcommand can point the command at another database, so the default resolver IS the
+    # operated-on path, and the refusal names it. (`set-journal-mode` does take `--db`, but it is
+    # not gated here — it runs its own holder scan against the path it was handed.)
     assert str(state_db) in out
-    assert not [opt for sub in _sessions_subparsers().values() for a in sub._actions
+    assert not [opt
+                for name, sub in _sessions_subparsers().items() if name in sessions_cmd._HELD_STORE_ACTIONS
+                for a in sub._actions
                 for opt in a.option_strings if opt in ("--db", "--db-path", "--database")]
 
     assert sessions_cmd.cmd_sessions(_args(action, force=True)) != 1
