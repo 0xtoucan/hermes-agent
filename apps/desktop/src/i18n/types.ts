@@ -821,6 +821,7 @@ export interface Translations {
       toggleDescription: string
       shellNote: string
       workspaceRule: string
+      isolationRule: string
       foldersTitle: string
       foldersEmpty: string
       addReadOnly: string
@@ -2584,6 +2585,19 @@ export interface Translations {
 
   composer: {
     message: string
+    sandbox: {
+      heading: string
+      titleOn: string
+      titleOff: string
+      on: string
+      off: string
+      descriptionOn: (folder: string) => string
+      descriptionOff: string
+      networkOn: string
+      networkOff: string
+      isolated: string
+      openSettings: string
+    }
     wakingProfile: (profile: string) => string
     placeholderStarting: string
     placeholderReconnecting: string

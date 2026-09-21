@@ -949,6 +949,8 @@ export const en: Translations = {
       workspaceRule:
         'Each conversation can write only inside its own project folder, shown in the composer; a conversation without a project folder works in the Hermes folder under your user profile. Everything else is read-only or denied unless listed below. Images and text you paste into the composer are always readable.',
       foldersTitle: 'Additional folders',
+      isolationRule:
+        'Sandboxed commands also cannot read or write the clipboard, change the registry, schedule tasks, or see or stop other running programs. Credentials and environment variables from this machine are never passed in.',
       foldersEmpty: 'No extra folders. The agent can only touch the workspace.',
       addReadOnly: 'Add read-only folder',
       addReadWrite: 'Add read & write folder',
@@ -2978,6 +2980,20 @@ export const en: Translations = {
 
   composer: {
     message: 'Message',
+    sandbox: {
+      heading: 'Sandbox (MXC)',
+      titleOn: 'Sandbox on: commands run in a Windows container',
+      titleOff: 'Sandbox off: commands run directly on this machine',
+      on: 'On',
+      off: 'Off',
+      descriptionOn: folder =>
+        `Every command from this conversation runs in a kernel-enforced Windows container. It can write only inside ${folder}; everything else on this machine is read-only or denied unless you grant it.`,
+      descriptionOff: 'Commands run directly on this machine with your permissions. Turn the sandbox on to run every command in a kernel-enforced Windows container.',
+      networkOn: 'Network access is allowed.',
+      networkOff: 'Network access is off.',
+      isolated: 'The clipboard, the registry and other running programs are off-limits.',
+      openSettings: 'Open sandbox settings'
+    },
     wakingProfile: profile => `Waking up ${profile}…`,
     placeholderStarting: 'Starting Hermes...',
     placeholderReconnecting: 'Reconnecting to Hermes…',

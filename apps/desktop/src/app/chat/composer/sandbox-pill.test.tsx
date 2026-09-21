@@ -1,0 +1,105 @@
+// @vitest-environment jsdom
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { atom } from 'nanostores'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+import { type SessionView, SessionViewProvider } from '@/app/chat/session-view'
+import { en } from '@/i18n/en'
+import { $routeRequest } from '@/store/recovery-requests'
+import { $sandboxStatus } from '@/store/sandbox'
+import type { SandboxStatus } from '@/types/hermes'
+
+import { SandboxPill } from './sandbox-pill'
+
+vi.mock('@/api/sandbox', () => ({
+  getSandboxStatus: vi.fn(() => new Promise(() => undefined))
+}))
+
+const status = (over: Partial<SandboxStatus> = {}): SandboxStatus =>
+  ({
+    platform_supported: true,
+    available: true,
+    enabled: true,
+    degraded: false,
+    reason: null,
+    warnings: [],
+    shell_missing: false,
+    workspace: 'C:\\Users\\me\\Hermes',
+    containers_started: 0,
+    policy: { readwrite_paths: [], readonly_paths: [], network: false },
+    ...over
+  }) as SandboxStatus
+
+const view = (cwd: string): SessionView => ({
+  kind: 'tile',
+  $awaitingResponse: atom(false),
+  $busy: atom(false),
+  $cwd: atom(cwd),
+  $fast: atom(false),
+  $lastVisibleIsUser: atom(false),
+  $messages: atom([]),
+  $messagesEmpty: atom(true),
+  $model: atom('m'),
+  $provider: atom('p'),
+  $reasoningEffort: atom(''),
+  $runtimeId: atom('rt'),
+  $storedId: atom('st'),
+  $turnStartedAt: atom<number | null>(null)
+})
+
+const mount = (cwd = 'C:\\Users\\me\\Hermes') =>
+  render(
+    <SessionViewProvider value={view(cwd)}>
+      <SandboxPill disabled={false} />
+    </SessionViewProvider>
+  )
+
+afterEach(() => {
+  cleanup()
+  $sandboxStatus.set(null)
+})
+
+describe('SandboxPill', () => {
+  it('is absent where the backend cannot sandbox at all', () => {
+    $sandboxStatus.set(status({ platform_supported: false }))
+    mount()
+    expect(screen.queryByTestId('sandbox-pill')).toBeNull()
+  })
+
+  it("names this conversation's folder and the network state while the sandbox is on", async () => {
+    $sandboxStatus.set(status({ enabled: true }))
+    mount('C:\\Users\\me\\Hermes')
+    const pill = screen.getByTestId('sandbox-pill')
+    expect(pill.getAttribute('data-state-sandbox')).toBe('on')
+
+    await act(async () => {
+      fireEvent.click(pill)
+    })
+
+    expect(screen.getByTestId('sandbox-pill-state').textContent).toBe(en.composer.sandbox.on)
+    expect(screen.getByText(/Users[\\/]me[\\/]Hermes|~[\\/]Hermes/)).toBeTruthy()
+    expect(screen.getByText(new RegExp(en.composer.sandbox.networkOff))).toBeTruthy()
+  })
+
+  it('explains the off state and routes to the sandbox settings', async () => {
+    $sandboxStatus.set(status({ enabled: false }))
+    mount()
+    const pill = screen.getByTestId('sandbox-pill')
+    expect(pill.getAttribute('data-state-sandbox')).toBe('off')
+
+    await act(async () => {
+      fireEvent.click(pill)
+    })
+
+    expect(screen.getByText(en.composer.sandbox.descriptionOff)).toBeTruthy()
+    const before = $routeRequest.get()?.seq ?? 0
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: en.composer.sandbox.openSettings }))
+    })
+
+    const request = $routeRequest.get()
+    expect(request?.seq).toBeGreaterThan(before)
+    expect(request?.path).toBe('/settings?tab=config:safety')
+  })
+})

@@ -8,6 +8,7 @@ import { useI18n } from '@/i18n'
 import { AlertTriangle, Loader2, Plus, RefreshCw, ShieldLock, Trash2 } from '@/lib/icons'
 import { notifyError } from '@/store/notifications'
 import { pickProjectFolder } from '@/store/projects'
+import { publishSandboxStatus } from '@/store/sandbox'
 import type { SandboxGrantMode, SandboxStatus } from '@/types/hermes'
 
 import { ListRow, Pill } from './primitives'
@@ -73,6 +74,8 @@ export function SandboxPanel({ workspace }: { workspace?: string } = {}) {
   const activeRef = useRef(false)
 
   const apply = useCallback((next: SandboxStatus) => {
+    publishSandboxStatus(next)
+
     if (activeRef.current) {
       setStatus(next)
     }
@@ -111,11 +114,13 @@ export function SandboxPanel({ workspace }: { workspace?: string } = {}) {
     if (!enabled) {
       return
     }
+
     const tick = () => {
       if (document.visibilityState === 'visible') {
         void refresh()
       }
     }
+
     const timer = window.setInterval(tick, SANDBOX_STATUS_TICK_MS)
     document.addEventListener('visibilitychange', tick)
 
@@ -204,6 +209,7 @@ export function SandboxPanel({ workspace }: { workspace?: string } = {}) {
   const ancestors = status.workspace_ancestors
   const needsAdmin = ancestors?.needs_admin ?? []
   const adminCommand = ancestors?.admin_command ?? ''
+
   const grants: { path: string; mode: SandboxGrantMode }[] = [
     ...(status.policy?.readwrite_paths ?? []).map(path => ({ path, mode: 'readwrite' as const })),
     ...(status.policy?.readonly_paths ?? []).map(path => ({ path, mode: 'read' as const }))
@@ -262,6 +268,7 @@ export function SandboxPanel({ workspace }: { workspace?: string } = {}) {
           <p className="px-1 text-[0.72rem] text-muted-foreground" data-testid="sandbox-workspace-rule">
             {copy.workspaceRule}
           </p>
+          <p className="px-1 text-[0.72rem] text-muted-foreground">{copy.isolationRule}</p>
 
           {ancestors && !ancestors.ready && (
             <ListRow
