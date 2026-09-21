@@ -1,22 +1,62 @@
 """Core boundary for connector search, descriptions, and remote execution.
 
-Search and description failures degrade to no remote results; exceptions cannot escape this bridge because core dispatch bypasses registry error wrapping.
+Search and description failures degrade to no remote results and name the reason on the leg;
+exceptions cannot escape this bridge because core dispatch bypasses registry error wrapping.
 """
 
 from __future__ import annotations
 
 import logging
-from dataclasses import replace as dataclass_replace
+from dataclasses import dataclass, field, replace as dataclass_replace
 from typing import Any, Callable, Optional, Sequence
 
 from tools.connectors.gateway.config import connectors_available
-from tools.connectors.gateway.errors import GatewayUnavailable, ToolGatewayError
+from tools.connectors.gateway.errors import GatewayAuthError, GatewayUnavailable, ToolGatewayError
 from tools.connectors.gateway.merge import fill_remote_failure, splice_remote_results
 from tools.connectors.gateway.names import parse_connector_name, vendor_slug_candidates
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["connector_describe", "connector_search_hits", "run_remote"]
+# The two reasons a hosted leg produced nothing that the model is allowed to hear about.
+SIGN_IN_EXPIRED = "sign_in_expired"
+UNREACHABLE = "unreachable"
+
+__all__ = [
+    "SIGN_IN_EXPIRED",
+    "UNREACHABLE",
+    "ConnectorLeg",
+    "connector_describe",
+    "connector_search_hits",
+    "run_remote",
+]
+
+
+@dataclass(frozen=True)
+class ConnectorLeg:
+    """One hosted search or describe call: the gateway payload, and why the leg produced nothing.
+
+    ``failure`` is None when the leg answered, when connectors are off for this user, when the
+    gateway is dark (a 404 is the shut gate, not an outage), and on a 403 (an entitlement the
+    account does not have reads as the same shut gate).
+    """
+
+    payload: dict[str, Any] = field(default_factory=dict)
+    failure: Optional[str] = None
+
+
+# The gateway codes that name a rejected token. A 403 is not here: it refuses an entitlement the
+# account does not have, and signing in again does not change that.
+_TOKEN_REJECTED_CODES = frozenset({"UNAUTHORIZED", "INVALID_TOKEN", "TOKEN_EXPIRED"})
+
+
+def _leg_failure(exc: Exception) -> Optional[str]:
+    """A rejected token is a sign-in the user must repeat. An entitlement refusal reads like the
+    shut gate and says nothing to the model. Everything else is an outage."""
+    if isinstance(exc, GatewayAuthError):
+        if exc.status == 401 or str(exc.code).upper() in _TOKEN_REJECTED_CODES:
+            return SIGN_IN_EXPIRED
+        return None
+    return UNREACHABLE
 
 
 def _default_client_factory():
@@ -30,20 +70,21 @@ def connector_search_hits(
     *,
     availability: Optional[Callable[[], bool]] = None,
     client_factory: Optional[Callable[[], Any]] = None,
-) -> dict[str, Any]:
-    """Return no hits on failure so local search behavior is unchanged."""
+) -> ConnectorLeg:
+    """Return no hits on failure so local search behavior is unchanged (D32); the reason rides
+    along on the leg so the caller can tell an outage from no hits."""
     try:
         available = (availability or connectors_available)()
         if not available or not queries:
-            return {}
+            return ConnectorLeg()
         client = (client_factory or _default_client_factory)()
-        return client.search(list(queries)) or {}
+        return ConnectorLeg(payload=client.search(list(queries)) or {})
     except GatewayUnavailable:
         logger.debug("Connector search skipped: gateway dark")
-        return {}
+        return ConnectorLeg()
     except Exception as exc:
-        logger.debug("Connector search failed silently (D32): %s", exc)
-        return {}
+        logger.debug("Connector search failed (D32): %s", exc)
+        return ConnectorLeg(failure=_leg_failure(exc))
 
 
 def connector_describe(
@@ -51,12 +92,13 @@ def connector_describe(
     *,
     availability: Optional[Callable[[], bool]] = None,
     client_factory: Optional[Callable[[], Any]] = None,
-) -> dict[str, Any]:
-    """Return no schemas on failure so local descriptions are unchanged."""
+) -> ConnectorLeg:
+    """Return no schemas on failure so local descriptions are unchanged (D32); the reason rides
+    along on the leg so the caller can tell an outage from an unknown tool."""
     try:
         available = (availability or connectors_available)()
         if not available:
-            return {}
+            return ConnectorLeg()
         # Resolve each name independently: candidates can overlap across composed names.
         wanted: dict[str, tuple[str, ...]] = {}
         request_slugs: list[str] = []
@@ -70,7 +112,7 @@ def connector_describe(
                 if slug not in request_slugs:
                     request_slugs.append(slug)
         if not wanted:
-            return {}
+            return ConnectorLeg()
         client = (client_factory or _default_client_factory)()
         response = client.schemas(request_slugs) or {}
         schemas = response.get("schemas") if isinstance(response.get("schemas"), dict) else {}
@@ -87,13 +129,13 @@ def connector_describe(
                 "description": str(schema.get("description") or ""),
                 "parameters": schema.get("input_schema") or {},
             }
-        return {"tools": tools}
+        return ConnectorLeg(payload={"tools": tools})
     except GatewayUnavailable:
         logger.debug("Connector describe skipped: gateway dark")
-        return {}
+        return ConnectorLeg()
     except Exception as exc:
-        logger.debug("Connector describe failed silently (D32): %s", exc)
-        return {}
+        logger.debug("Connector describe failed (D32): %s", exc)
+        return ConnectorLeg(failure=_leg_failure(exc))
 
 
 def run_remote(

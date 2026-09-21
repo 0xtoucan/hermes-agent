@@ -1,8 +1,15 @@
-"""Target normalization and action validation for ``manage_connections``."""
+"""Target normalization and action validation for ``manage_connections``.
+
+The two surfaces share slug names. A name only the other surface knows is corrected here, on the
+failure path of the call that named it, so the model is told which call does work.
+"""
 
 from __future__ import annotations
 
-from typing import Any, List, Optional, Tuple
+import logging
+from typing import Any, List, Optional, Set, Tuple
+
+logger = logging.getLogger(__name__)
 
 CONNECTOR_ACTIONS = ("status", "connect", "reconnect")
 MCP_ACTIONS = ("install", "enable", "authorize")
@@ -68,3 +75,49 @@ def validate_action(action: str, managed: List[str], mcp: List[str]) -> Optional
             f"{', '.join(MCP_ACTIONS)}."
         )
     return None
+
+
+def catalog_names() -> Set[str]:
+    """The bundled MCP catalog entries. A local read, and empty when it fails, so the routing
+    check never fails a call of its own."""
+    try:
+        from hermes_cli.mcp_catalog import list_catalog
+
+        return {e.name for e in list_catalog()}
+    except Exception as exc:
+        logger.debug("MCP catalog for the routing check failed: %s", exc)
+        return set()
+
+
+def hosted_names() -> Optional[Set[str]]:
+    """The connector slugs the gateway knows for this account, and ``None`` when it cannot say.
+    A routing check that reads "not in this set" must not read a failure as an answer, so the two
+    cases are kept apart. This reads the gateway, so callers use it only on a failure path."""
+    try:
+        from tools.connectors.gateway.client import ConnectorClient
+        from tools.connectors.gateway.config import connectors_available
+
+        if not connectors_available():
+            return None
+        return {str(item.get("connector", "")).lower()
+                for item in ConnectorClient().list_connectors() if isinstance(item, dict)}
+    except Exception as exc:
+        logger.debug("connector list for the routing check failed: %s", exc)
+        return None
+
+
+def misrouted_to_hosted_error(name: str) -> str:
+    """``connect``/``reconnect`` named a local MCP server. Name the call that does work."""
+    return (
+        f"{name} is a local MCP server, not a hosted connector account. "
+        f"Call manage_connections with action install and connectors "
+        f"[{{\"name\": \"{name}\", \"mcp\": true}}]."
+    )
+
+
+def misrouted_to_mcp_error(action: str, name: str) -> str:
+    """``install``/``enable``/``authorize`` named a hosted connector. Name the call that does work."""
+    return (
+        f"{name} is a hosted connector account, not a local MCP server, so '{action}' "
+        f"does not apply. Call manage_connections with action connect and connectors [\"{name}\"]."
+    )

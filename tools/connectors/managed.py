@@ -14,11 +14,12 @@ import logging
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from tools.connectors.contract import Actor, TargetState, allowed
+from tools.connectors.contract import Actor, SettleReason, TargetState, allowed
 from tools.connectors.gateway.config import operation_session_key
 from tools.connectors.gateway.errors import RateLimited
 from tools.connectors.operation import ConnectionOperation, DetachedOperation, IllegalTransition, Target
 from tools.connectors.run import Kind, run_operation
+from tools.connectors.targets import catalog_names, hosted_names, misrouted_to_hosted_error
 from tools.registry import tool_error
 
 logger = logging.getLogger(__name__)
@@ -45,7 +46,8 @@ _ACCOUNT_OUTCOME: Dict[str, Tuple[TargetState, Actor]] = {
 
 NOTE = (
     "Settled once. connected → use the app now; skipped → the user chose Not now, do not connect it "
-    "or route around it; not_connected → ask the user what to do, never re-mint on your own."
+    "or route around it; not_connected → ask the user what to do, never re-mint on your own. "
+    "A later request from the USER for that same app is not a re-ask — run it."
 )
 
 
@@ -178,15 +180,43 @@ def _observe(client: Any, operation: ConnectionOperation) -> None:
         _apply_read(operation, target, str(row.get("status") or "").lower(), str(row.get("statusReason") or ""))
 
 
+def _mark_misrouted(operation: ConnectionOperation) -> None:
+    """NS-932, the failure path. The mint answers a bare ``failed`` for an unknown slug and for a
+    vendor error alike, so one hosted-list read decides: a name the gateway does not list, and the
+    bundled catalog does, was meant for the local MCP surface. Such a target stays a failed row and
+    carries the call that does work as its detail; every other target of the call is untouched.
+    A list the gateway cannot answer decides nothing."""
+    unminted = [t for t in operation.targets
+                if t.state == TargetState.failed and not t.connection_id]
+    if not unminted:
+        return
+    catalog = catalog_names()
+    candidates = [t for t in unminted if t.name in catalog]
+    if not candidates:
+        return
+    hosted = hosted_names()
+    if hosted is None:
+        return
+    misrouted = [t for t in candidates if t.name not in hosted]
+    for target in misrouted:
+        operation.refresh(target.name, connect_url=None, actor=Actor.backend_watcher,
+                          detail=misrouted_to_hosted_error(target.name))
+    if misrouted and len(misrouted) == len(operation.targets):
+        # Nothing was minted and nothing can be answered, so there is no card to open.
+        operation.settle(SettleReason.all_resolved)
+
+
 def _prepare(client: Any, action: str, force: bool) -> Callable[[ConnectionOperation], None]:
     def prepare(operation: ConnectionOperation) -> None:
         names = [t.name for t in operation.targets]
         if action == "connect":
             mint(client, operation, names, reinitiate=False, actor=Actor.backend_watcher)
+            _mark_misrouted(operation)
             return
         if force:
             # The re-mint names a new account; the watcher reads that one, never the old row.
             mint(client, operation, names, reinitiate=True, actor=Actor.backend_watcher)
+            _mark_misrouted(operation)
             return
         status = _status_by_slug(client)
         repair = []
@@ -197,6 +227,7 @@ def _prepare(client: Any, action: str, force: bool) -> Callable[[ConnectionOpera
             else:
                 repair.append(name)
         mint(client, operation, repair, reinitiate=True, actor=Actor.backend_watcher)
+        _mark_misrouted(operation)
 
     return prepare
 

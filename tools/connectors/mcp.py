@@ -22,6 +22,7 @@ from tools.connectors.contract import Actor, SettleReason, TargetState
 from tools.connectors.gateway.config import operation_session_key
 from tools.connectors.operation import ConnectionOperation, DetachedOperation, IllegalTransition, Target
 from tools.connectors.run import Kind, run_operation
+from tools.connectors.targets import hosted_names, misrouted_to_mcp_error
 from tools.registry import tool_error
 
 logger = logging.getLogger(__name__)
@@ -31,7 +32,8 @@ logger = logging.getLogger(__name__)
 PREPARE_WAIT_SECONDS = 30.0
 
 NOTE = (
-    "Settled once; do not re-ask for any target the user skipped or that timed out. Connected "
+    "Settled once; do not re-ask on your own for any target the user skipped or that timed out, but "
+    "a later request from the USER for that same app is not a re-ask — run it. Connected "
     "targets' tools are available now through tool_describe/tool_call and are named under "
     "tools_listing. A target with discovery_error is authorized but its tools are unavailable; "
     "retry discovery with manage_connections using that target's authorize or install action "
@@ -44,7 +46,8 @@ NO_CARD_NOTE = (
     "available now through tool_describe/tool_call and are named under tools_listing. A target with "
     "discovery_error is authorized but its tools are unavailable; retry discovery with "
     "manage_connections using that target's authorize or install action without asking for consent "
-    "again. Do not re-ask for skipped or timed-out targets."
+    "again. Do not re-ask on your own for skipped or timed-out targets, but a later request from "
+    "the USER for that same app is not a re-ask — run it."
 )
 
 
@@ -70,6 +73,14 @@ def validate_mcp_names(action: str, names: List[str]) -> Optional[str]:
     unknown = [n for n in names if n not in allowed]
     if not unknown:
         return None
+    # NS-932, failure path only: a name NEITHER MCP surface knows may be a hosted connector slug.
+    # A catalog entry that is only not installed yet keeps the install/enable answer below.
+    foreign = [n for n in unknown if n not in catalog and n not in configured]
+    if foreign:
+        hosted = hosted_names() or set()
+        misrouted = [n for n in foreign if n in hosted]
+        if misrouted:
+            return " ".join(misrouted_to_mcp_error(action, name) for name in misrouted)
     if action == "install":
         return (
             f"unknown MCP server(s) for install: {', '.join(unknown)}. Install works for "
