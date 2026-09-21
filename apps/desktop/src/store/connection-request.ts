@@ -15,7 +15,7 @@ import { atom, computed } from 'nanostores'
 import { resolveSessionOwner } from '@/app/session/hooks/use-session-actions/utils'
 import type { SetupField } from '@/components/ui/setup-field-list'
 
-import { requestGatewayForAgent } from './gateway'
+import { $gateway, requestGatewayForAgent } from './gateway'
 import { $activeGatewayProfile } from './profile'
 import { assertSessionOwnerResolved } from './session-owner-resolution'
 import { isSessionOwnerRoute } from './session-request-router'
@@ -325,17 +325,19 @@ export async function respondToConnectionRequest(
     return false
   }
 
-  const owner = await connectionOwnerFor(request.sessionId, 'connection.respond')
-
-  if (!owner) {
-    return false
+  const params = {
+    op_id: request.opId,
+    owner: { session_id: request.sessionId, type: 'session' as const },
+    result: outcome
   }
 
-  await requestGatewayForAgent(owner.connectionId, owner.profile, 'connection.respond', {
-    op_id: request.opId,
-    owner: { session_id: request.sessionId, type: 'session' },
-    result: outcome
-  })
+  const owner = await connectionOwnerFor(request.sessionId, 'connection.respond')
+
+  if (owner) {
+    await requestGatewayForAgent(owner.connectionId, owner.profile, 'connection.respond', params)
+  } else {
+    await $gateway.get()?.request('connection.respond', params)
+  }
 
   return true
 }

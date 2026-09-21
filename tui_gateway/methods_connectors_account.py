@@ -34,7 +34,11 @@ def _account_method(params_model=None, *, invalid="", invalid_reason=ConnectorEr
                 return fn(rid, request)
             except GatewayAuthError as exc:
                 return _connector_auth_error(rid, exc)
-            except Exception:
+            except Exception as exc:
+                if getattr(exc, "code", None) == "org_required":
+                    return _connector_rpc_error(
+                        rid, 4090, ConnectorErrorReason.org_required, "Select an organization to manage connector rules."
+                    )
                 return _connector_rpc_error(rid, 5034, unavailable, unavailable_message)
 
         return handler
@@ -119,7 +123,7 @@ def _(rid, request):
     unavailable_message="Connector accounts are unavailable.",
 )
 def _(rid, request):
-    from tools.connectors.gateway.errors import GatewayUnavailable, ToolGatewayError
+    from tools.connectors.gateway.errors import GatewayAuthError, GatewayUnavailable, ToolGatewayError
     from tools.connectors.portal.client import PortalConnectorClient
     from tui_gateway.contracts.connectors import ConnectorAccountsRemoveResult, ConnectorErrorReason
 
@@ -129,7 +133,11 @@ def _(rid, request):
         if exc.code == "connection_not_found":
             return _connector_rpc_error(rid, 4041, ConnectorErrorReason.connection_not_found, "Connector account not found.")
         return _connector_rpc_error(rid, 5034, ConnectorErrorReason.accounts_unavailable, "Connector accounts are unavailable.")
+    except GatewayAuthError:
+        raise
     except ToolGatewayError as exc:
+        if exc.code == "org_required":
+            raise
         if exc.code == "invalid_connection_id":
             return _connector_rpc_error(rid, 4000, ConnectorErrorReason.invalid_params, "Connection id is invalid.")
         return _connector_rpc_error(rid, 5034, ConnectorErrorReason.accounts_unavailable, "Connector accounts are unavailable.")
@@ -148,7 +156,7 @@ def _(rid, request):
 def _(rid, _params):
     from tools.connectors.gateway.errors import GatewayAuthError, ToolGatewayError
     from tools.connectors.portal.client import PortalConnectorClient
-    from tui_gateway.contracts.connectors import ConnectorPolicyGetResult, ConnectorPolicyLayer
+    from tui_gateway.contracts.connectors import ConnectorErrorReason, ConnectorPolicyGetResult, ConnectorPolicyLayer
 
     try:
         client = PortalConnectorClient()
