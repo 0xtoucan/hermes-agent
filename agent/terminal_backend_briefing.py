@@ -31,7 +31,7 @@ class TerminalBackendBriefing:
             env = get_active_env(task_id or "default")
         except Exception:  # noqa: BLE001 — a briefing must never break a tool result
             return None
-        current = getattr(env, "backend_name", "") if env is not None else ""
+        current = getattr(env, "env_type", "") if env is not None else ""
         if not current or current == self.briefed:
             return None
         from agent.prompt_builder import terminal_backend_switch_note

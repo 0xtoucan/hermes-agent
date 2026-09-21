@@ -5,8 +5,8 @@ from agent import prompt_builder
 from agent.terminal_backend_briefing import TerminalBackendBriefing
 
 
-def _env(backend_name):
-    return SimpleNamespace(backend_name=backend_name)
+def _env(env_type):
+    return SimpleNamespace(env_type=env_type)
 
 
 def test_no_note_until_the_prompt_backend_is_known_or_while_it_matches(monkeypatch):
@@ -39,6 +39,17 @@ def test_sandbox_turned_off_mid_conversation_is_announced_and_a_second_flip_is_a
     assert "turned on" in (briefing.check_tool_call("t") or "")
 
 
-def test_switch_note_between_other_backends_names_both():
+def test_switch_to_a_remote_backend_carries_that_backend_block(monkeypatch):
+    """Every backend the terminal tool can build is tagged with its type at creation, so a switch to
+    docker, modal, ssh or a plugin backend is announced with the same block its prompt would carry."""
+    monkeypatch.setattr(prompt_builder, "_probe_remote_backend", lambda backend: "")
     note = prompt_builder.terminal_backend_switch_note("local", "docker")
-    assert "`docker`" in note and "`local`" in note
+    assert "changed from `local` to `docker`" in note
+    assert "Terminal backend: docker" in note, "the remote-backend block the prompt would have carried"
+    monkeypatch.setattr("tools.terminal_tool_lifecycle.get_active_env", lambda task_id: _env("docker"))
+    briefing = TerminalBackendBriefing()
+    briefing.record_prompt_backend("local")
+    assert "Terminal backend: docker" in (briefing.check_tool_call("t") or "")
+    monkeypatch.setattr("tools.terminal_tool_lifecycle.get_active_env", lambda task_id: _env("local"))
+    back = briefing.check_tool_call("t") or ""
+    assert "changed from `docker` to `local`" in back and "Host:" in back

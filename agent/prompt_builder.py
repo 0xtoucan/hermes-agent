@@ -1079,17 +1079,20 @@ def active_terminal_backend() -> str:
 def terminal_backend_switch_note(previous: str, current: str) -> str:
     """Re-briefing for a conversation whose terminal backend changed after its system prompt was
     built. The prompt is byte-stable for the life of a conversation, so this rides the first tool
-    result under the new backend instead: what changed, then the new backend's own shell notes."""
+    result under the new backend instead: what changed, then the same environment block the new
+    backend would have had in the prompt."""
     if current == "mxc":
         lead = ("[Environment changed] The Windows sandbox was turned on. From this point every command runs "
                 "inside an MXC process container; the notes below replace the shell notes in your briefing.")
         return f"\n\n{lead}\n{_MXC_SANDBOX_HINT}"
-    if previous == "mxc" and current == "local":
-        lead = ("[Environment changed] The Windows sandbox was turned off. Commands now run directly on this "
-                "host with the user's permissions; there is no sandbox policy to ask about.")
-        shell = _WINDOWS_BASH_SHELL_HINT if sys.platform == "win32" and not is_wsl() else ""
-        return f"\n\n{lead}\n{shell}".rstrip()
-    return f"\n\n[Environment changed] The terminal backend is now `{current}` (it was `{previous}`)."
+    if current == "local":
+        what = ("The Windows sandbox was turned off. Commands now run directly on this host with the user's "
+                "permissions; there is no sandbox policy to ask about." if previous == "mxc" else
+                f"The terminal backend changed from `{previous}` to `local`: your tools now run on the "
+                "Hermes host itself.")
+        return f"\n\n[Environment changed] {what}\n" + "\n\n".join(_local_host_hints())
+    lead = f"[Environment changed] The terminal backend changed from `{previous}` to `{current}`."
+    return f"\n\n{lead}\n{_remote_backend_hint(current)}"
 
 
 def build_environment_hints() -> str:
