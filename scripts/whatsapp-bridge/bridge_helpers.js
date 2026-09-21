@@ -241,6 +241,107 @@ export function buildTextSendPayload(text, { replyTo, messageStore, mentions } =
   return { content, options };
 }
 
+function normalizeReplyButtons(buttons) {
+  if (!Array.isArray(buttons)) return [];
+
+  const normalized = [];
+  for (const button of buttons) {
+    if (!button || typeof button !== 'object') continue;
+    const text = String(button.text || button.label || button.title || '').trim();
+    const id = String(button.id || button.value || text).trim();
+    if (!text || !id) continue;
+    normalized.push({ id: id.slice(0, 256), text: text.slice(0, 60) });
+    if (normalized.length >= 3) break;
+  }
+  return normalized;
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function formatButtonsFallbackMessage(message, buttons) {
+  let text = String(message || '');
+  for (const button of buttons) {
+    const labelPattern = escapeRegExp(button.text);
+    text = text.replace(new RegExp(`toc[aá]\\s+${labelPattern}`, 'gi'), `escribí ${button.text}`);
+    text = text.replace(new RegExp(`toca\\s+${labelPattern}`, 'gi'), `escribí ${button.text}`);
+  }
+
+  if (buttons.length === 1) {
+    const label = buttons[0].text;
+    const labelPattern = escapeRegExp(label);
+    const alreadyActionable = new RegExp(`(escrib[ií]|respond[eé]|responde)\\s+${labelPattern}`, 'i').test(text);
+    if (!alreadyActionable) text = `${text}\n\nEscribí ${label} para seguir.`;
+  }
+  return text;
+}
+
+function normalizeButtonAction(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
+}
+
+function isConfirmationButtonRequest(buttons) {
+  return buttons.length === 1 && ['confirmar', 'confirmame', 'confirmo', 'si'].includes(
+    normalizeButtonAction(buttons[0].id || buttons[0].text),
+  );
+}
+
+function formatPollConfirmationMessage(message) {
+  return String(message || '')
+    .replace(/Si está todo bien,\s*toc[aá]\s+Confirmar\s+para seguir\./gi, '')
+    .replace(/Si está todo bien,\s*escrib[ií]\s+Confirmar\s+para seguir\./gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/**
+ * Preserve the legacy reply-button contract without relying on interactive
+ * button payloads that current WhatsApp clients frequently hide. Confirmation
+ * becomes a poll; other actions remain explicit text fallbacks.
+ */
+export function buildReplyButtonDelivery(message, buttons) {
+  const cleanMessage = String(message || '');
+  const replyButtons = normalizeReplyButtons(buttons);
+  if (!cleanMessage.trim() || replyButtons.length === 0) {
+    throw new Error('message and at least one button are required');
+  }
+
+  if (isConfirmationButtonRequest(replyButtons)) {
+    const pollMessage = formatPollConfirmationMessage(cleanMessage);
+    return {
+      buttonMode: 'poll',
+      message: pollMessage || cleanMessage.trim(),
+      options: ['Acepto datos y términos', 'No'],
+      optionMap: {
+        'acepto datos y terminos': 'confirmar',
+        no: 'no',
+      },
+    };
+  }
+  return {
+    buttonMode: 'text_fallback',
+    message: formatButtonsFallbackMessage(cleanMessage, replyButtons),
+  };
+}
+
+export function resolveReplyButtonPollSelection(selectedOptions, optionMap) {
+  const options = (selectedOptions || []).map(value => String(value || '').trim()).filter(Boolean);
+  const selectedText = options.join(', ');
+  const structuredReplyId = options.length === 1
+    ? String(optionMap?.[normalizeButtonAction(options[0])] || '')
+    : '';
+  return {
+    body: structuredReplyId || selectedText,
+    structuredReplyId,
+    selectedText,
+  };
+}
+
 export function buildLocationPayload({ latitude, longitude, name, address } = {}) {
   const lat = Number(latitude);
   const lon = Number(longitude);
