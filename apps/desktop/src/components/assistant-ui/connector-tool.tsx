@@ -23,6 +23,7 @@ import {
   type ConnectionOwner,
   connectionOwnerFor,
   type ConnectionRequest,
+  connectionRequestOpen,
   type ConnectionTarget,
   continueConnectionRequest,
   sessionConnectionRequest
@@ -96,13 +97,14 @@ export async function openConnectionDoneLink(
 }
 
 /** Try again for one target of the open operation: one RPC, and the fresh link when the backend
- *  minted one. The backend re-mints only what is actually dead. */
+ *  minted one. The backend re-mints only what is actually dead. A settled operation is dead: the
+ *  RPC would open a second one that no card on this row can answer. */
 export async function reissueConnectionTarget(
   owner: ConnectionOwner,
   request: ConnectionRequest,
   name: string
 ): Promise<null | string> {
-  if (!request.sessionId) {
+  if (!connectionRequestOpen(request)) {
     return null
   }
 

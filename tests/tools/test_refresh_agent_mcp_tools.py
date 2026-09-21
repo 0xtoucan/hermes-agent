@@ -47,6 +47,18 @@ def test_refresh_adds_late_landing_tools(monkeypatch):
     assert "mcp_granola_get_account_info" in agent.valid_tool_names
     assert len(agent.tools) == 3
 
+    # The same rebuild on a side agent must not hand manage_connections back: only the main
+    # agent can sign an app in, and the registry knows nothing about that.
+    side = _agent(["read_file", "terminal"])
+    side.side_agent = True
+    monkeypatch.setattr(model_tools, "get_tool_definitions",
+                        lambda **kw: new_defs + [_tool("manage_connections")])
+
+    _mcp_agent.refresh_agent_mcp_tools(side)
+
+    assert "manage_connections" not in side.valid_tool_names
+    assert "manage_connections" not in [t["function"]["name"] for t in side.tools]
+
 
 def test_refresh_preserves_memory_provider_and_context_engine_tools(monkeypatch):
     """B1 regression: a rebuild must NOT drop post-build-injected tools.

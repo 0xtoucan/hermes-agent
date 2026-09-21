@@ -313,12 +313,21 @@ export async function connectionOwnerFor(sessionId: string, method: string): Pro
   }
 }
 
+/** The store still holds this exact operation and it has not settled. A settled or unknown operation
+ *  is dead: no card may send it an RPC, because the backend would answer for another one or open a
+ *  second one nothing renders. */
+export const connectionRequestOpen = (
+  request: ConnectionRequest
+): request is ConnectionRequest & { sessionId: string } => {
+  const current = $connectionRequests.get()[keyFor(request.sessionId)]
+
+  return Boolean(request.sessionId && current && current.opId === request.opId && !current.settled)
+}
+
 /** Drive the operation. The entry stays in the store: the backend answers with `connection.update`
  *  and the card re-renders from that; only settlement removes it. */
 export async function respondToConnectionRequest(request: ConnectionRequest, outcome: ConnectionAnswer): Promise<boolean> {
-  const current = $connectionRequests.get()[keyFor(request.sessionId)]
-
-  if (!current || current.opId !== request.opId || current.settled || !request.sessionId) {
+  if (!connectionRequestOpen(request)) {
     return false
   }
 

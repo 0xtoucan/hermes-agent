@@ -217,11 +217,14 @@ class ConnectionOperation:
     def result(self, *, with_urls: bool = True) -> Dict[str, Any]:
         """The settled model result, or the live snapshot before settlement.
 
-        Deferred MCP listings are model-only result data. Change frames and request payloads use
-        the internal snapshots, so renderers never receive the catalog block.
+        Deferred MCP listings are model-only result data, and the account id is dropped here only.
+        Change frames and request payloads use the internal snapshots, so renderers keep both.
         """
         with self._lock:
             result = self._result_locked(with_urls=with_urls)
+        for target in result["targets"]:
+            # The vendor account id is the client's; the model would repeat it to the user.
+            target.pop("connection_id", None)
         if result.get("settled_at") is None:
             return result
         from tools.registry import registry
@@ -257,3 +260,11 @@ class ConnectionOperation:
         if self.tool_call_id:
             payload["tool_call_id"] = self.tool_call_id
         return payload
+
+
+class DetachedOperation(ConnectionOperation):
+    """The operation behind a call with no connection card. It is never registered in ``live`` and
+    no client renders it, so it publishes no ``connection.update``: a frame would reach a session
+    whose renderer knows nothing about the operation."""
+
+    on_change = None

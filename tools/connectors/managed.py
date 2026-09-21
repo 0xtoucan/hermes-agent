@@ -2,8 +2,8 @@
 
 ``connect`` mints a link for every target up front and stores it on the target; ``reconnect``
 reads status first and reinitiates only what is not connected (``force`` always reinitiates).
-On a desktop session the call blocks until the operation settles and the result carries no URL;
-the card owns the links. Off the desktop the result carries the URLs and returns at once, until
+With a connection card the call blocks until the operation settles and the result carries no URL;
+the card owns the links. With no card the result carries the URLs and returns at once, until
 PR3 delivers them as their own message. The watcher hook reads one route per pending target:
 that target's own account row, at 1 Hz."""
 
@@ -17,7 +17,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from tools.connectors.contract import Actor, TargetState, allowed
 from tools.connectors.gateway.config import operation_session_key
 from tools.connectors.gateway.errors import RateLimited
-from tools.connectors.operation import ConnectionOperation, IllegalTransition, Target
+from tools.connectors.operation import ConnectionOperation, DetachedOperation, IllegalTransition, Target
 from tools.connectors.run import Kind, run_operation
 from tools.registry import tool_error
 
@@ -201,8 +201,8 @@ def _prepare(client: Any, action: str, force: bool) -> Callable[[ConnectionOpera
     return prepare
 
 
-def _off_desktop_result(client: Any, action: str, names: List[str], force: bool, session_id: str) -> str:
-    operation = ConnectionOperation([Target(n, "connector", action) for n in names], session_key=session_id)
+def _no_card_result(client: Any, action: str, names: List[str], force: bool, session_id: str) -> str:
+    operation = DetachedOperation([Target(n, "connector", action) for n in names], session_key=session_id)
     _prepare(client, action, force)(operation)
     payload = operation.result(with_urls=True)
     payload["status"] = "initiated" if any(t.state == TargetState.initiated for t in operation.targets) else "settled"
@@ -244,7 +244,7 @@ def run_managed_action(
         force = bool(args.get("force", False))
         session_key = operation_session_key(session_id)
         if connection_callback is None:
-            return _off_desktop_result(client, action, connectors, force, session_key)
+            return _no_card_result(client, action, connectors, force, session_key)
         return run_operation(
             [Target(n, "connector", action) for n in connectors],
             managed_kind(client, action, force),

@@ -7,10 +7,13 @@ from __future__ import annotations
 
 from typing import Any, Mapping, Optional
 
+from tools.connectors.turn import CARD, LINK, SIDE
+
 __all__ = [
     "GatewayAuthError",
     "GatewayUnavailable",
     "IdempotencyConflict",
+    "SIDE_AGENT_HINT",
     "ToolGatewayError",
     "parse_gateway_error",
     "render_connection_required",
@@ -103,16 +106,31 @@ def parse_gateway_error(status: int, body: Any, headers: Optional[Mapping[str, A
     return ToolGatewayError(message, retryable=status >= 500, **kwargs)
 
 
+SIDE_AGENT_HINT = (
+    "This app is not connected. Only the main agent can connect it, so report that back "
+    "instead of trying to connect it here."
+)
+
+CARD_HINT = (
+    "This app is not connected. Call manage_connections to open a connection card for it; "
+    "there is no link to show the user."
+)
+
+
 def render_connection_required(
     *,
     connector: Optional[str] = None,
     message: Optional[str] = None,
     connect_url: Optional[str] = None,
     hint: Optional[str] = None,
-    card: bool = False,
+    surface: str = LINK,
 ) -> dict[str, Any]:
-    """Single shared CONNECTION_REQUIRED shape. With a card the link stays on the panel and the
-    model is told a connect card is available; without one the model relays the link."""
+    """Single shared CONNECTION_REQUIRED shape, told apart by the turn's connection surface. With a
+    card the link stays on the panel and the model is told a connect card is available; a side agent
+    gets neither and reports back to the main agent; a headless run relays the link.
+
+    Only a headless run passes the gateway's own hint through. That hint is written for a surface
+    that shows the link, so on the other two surfaces it would tell the model to relay one."""
     payload: dict[str, Any] = {
         "code": "CONNECTION_REQUIRED",
         "message": message
@@ -124,9 +142,14 @@ def render_connection_required(
     }
     if connector:
         payload["connector"] = connector
-    if card:
+    if surface == SIDE:
+        payload["hint"] = SIDE_AGENT_HINT
+        return payload
+    if surface == CARD:
         payload["connect_card_available"] = True
-    elif connect_url:
+        payload["hint"] = CARD_HINT
+        return payload
+    if connect_url:
         payload["connect_url"] = connect_url
     if hint:
         payload["hint"] = hint
