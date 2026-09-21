@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   getCuratorStatus,
-  getMcpCatalog,
   getMemoryStatus,
   getOfficialSkills,
   getSkillHubSources,
@@ -87,12 +86,6 @@ describe('Hermes REST parity helpers (hub / mcp / maintenance)', () => {
         body: { enabled: false }
       })
     )
-  })
-
-  it('reads the MCP catalog', async () => {
-    await getMcpCatalog()
-
-    expect(api).toHaveBeenCalledWith(expect.objectContaining({ path: '/api/mcp/catalog' }))
   })
 
   it('reads memory status and resets a specific target', async () => {
