@@ -55,6 +55,15 @@ def _expand(path: str) -> str:
 
 
 @dataclass(frozen=True)
+class Endpoint:
+    url: str
+    token: str = ""
+
+    def __repr__(self) -> str:
+        return f"Endpoint(url={self.url!r}, token={'<set>' if self.token else ''!r})"
+
+
+@dataclass(frozen=True)
 class AppResolver:
     definition: AppDef
 
@@ -95,6 +104,19 @@ class AppResolver:
         except Exception as exc:  # a vendor's plist/PE/registry entry is untrusted input; never abort the caller
             return Observation(CheckState.ERROR, detail=exc.__class__.__name__)
         return Observation(CheckState.UNAVAILABLE, detail=f"unknown version kind {kind}")
+
+    def endpoint(self) -> "Endpoint | None":
+        """The runtime file's URL and token, validated as in ``probe``; read fresh on every call."""
+        d = self.definition
+        if d.liveness_kind != "server_json":
+            return None
+        session = _read_server_json(_expand(d.liveness_path), d)
+        if session is None:
+            return None
+        obs = _endpoint_observation(session.url, d.endpoint_path)
+        if obs.state is not CheckState.PRESENT or not obs.value:
+            return None
+        return Endpoint(url=obs.value, token=session.token)
 
     # ---- probe: fresh, never cached ------------------------------------------------------
 
