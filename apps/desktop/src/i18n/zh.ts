@@ -3119,7 +3119,7 @@ export const zh = defineLocale({
       off: '关',
       descriptionOn: folder =>
         `此会话的每条命令都在内核强制隔离的 Windows 容器中运行。它只能写入 ${folder}；本机其他位置均为只读或被拒绝，除非你授予访问权限。`,
-      descriptionOff: '命令以你的权限直接在本机运行。开启沙箱后，每条命令都会在内核强制隔离的 Windows 容器中运行。',
+      descriptionOff: '开启沙箱后，此会话的每条命令都会在内核强制隔离的 Windows 容器中运行。',
       networkOn: '已允许网络访问。',
       networkOff: '网络访问已关闭。',
       isolated: '剪贴板、注册表和其他运行中的程序均不可访问。',

@@ -2988,7 +2988,7 @@ export const en: Translations = {
       off: 'Off',
       descriptionOn: folder =>
         `Every command from this conversation runs in a kernel-enforced Windows container. It can write only inside ${folder}; everything else on this machine is read-only or denied unless you grant it.`,
-      descriptionOff: 'Commands run directly on this machine with your permissions. Turn the sandbox on to run every command in a kernel-enforced Windows container.',
+      descriptionOff: 'Turn the sandbox on to run every command from this conversation in a kernel-enforced Windows container.',
       networkOn: 'Network access is allowed.',
       networkOff: 'Network access is off.',
       isolated: 'The clipboard, the registry and other running programs are off-limits.',
