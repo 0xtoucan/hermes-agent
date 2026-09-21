@@ -300,6 +300,8 @@ export function useSessionLifecycle(opts: UseSessionLifecycleOptions) {
     (id: string) => {
       patchOverlayState({ sessions: false })
       patchUiState({ status: 'switching session…' })
+      // The card belongs to the session being left; the activated one answers with its own.
+      clearConnectionOperation()
 
       gw.request<SessionActivateResponse>('session.activate', { session_id: id })
         .then(raw => {
@@ -331,6 +333,11 @@ export function useSessionLifecycle(opts: UseSessionLifecycleOptions) {
             usage: usageFrom(info)
           })
           hydrateLiveSessionInflight(r.inflight)
+
+          if (r.pending_connection) {
+            applyConnectionRequest(r.pending_connection)
+          }
+
           cancelResumeScrollRef.current?.()
           cancelResumeScrollRef.current = scheduleResumeScrollToBottom(scrollRef)
         })

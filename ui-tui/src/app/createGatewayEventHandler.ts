@@ -803,7 +803,10 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
 
       case 'connection.update':
         if (ev.payload) {
-          applyConnectionUpdate(ev.payload)
+          // The settling frame is the only record of how each app ended; the card is gone by then.
+          for (const line of applyConnectionUpdate(ev.payload)) {
+            sys(line)
+          }
         }
 
         return
