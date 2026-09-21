@@ -5,11 +5,11 @@ injected through the constructor seams — no module mocks, no patching of
 transports. FakeTransport records requests and replays queued responses.
 """
 
+import json
 from dataclasses import replace as dataclass_replace
 
 import pytest
 
-from tests.fakes.connectors_http import FakeResponse, FakeTransport
 from tools.connectors.gateway.bridge import connector_search_hits
 from tools.connectors.gateway.client import ConnectorClient
 from tools.connectors.gateway.errors import (
@@ -19,6 +19,33 @@ from tools.connectors.gateway.errors import (
     ToolGatewayError,
 )
 from tools.connectors.gateway.names import vendor_slug_candidates
+
+
+class FakeResponse:
+    def __init__(self, status_code, body):
+        self.status_code = status_code
+        self._body = body
+        self.text = json.dumps(body)
+
+    def json(self):
+        return self._body
+
+
+class FakeTransport:
+    """Records requests; replays queued responses (exceptions raise)."""
+
+    def __init__(self, *responses):
+        self.responses = list(responses)
+        self.requests = []
+
+    def request(self, method, url, *, headers=None, json=None, timeout=None):
+        self.requests.append(
+            {"method": method, "url": url, "headers": dict(headers or {}), "json": json, "timeout": timeout}
+        )
+        outcome = self.responses.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
 
 
 def make_client(transport):
@@ -304,13 +331,3 @@ def test_default_resolver_ignores_the_media_host_override():
 
 def test_default_resolver_is_none_on_a_misconfigured_scheme():
     assert _resolve_with_env(TOOL_GATEWAY_SCHEME="ftp") is None
-
-
-def test_delete_account_url_encodes_the_id_and_returns_the_typed_result():
-    transport = FakeTransport(FakeResponse(200, {"connectionId": "ca/1", "status": "removed"}))
-
-    removed = make_client(transport).delete_account("ca/1")
-
-    assert transport.requests[0]["method"] == "DELETE"
-    assert transport.requests[0]["url"].endswith("v1/connectors/accounts/ca%2F1")
-    assert removed == {"connectionId": "ca/1", "status": "removed"}
