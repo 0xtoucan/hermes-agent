@@ -116,7 +116,11 @@ function Header({ more, t, target }: HeaderProps) {
         {VERB[target.action]} {target.name}
       </Text>
       {more > 0 ? <Text color={t.color.muted}>{more} more to answer after this one.</Text> : null}
-      {target.instructions ? <Text color={t.color.muted} wrap="wrap">{target.instructions}</Text> : null}
+      {target.instructions ? (
+        <Text color={t.color.muted} wrap="wrap">
+          {target.instructions}
+        </Text>
+      ) : null}
     </Box>
   )
 }
@@ -137,7 +141,9 @@ function FieldRow({ cols, draftValue, field, focused, onChange, onSubmit, sendin
   return (
     <Box flexDirection="column">
       <Text color={focused ? t.color.accent : t.color.label}>
-        {focused ? '▸ ' : '  '}{fieldLabel(field)}{field.required ? ' *' : ''}
+        {focused ? '▸ ' : '  '}
+        {fieldLabel(field)}
+        {field.required ? ' *' : ''}
       </Text>
       <Box paddingLeft={2}>
         {showSet ? (
@@ -197,7 +203,10 @@ interface SelectorProps {
 function Selector({ action, focused, primary, t }: SelectorProps) {
   return (
     <Text color={focused ? t.color.accent : t.color.muted}>
-      {action === 0 ? '▸ ' : '  '}{primary}   {action === 1 ? '▸ ' : '  '}Skip
+      {action === 0 ? '▸ ' : '  '}
+      {primary}
+      {'   '}
+      {action === 1 ? '▸ ' : '  '}Skip
     </Text>
   )
 }
@@ -210,7 +219,11 @@ interface PhaseProps {
 }
 
 function DetailLine({ t, text }: { t: Theme; text: null | string | undefined }) {
-  return text ? <Text color={t.color.error} wrap="wrap">{text}</Text> : null
+  return text ? (
+    <Text color={t.color.error} wrap="wrap">
+      {text}
+    </Text>
+  ) : null
 }
 
 function FinishingPhase({ t }: { t: Theme }) {
@@ -225,7 +238,9 @@ function FinishingPhase({ t }: { t: Theme }) {
 function AuthorizedPhase({ t, target }: { t: Theme; target: ConnectionOperationTarget }) {
   return (
     <Box flexDirection="column">
-      <Text bold color={t.color.ok}>Authorized. Tools unavailable.</Text>
+      <Text bold color={t.color.ok}>
+        Authorized. Tools unavailable.
+      </Text>
       <Text color={t.color.muted}>{target.discovery_error ?? ''}</Text>
       <Text color={t.color.accent}>▸ Continue</Text>
       <Text color={t.color.muted}>Enter or Esc continue</Text>
@@ -373,7 +388,7 @@ export function ConnectionSetupOverlay({ cols, t }: ConnectionSetupOverlayProps)
   useEffect(() => {
     if (target?.state === 'connected') {
       setDraft(current =>
-        Object.fromEntries(fields.map(field => [field.name, field.secret ? '' : current[field.name] ?? '']))
+        Object.fromEntries(fields.map(field => [field.name, field.secret ? '' : (current[field.name] ?? '')]))
       )
     }
   }, [fields, target?.state])

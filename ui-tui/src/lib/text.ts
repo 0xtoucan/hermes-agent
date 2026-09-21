@@ -202,13 +202,8 @@ export const toolTrailLine = (call: string, error?: boolean, note?: string, dura
   return `${call}${took}${detail ? ` :: ${detail}` : ''} ${error ? '✗' : '✓'}`
 }
 
-export const buildToolTrailLine = (
-  name: string,
-  context: string,
-  error?: boolean,
-  note?: string,
-  duration?: number
-) => toolTrailLine(formatToolCall(name, context), error, note, duration)
+export const buildToolTrailLine = (name: string, context: string, error?: boolean, note?: string, duration?: number) =>
+  toolTrailLine(formatToolCall(name, context), error, note, duration)
 
 const verboseToolBlock = (label: string, text?: string) => {
   const body = (text ?? '').trim()

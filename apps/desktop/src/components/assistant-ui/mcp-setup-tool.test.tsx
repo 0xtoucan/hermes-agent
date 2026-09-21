@@ -110,11 +110,13 @@ afterEach(() => {
 describe('the MCP setup card', () => {
   it('opens required details from the row action and sends the approved environment', async () => {
     const rpc = vi.fn().mockResolvedValue({ status: 'ok', settled: false })
+
     const target = {
       ...LINEAR,
       instructions: 'Create a Linear API key.',
       requiredEnv: [{ default: 'workspace', name: 'LINEAR_TEAM', prompt: 'Team', required: true, secret: false }]
     }
+
     setSessionOwnerHint(SESSION_ID, { connectionId: 'local', profile: 'default' })
     // SAFETY: the card calls only `request`; the rest of the client is never touched in this test.
     setPrimaryGateway({ request: rpc } as never)
