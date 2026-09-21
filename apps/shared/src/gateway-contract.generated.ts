@@ -2659,9 +2659,22 @@ export interface TranscriptMessage {
   name?: string | null
   context?: string | null
   args?: Record<string, unknown> | null
+  labels?: ToolLabel[] | null
   reasoning?: string | null
   [key: string]: unknown
 }
+/** ``tools.tool_labels.ToolLabel`` — what one call executed through the tool_search bridge is, in words. Clients render ``text`` (or ``app``/``action`` in their own columns) and never parse the tool name themselves. */
+export interface ToolLabel {
+  kind: ToolLabelKind
+  app: string
+  action: string
+  emoji: string
+  text: string
+  name: string
+  preview?: string
+}
+/** Which surface one inner call of a bridged ``tool_call`` runs on. */
+export type ToolLabelKind = 'connector' | 'mcp' | 'tool'
 /** ``session_id`` is the STORED id (or an exact title); the reply's ``session_id`` is the runtime id. */
 export interface SessionResumeParams {
   session_id: string
@@ -4121,6 +4134,7 @@ export interface ToolStartPayload {
   args?: Record<string, unknown> | null
   args_text?: string | null
   preview?: string | null
+  labels?: ToolLabel[] | null
 }
 /** ``tool_progress._on_tool_complete``; ``todos``/``revision`` merged in for the todo tools. */
 export interface ToolCompletePayload {
@@ -4134,6 +4148,7 @@ export interface ToolCompletePayload {
   inline_diff?: string | null
   todos?: unknown[] | null
   revision?: number | null
+  labels?: ToolLabel[] | null
 }
 /** ``agent_callbacks`` tool_gen_callback. */
 export interface ToolGeneratingPayload {

@@ -130,6 +130,28 @@ class StoredSessionRow(OpenModel):
     lineage_ids: list[str] | None = Field(default=None, alias="_lineage_ids")
 
 
+class ToolLabelKind(WireEnum):
+    """Which surface one inner call of a bridged ``tool_call`` runs on."""
+
+    connector = "connector"
+    mcp = "mcp"
+    tool = "tool"
+
+
+class ToolLabel(Payload):
+    """``tools.tool_labels.ToolLabel`` — what one call executed through the tool_search bridge is,
+    in words. Clients render ``text`` (or ``app``/``action`` in their own columns) and never parse
+    the tool name themselves."""
+
+    kind: ToolLabelKind
+    app: str
+    action: str
+    emoji: str
+    text: str
+    name: str
+    preview: str = ""  # the call's primary argument, as the classic CLI shows it
+
+
 class TranscriptMessage(OpenModel):
     """One transcript row as the gateway PROJECTS it for renderers (``session_history._project_history``):
     ``text`` (never ``content``), display-only ``timestamp`` / ``display_kind`` / ``display_metadata``, the
@@ -145,6 +167,7 @@ class TranscriptMessage(OpenModel):
     name: str | None = None
     context: str | None = None
     args: dict[str, JsonValue] | None = None
+    labels: list[ToolLabel] | None = None  # bridged tool rows: one per inner call
     reasoning: str | None = None
 
 
@@ -238,5 +261,5 @@ __all__ = [
     "TERMINAL_SUBAGENT_STATUSES", "AccountOwner", "ConnectorOwner", "EmptyPayload", "EmptyResult", "McpServerStatus",
     "MessageReaction", "OkResult", "OpenModel", "PendingApproval",
     "ProfileParams", "ProjectRef", "SessionLiveInfo", "SessionOwner", "SessionParams", "StatusResult", "StoredSessionRow",
-    "SubagentStatus", "TranscriptMessage", "Usage",
+    "SubagentStatus", "ToolLabel", "ToolLabelKind", "TranscriptMessage", "Usage",
 ]

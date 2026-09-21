@@ -508,13 +508,45 @@ async def get_session_latest_descendant(session_id: str, profile: Optional[str] 
         "changed": bool(path and latest != path[0])}
 
 
+def _stored_tool_call_labels(message: dict) -> dict:
+    """Call id -> the labels of what that stored ``tool_call`` ran, so a reloaded transcript
+    names the real calls. Only the bridge tools carry inner calls, so only they are parsed;
+    every other row is left alone and ``tool_calls`` stays untouched."""
+    from agent.display import tool_labels_for_call
+    from tools.tool_labels import BRIDGE_TOOL_NAMES
+
+    out = {}
+    for call in message.get("tool_calls") or ():
+        if not isinstance(call, dict):
+            continue
+        fn = call.get("function") if isinstance(call.get("function"), dict) else {}
+        call_id, name = str(call.get("id") or ""), str(fn.get("name") or "")
+        if not call_id or name not in BRIDGE_TOOL_NAMES:
+            continue
+        try:
+            args = json.loads(fn.get("arguments") or "{}")
+        except (TypeError, ValueError):
+            args = {}
+        labels = [label.as_payload() for label in tool_labels_for_call(name, args if isinstance(args, dict) else {})]
+        if labels:
+            out[call_id] = labels
+    return out
+
+
+def _with_tool_call_labels(message: dict) -> dict:
+    labels = _stored_tool_call_labels(message)
+    return {**message, "tool_call_labels": labels} if labels else message
+
+
 def _project_for_display(messages: list) -> list:
-    """Replace compaction summaries with their display-only projection."""
+    """Replace compaction summaries with their display-only projection, and name the calls a
+    stored ``tool_call`` row actually ran."""
     from agent.compaction_display import project_compaction_message_for_display
     from agent.context_compressor import is_compaction_summary_message
 
     projected_messages = []
     for message in messages:
+        message = _with_tool_call_labels(message)
         if not is_compaction_summary_message(message):
             projected_messages.append(message)
             continue

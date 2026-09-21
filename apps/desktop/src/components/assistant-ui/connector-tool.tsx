@@ -11,12 +11,12 @@ import { ConnectorCard, ConnectorRow, type ConnectorRowMark, ConnectorSummary } 
 import { useI18n } from '@/i18n'
 import {
   connectorAuthorizationUrl,
-  connectorCalls,
   connectorIconUrl,
   connectorText,
   connectorTitle,
-  connectorToolName,
-  recordOf
+  recordOf,
+  toolLabels,
+  toolLabelTitle
 } from '@/lib/connector-tools'
 import {
   $connectionRequests,
@@ -137,17 +137,6 @@ function requestedConnectorNames(args: ToolCallMessagePartProps['args']): string
 
     return trimmed ? [trimmed] : []
   })
-}
-
-function matchingTargetNames(left: readonly string[], right: readonly string[]): boolean {
-  if (left.length !== right.length) {
-    return false
-  }
-
-  const leftSorted = [...left].sort()
-  const rightSorted = [...right].sort()
-
-  return leftSorted.every((name, index) => name === rightSorted[index])
 }
 
 /** The card lives on the tool row whose id opened the operation and on no other. */
@@ -369,68 +358,44 @@ export function ConnectorOffer({ owner, request }: ConnectorOfferProps) {
   )
 }
 
-/** Keep execution output in the standard disclosure, with one row per app call. */
+const MISSING_CALL_RESULT = { error: 'No result for this call.' }
+
+/** Keep execution output in the standard disclosure, with one row per inner call.
+ *  The gateway labels every call the tool_search bridge runs — hosted, MCP or local —
+ *  so hosted-only, MCP-only and mixed batches all render the same way. */
 export function ConnectorExecution(props: ToolCallMessagePartProps) {
-  const view = useSessionView()
-  const sessionId = useStore(view.$runtimeId)
-  const $request = useMemo(() => sessionConnectionRequest(sessionId), [sessionId])
-  const request = useStore($request)
-  const calls = connectorCalls(props.toolName, props.args)
-  const input = recordOf(props.args)
-  const batch = Array.isArray(input.calls) ? input.calls : [input]
-
-  // Mixed remote batches keep their complete disclosure and original result order.
-  if (props.toolName === 'tool_call' && calls.length !== batch.length) {
-    return <ToolFallback {...props} />
-  }
-
+  const labels = toolLabels(props.args)
   const output = recordOf(props.result)
   const results = Array.isArray(output.results) ? output.results : []
 
-  const repair = calls
-    .filter((_call, index) => {
-      const item = recordOf(props.toolName === 'tool_call' ? results[index] : props.result)
+  if (labels.length === 0) {
+    return <ToolFallback {...props} />
+  }
 
-      return recordOf(item.error).connect_card_available === true
-    })
-    .map(call => {
-      // SAFETY: connectorCalls includes only names accepted by connectorToolName.
-      return connectorToolName(call.name)!.connector
-    })
-
-  const openRepair =
-    request &&
-    !request.settled &&
-    matchingTargetNames(
-      repair,
-      request.targets.map(target => target.name)
-    )
+  const input = recordOf(props.args)
+  const batch = Array.isArray(input.calls) ? input.calls : [input]
 
   return (
     <>
-      {calls.map((call, index) => {
-        const item =
-          props.toolName === 'tool_call' ? (results[index] ?? (output.error ? output : undefined)) : props.result
-
+      {labels.map((label, index) => {
+        // A hosted batch answers one result per call; anything else answers once for the
+        // whole call, and every row shows that same outcome (a rejected batch, an error).
+        // A batch that answered short says so on the rows it left out.
+        const item = results[index] ?? (results.length > 0 ? MISSING_CALL_RESULT : props.result)
         const result = recordOf(item)
-        // SAFETY: connectorCalls includes only names accepted by connectorToolName.
-        const identity = connectorToolName(call.name)!
 
         return (
           <ToolFallback
             {...props}
-            args={recordOf(call.arguments)}
+            args={recordOf(recordOf(batch[index]).arguments ?? props.args)}
             isError={Boolean(result.error) || props.isError === true}
             key={`${props.toolCallId}:${index}`}
-            result={props.result === undefined ? undefined : (item ?? { error: 'Missing connector result' })}
+            result={item}
             toolCallId={`${props.toolCallId}:${index}`}
-            toolName={`${connectorTitle(identity.connector)}: ${identity.action}`}
+            toolName={toolLabelTitle(label)}
           />
         )
       })}
-      {openRepair ? (
-        <ConnectorTool {...props} args={{ action: 'status', connectors: repair }} result={undefined} />
-      ) : null}
     </>
   )
 }

@@ -31901,6 +31901,21 @@
             ],
             "default": null,
             "title": "Revision"
+          },
+          "labels": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ToolLabel"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Labels"
           }
         },
         "required": [
@@ -31924,6 +31939,60 @@
         ],
         "title": "ToolGeneratingPayload",
         "type": "object"
+      },
+      "ToolLabel": {
+        "additionalProperties": false,
+        "description": "``tools.tool_labels.ToolLabel`` \u2014 what one call executed through the tool_search bridge is,\nin words. Clients render ``text`` (or ``app``/``action`` in their own columns) and never parse\nthe tool name themselves.",
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/ToolLabelKind"
+          },
+          "app": {
+            "title": "App",
+            "type": "string"
+          },
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "emoji": {
+            "title": "Emoji",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "preview": {
+            "default": "",
+            "title": "Preview",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "app",
+          "action",
+          "emoji",
+          "text",
+          "name"
+        ],
+        "title": "ToolLabel",
+        "type": "object"
+      },
+      "ToolLabelKind": {
+        "description": "Which surface one inner call of a bridged ``tool_call`` runs on.",
+        "enum": [
+          "connector",
+          "mcp",
+          "tool"
+        ],
+        "title": "ToolLabelKind",
+        "type": "string"
       },
       "ToolOutputRiskPayload": {
         "additionalProperties": false,
@@ -32064,6 +32133,21 @@
             ],
             "default": null,
             "title": "Preview"
+          },
+          "labels": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ToolLabel"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Labels"
           }
         },
         "required": [
@@ -32595,6 +32679,21 @@
             ],
             "default": null,
             "title": "Args"
+          },
+          "labels": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ToolLabel"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Labels"
           },
           "reasoning": {
             "anyOf": [
