@@ -35,6 +35,8 @@ class ConnectorErrorReason(WireEnum):
     policy_unavailable = "POLICY_UNAVAILABLE"
     policy_conflict = "POLICY_CONFLICT"
     forbidden_scope = "FORBIDDEN_SCOPE"
+    org_required = "ORG_REQUIRED"
+    org_access_denied = "ORG_ACCESS_DENIED"
     invalid_policy = "INVALID_POLICY"
 
 
@@ -109,6 +111,7 @@ class ConnectorToolRow(Result):
     facet: ConnectorToolFacet
     hints: list[str]
     categories: list[str]
+    no_auth: bool
     deprecated: bool
 
 
@@ -205,6 +208,7 @@ class ConnectorAccountsRemoveParams(ProfileParams):
 
 class ConnectorAccountsRemoveResult(Result):
     connection_id: str
+    connector: str
     status: Literal["removed"]
 
 
@@ -257,6 +261,42 @@ ConnectorPolicyBody = (
 )
 
 
+class ConnectorPolicyEffectiveBase(Result):
+    version: Literal[1]
+    revision: str
+    issued_at_ms: int
+
+
+class ConnectorPolicyEffectiveUnrestricted(ConnectorPolicyEffectiveBase):
+    mode: Literal["unrestricted"]
+
+
+class ConnectorPolicyEffectiveDenyAll(ConnectorPolicyEffectiveBase):
+    mode: Literal["deny-all"]
+
+
+class ConnectorPolicyEffectiveAllow(ConnectorPolicyEffectiveBase):
+    mode: Literal["allow"]
+    connectors: list[str]
+    tools: dict[str, list[str]]
+    tags: ConnectorPolicyTags | None = None
+
+
+class ConnectorPolicyEffectiveDeny(ConnectorPolicyEffectiveBase):
+    mode: Literal["deny"]
+    disabled_connectors: list[str]
+    tools: dict[str, list[str]]
+    tags: ConnectorPolicyTags | None = None
+
+
+ConnectorPolicyEffective = (
+    ConnectorPolicyEffectiveUnrestricted
+    | ConnectorPolicyEffectiveDenyAll
+    | ConnectorPolicyEffectiveAllow
+    | ConnectorPolicyEffectiveDeny
+)
+
+
 class ConnectorPolicyLayer(Result):
     kind: ConnectorPolicyLayerKind
     revision: str
@@ -265,6 +305,7 @@ class ConnectorPolicyLayer(Result):
 
 class ConnectorPolicyGetResult(Result):
     layers: list[ConnectorPolicyLayer]
+    effective: ConnectorPolicyEffective = Field(discriminator="mode")
 
 
 method(
@@ -288,15 +329,17 @@ class ConnectorChange(Result):
 
 
 ConnectorPolicyChange = ToolsChange | ConnectorChange
+ConnectorPolicyRevision = Annotated[str, Field(pattern=r"^[0-7][0-9A-HJKMNP-TV-Z]{25}$")]
 
 
 class ConnectorPolicySetParams(ProfileParams):
     change: ConnectorPolicyChange = Field(discriminator="type")
-    expected_revision: str | None = None
+    expected_revision: ConnectorPolicyRevision
 
 
 class ConnectorPolicySetResult(Result):
     revision: str
+    effective: ConnectorPolicyEffective = Field(discriminator="mode")
 
 
 method(

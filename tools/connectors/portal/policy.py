@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Callable
 
-from tools.connectors.gateway.errors import GatewayUnavailable
 from tools.connectors.portal.client import validate_slug
+from tools.connectors.portal.errors import InvalidConnectorSlug
 from tools.connectors.portal.wire import PolicyBody, UnrestrictedPolicyBody
 
 if TYPE_CHECKING:
@@ -34,7 +34,7 @@ def _layer(member_body: PolicyBody | None) -> tuple[str, list[str], bool]:
 def _slug(connector: str) -> str:
     try:
         validate_slug(connector)
-    except GatewayUnavailable as exc:
+    except InvalidConnectorSlug as exc:
         raise InvalidMemberPolicy("connector must be a slug") from exc
     return connector
 

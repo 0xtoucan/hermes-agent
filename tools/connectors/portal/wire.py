@@ -15,11 +15,11 @@ class ConnectorTool(_PortalWire):
     slug: str
     name: str
     description: str
-    facet: Literal["read", "write", "destructive", "unclassified"] = "unclassified"
-    hints: list[str] = Field(default_factory=list)
-    categories: list[str] = Field(default_factory=list)
-    no_auth: bool = Field(default=False, alias="noAuth")
-    deprecated: bool = False
+    facet: Literal["read", "write", "destructive", "unclassified"]
+    hints: list[str]
+    categories: list[str]
+    no_auth: bool = Field(alias="noAuth")
+    deprecated: bool
 
     @field_validator("facet", mode="before")
     @classmethod
@@ -87,6 +87,42 @@ class DenyPolicyBody(_PortalWire):
 PolicyBody = UnrestrictedPolicyBody | DenyAllPolicyBody | AllowPolicyBody | DenyPolicyBody
 
 
+class ConnectorPolicyEffectiveBase(_PortalWire):
+    version: Literal[1]
+    revision: str
+    issued_at_ms: int = Field(alias="issuedAtMs")
+
+
+class ConnectorPolicyEffectiveUnrestricted(ConnectorPolicyEffectiveBase):
+    mode: Literal["unrestricted"]
+
+
+class ConnectorPolicyEffectiveDenyAll(ConnectorPolicyEffectiveBase):
+    mode: Literal["deny-all"]
+
+
+class ConnectorPolicyEffectiveAllow(ConnectorPolicyEffectiveBase):
+    mode: Literal["allow"]
+    connectors: list[str]
+    tools: dict[str, PolicyToolRule] = Field(default_factory=dict)
+    tags: PolicyTags | None = None
+
+
+class ConnectorPolicyEffectiveDeny(ConnectorPolicyEffectiveBase):
+    mode: Literal["deny"]
+    disabled_connectors: list[str] = Field(alias="disabledConnectors")
+    tools: dict[str, PolicyToolRule] = Field(default_factory=dict)
+    tags: PolicyTags | None = None
+
+
+ConnectorPolicyEffective = (
+    ConnectorPolicyEffectiveUnrestricted
+    | ConnectorPolicyEffectiveDenyAll
+    | ConnectorPolicyEffectiveAllow
+    | ConnectorPolicyEffectiveDeny
+)
+
+
 class ConnectorPolicyLayer(_PortalWire):
     kind: Literal["org", "role", "member"]
     id: str | None = None
@@ -96,7 +132,9 @@ class ConnectorPolicyLayer(_PortalWire):
 
 class ConnectorPolicyResponse(_PortalWire):
     layers: list[ConnectorPolicyLayer]
+    effective: ConnectorPolicyEffective = Field(discriminator="mode")
 
 
 class ConnectorPolicyWriteResponse(_PortalWire):
     revision: str
+    effective: ConnectorPolicyEffective = Field(discriminator="mode")

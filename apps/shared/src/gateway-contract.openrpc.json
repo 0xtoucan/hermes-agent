@@ -9285,6 +9285,10 @@
             "title": "Connection Id",
             "type": "string"
           },
+          "connector": {
+            "title": "Connector",
+            "type": "string"
+          },
           "status": {
             "const": "removed",
             "title": "Status",
@@ -9293,6 +9297,7 @@
         },
         "required": [
           "connection_id",
+          "connector",
           "status"
         ],
         "title": "ConnectorAccountsRemoveResult",
@@ -9486,6 +9491,190 @@
         "title": "ConnectorPolicyDenyBody",
         "type": "object"
       },
+      "ConnectorPolicyEffectiveAllow": {
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "const": 1,
+            "title": "Version",
+            "type": "integer"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "string"
+          },
+          "issued_at_ms": {
+            "title": "Issued At Ms",
+            "type": "integer"
+          },
+          "mode": {
+            "const": "allow",
+            "title": "Mode",
+            "type": "string"
+          },
+          "connectors": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Connectors",
+            "type": "array"
+          },
+          "tools": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": "Tools",
+            "type": "object"
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConnectorPolicyTags"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "version",
+          "revision",
+          "issued_at_ms",
+          "mode",
+          "connectors",
+          "tools"
+        ],
+        "title": "ConnectorPolicyEffectiveAllow",
+        "type": "object"
+      },
+      "ConnectorPolicyEffectiveDeny": {
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "const": 1,
+            "title": "Version",
+            "type": "integer"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "string"
+          },
+          "issued_at_ms": {
+            "title": "Issued At Ms",
+            "type": "integer"
+          },
+          "mode": {
+            "const": "deny",
+            "title": "Mode",
+            "type": "string"
+          },
+          "disabled_connectors": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Disabled Connectors",
+            "type": "array"
+          },
+          "tools": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": "Tools",
+            "type": "object"
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConnectorPolicyTags"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "version",
+          "revision",
+          "issued_at_ms",
+          "mode",
+          "disabled_connectors",
+          "tools"
+        ],
+        "title": "ConnectorPolicyEffectiveDeny",
+        "type": "object"
+      },
+      "ConnectorPolicyEffectiveDenyAll": {
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "const": 1,
+            "title": "Version",
+            "type": "integer"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "string"
+          },
+          "issued_at_ms": {
+            "title": "Issued At Ms",
+            "type": "integer"
+          },
+          "mode": {
+            "const": "deny-all",
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "revision",
+          "issued_at_ms",
+          "mode"
+        ],
+        "title": "ConnectorPolicyEffectiveDenyAll",
+        "type": "object"
+      },
+      "ConnectorPolicyEffectiveUnrestricted": {
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "const": 1,
+            "title": "Version",
+            "type": "integer"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "string"
+          },
+          "issued_at_ms": {
+            "title": "Issued At Ms",
+            "type": "integer"
+          },
+          "mode": {
+            "const": "unrestricted",
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "revision",
+          "issued_at_ms",
+          "mode"
+        ],
+        "title": "ConnectorPolicyEffectiveUnrestricted",
+        "type": "object"
+      },
       "ConnectorPolicyGetResult": {
         "additionalProperties": false,
         "properties": {
@@ -9495,10 +9684,37 @@
             },
             "title": "Layers",
             "type": "array"
+          },
+          "effective": {
+            "discriminator": {
+              "mapping": {
+                "allow": "#/components/schemas/ConnectorPolicyEffectiveAllow",
+                "deny": "#/components/schemas/ConnectorPolicyEffectiveDeny",
+                "deny-all": "#/components/schemas/ConnectorPolicyEffectiveDenyAll",
+                "unrestricted": "#/components/schemas/ConnectorPolicyEffectiveUnrestricted"
+              },
+              "propertyName": "mode"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ConnectorPolicyEffectiveUnrestricted"
+              },
+              {
+                "$ref": "#/components/schemas/ConnectorPolicyEffectiveDenyAll"
+              },
+              {
+                "$ref": "#/components/schemas/ConnectorPolicyEffectiveAllow"
+              },
+              {
+                "$ref": "#/components/schemas/ConnectorPolicyEffectiveDeny"
+              }
+            ],
+            "title": "Effective"
           }
         },
         "required": [
-          "layers"
+          "layers",
+          "effective"
         ],
         "title": "ConnectorPolicyGetResult",
         "type": "object"
@@ -9591,20 +9807,14 @@
             "title": "Change"
           },
           "expected_revision": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Expected Revision"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+            "title": "Expected Revision",
+            "type": "string"
           }
         },
         "required": [
-          "change"
+          "change",
+          "expected_revision"
         ],
         "title": "ConnectorPolicySetParams",
         "type": "object"
@@ -9615,10 +9825,37 @@
           "revision": {
             "title": "Revision",
             "type": "string"
+          },
+          "effective": {
+            "discriminator": {
+              "mapping": {
+                "allow": "#/components/schemas/ConnectorPolicyEffectiveAllow",
+                "deny": "#/components/schemas/ConnectorPolicyEffectiveDeny",
+                "deny-all": "#/components/schemas/ConnectorPolicyEffectiveDenyAll",
+                "unrestricted": "#/components/schemas/ConnectorPolicyEffectiveUnrestricted"
+              },
+              "propertyName": "mode"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ConnectorPolicyEffectiveUnrestricted"
+              },
+              {
+                "$ref": "#/components/schemas/ConnectorPolicyEffectiveDenyAll"
+              },
+              {
+                "$ref": "#/components/schemas/ConnectorPolicyEffectiveAllow"
+              },
+              {
+                "$ref": "#/components/schemas/ConnectorPolicyEffectiveDeny"
+              }
+            ],
+            "title": "Effective"
           }
         },
         "required": [
-          "revision"
+          "revision",
+          "effective"
         ],
         "title": "ConnectorPolicySetResult",
         "type": "object"
@@ -9790,6 +10027,10 @@
             "title": "Categories",
             "type": "array"
           },
+          "no_auth": {
+            "title": "No Auth",
+            "type": "boolean"
+          },
           "deprecated": {
             "title": "Deprecated",
             "type": "boolean"
@@ -9802,6 +10043,7 @@
           "facet",
           "hints",
           "categories",
+          "no_auth",
           "deprecated"
         ],
         "title": "ConnectorToolRow",

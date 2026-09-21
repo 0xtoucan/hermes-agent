@@ -18,7 +18,7 @@ from tools.connectors.gateway.errors import (
     parse_gateway_error,
 )
 from tools.connectors.gateway.wire import ConnectorAccountsResponse, RemovedConnectorAccount
-from tools.connectors.portal.errors import PortalConnectorUnavailable, PortalToolsUnavailable
+from tools.connectors.portal.errors import InvalidConnectorSlug, PortalConnectorUnavailable, PortalToolsUnavailable
 from tools.connectors.portal.wire import (
     ConnectorCatalogResponse,
     ConnectorPolicyResponse,
@@ -51,7 +51,7 @@ class NotModified:
 
 def validate_slug(slug: str) -> None:
     if not _SLUG_RE.fullmatch(slug):
-        raise GatewayUnavailable("connector not found", code="CONNECTOR_NOT_FOUND", status=404)
+        raise InvalidConnectorSlug("connector must be a slug")
 
 
 def _default_transport() -> Transport:
@@ -86,6 +86,13 @@ class PortalConnectorClient:
 
     def require_authentication(self) -> None:
         self._authorized_headers(self.origin())
+
+    def authorization_token(self) -> str | None:
+        authorization = self._authorized_headers(self.origin()).get("Authorization")
+        if not isinstance(authorization, str):
+            return None
+        scheme, _, token = authorization.partition(" ")
+        return token.strip() if scheme.lower() == "bearer" and token.strip() else None
 
     def _authorized_headers(self, url: str, extra: dict[str, str] | None = None) -> dict[str, str]:
         headers = {"Accept": "application/json", **(extra or {}), **self._header_provider(url)}

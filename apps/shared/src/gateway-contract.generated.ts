@@ -987,6 +987,7 @@ export interface ConnectorToolRow {
   facet: ConnectorToolFacet
   hints: string[]
   categories: string[]
+  no_auth: boolean
   deprecated: boolean
 }
 export type ConnectorToolFacet = 'read' | 'write' | 'destructive' | 'unclassified'
@@ -1025,10 +1026,12 @@ export interface ConnectorAccountsRemoveParams {
 }
 export interface ConnectorAccountsRemoveResult {
   connection_id: string
+  connector: string
   status: 'removed'
 }
 export interface ConnectorPolicyGetResult {
   layers: ConnectorPolicyLayer[]
+  effective: ConnectorPolicyEffectiveUnrestricted | ConnectorPolicyEffectiveDenyAll | ConnectorPolicyEffectiveAllow | ConnectorPolicyEffectiveDeny
 }
 export interface ConnectorPolicyLayer {
   kind: ConnectorPolicyLayerKind
@@ -1058,10 +1061,40 @@ export interface ConnectorPolicyDenyBody {
   tools: Record<string, string[]>
   tags?: ConnectorPolicyTags | null
 }
+export interface ConnectorPolicyEffectiveUnrestricted {
+  version: 1
+  revision: string
+  issued_at_ms: number
+  mode: 'unrestricted'
+}
+export interface ConnectorPolicyEffectiveDenyAll {
+  version: 1
+  revision: string
+  issued_at_ms: number
+  mode: 'deny-all'
+}
+export interface ConnectorPolicyEffectiveAllow {
+  version: 1
+  revision: string
+  issued_at_ms: number
+  mode: 'allow'
+  connectors: string[]
+  tools: Record<string, string[]>
+  tags?: ConnectorPolicyTags | null
+}
+export interface ConnectorPolicyEffectiveDeny {
+  version: 1
+  revision: string
+  issued_at_ms: number
+  mode: 'deny'
+  disabled_connectors: string[]
+  tools: Record<string, string[]>
+  tags?: ConnectorPolicyTags | null
+}
 export interface ConnectorPolicySetParams {
   profile?: string | null
   change: ToolsChange | ConnectorChange
-  expected_revision?: string | null
+  expected_revision: string
 }
 export interface ToolsChange {
   type: 'tools'
@@ -1075,6 +1108,7 @@ export interface ConnectorChange {
 }
 export interface ConnectorPolicySetResult {
   revision: string
+  effective: ConnectorPolicyEffectiveUnrestricted | ConnectorPolicyEffectiveDenyAll | ConnectorPolicyEffectiveAllow | ConnectorPolicyEffectiveDeny
 }
 export interface GroupsCapabilitiesParams {
   profile?: string | null

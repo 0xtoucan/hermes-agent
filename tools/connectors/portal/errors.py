@@ -5,6 +5,10 @@ from __future__ import annotations
 from tools.connectors.gateway.errors import ToolGatewayError
 
 
+class InvalidConnectorSlug(ValueError):
+    """A connector slug failed local validation before any portal request."""
+
+
 class PortalConnectorUnavailable(ToolGatewayError):
     """The portal cannot provide connector metadata right now."""
 

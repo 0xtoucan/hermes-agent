@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+import base64
+import binascii
 import hashlib
+import json
 import time
 from typing import Callable, Literal, Protocol
 
@@ -19,6 +22,8 @@ from utils import atomic_json_write, read_json_or_empty
 
 class ToolsClient(Protocol):
     def origin(self) -> str: ...
+
+    def authorization_token(self) -> str | None: ...
 
     def tools(self, slug: str, *, if_none_match: str | None = None) -> ConnectorToolsListing | NotModified: ...
 
@@ -37,9 +42,26 @@ class ToolsRead:
     tools: list[ConnectorTool]
 
 
-def _cache_path(origin: str, slug: str):
+def _member_key(token: str | None) -> str | None:
+    if not isinstance(token, str):
+        return None
+    parts = token.split(".")
+    if len(parts) != 3:
+        return None
+    try:
+        payload = parts[1] + "=" * (-len(parts[1]) % 4)
+        claims = json.loads(base64.urlsafe_b64decode(payload))
+    except (binascii.Error, ValueError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    subject = claims.get("sub") if isinstance(claims, dict) else None
+    if not isinstance(subject, str) or not subject:
+        return None
+    return hashlib.sha256(subject.encode("utf-8")).hexdigest()[:16]
+
+
+def _cache_path(origin: str, member_key: str, slug: str):
     origin_key = hashlib.sha256(origin.encode("utf-8")).hexdigest()[:16]
-    return get_hermes_home() / "cache" / "connectors" / origin_key / f"{slug}.json"
+    return get_hermes_home() / "cache" / "connectors" / origin_key / member_key / f"{slug}.json"
 
 
 def _cached(path) -> ToolsRead | None:
@@ -83,7 +105,21 @@ def read_tools(
 ) -> ToolsRead:
     """Read a fresh list locally, otherwise conditionally refresh it with the portal."""
     validate_slug(slug)
-    path = _cache_path(client.origin(), slug)
+    member_key = _member_key(client.authorization_token())
+    if member_key is None:
+        listing = client.tools(slug)
+        if isinstance(listing, NotModified):
+            raise PortalToolsUnavailable("portal tools unavailable", code="INVALID_RESPONSE")
+        return ToolsRead(
+            connector=listing.connector,
+            toolkit_version=listing.toolkit_version,
+            etag=listing.etag,
+            fetched_at=now(),
+            source="network",
+            stale=False,
+            tools=listing.tools,
+        )
+    path = _cache_path(client.origin(), member_key, slug)
     cached = _cached(path)
     fetched_at = now()
     age = fetched_at - cached.fetched_at if cached is not None else None
