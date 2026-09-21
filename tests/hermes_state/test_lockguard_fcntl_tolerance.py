@@ -1,0 +1,62 @@
+"""A partial or lookalike ``fcntl`` must disable the WAL lock guard, never kill the process.
+
+Regression for #118026: the module gated only on ``ImportError``, so a Windows install whose
+venv has some other module importable as ``fcntl`` (stock CPython for Windows ships none) hit an
+unguarded ``fcntl.F_RDLCK`` read at import time. ``hermes_state`` imports this module at module
+level, so the ``AttributeError`` killed every importer — ``hermes serve`` (Desktop backend
+"exited before port announcement (1)"), ``hermes doctor``, the gateway, cron — before
+``supported()`` existed to report the guard as unavailable.
+"""
+
+from __future__ import annotations
+
+import importlib
+import sys
+import types
+
+import pytest
+
+
+def _reimport_with_fcntl(monkeypatch, stub: types.ModuleType | None):
+    """Import the guard fresh with ``fcntl`` replaced (or absent), leaving sys.modules clean."""
+    monkeypatch.delitem(sys.modules, "hermes_state_lockguard", raising=False)
+
+    if stub is None:
+        monkeypatch.setitem(sys.modules, "fcntl", None)  # import fcntl -> ImportError
+    else:
+        monkeypatch.setitem(sys.modules, "fcntl", stub)
+
+    return importlib.import_module("hermes_state_lockguard")
+
+
+def _windows_fcntl_lookalike() -> types.ModuleType:
+    """A stand-in exposing only flock/LOCK_*, as reported on the affected Windows installs."""
+    stub = types.ModuleType("fcntl")
+    stub.flock = lambda *args, **kwargs: None
+    stub.LOCK_EX = 2
+    stub.LOCK_SH = 1
+    stub.LOCK_UN = 8
+    return stub
+
+
+@pytest.mark.parametrize(
+    "stub",
+    [pytest.param(None, id="absent"), pytest.param(_windows_fcntl_lookalike(), id="partial")],
+)
+def test_guard_degrades_to_a_no_op_instead_of_killing_every_importer(monkeypatch, stub):
+    guard = _reimport_with_fcntl(monkeypatch, stub)
+
+    # The contract the crash violated: the module imports, reports itself unavailable, and
+    # hold() hands back an empty guard so callers take the ordinary unguarded path.
+    assert guard.supported() is False
+    assert guard.hold("state.db") == {}
+    guard.release({})
+
+
+def test_a_usable_fcntl_still_arms_the_guard(monkeypatch):
+    real_fcntl = pytest.importorskip("fcntl", reason="POSIX-only: nothing to arm on Windows")
+
+    guard = _reimport_with_fcntl(monkeypatch, real_fcntl)
+
+    # The tolerance above must not have disabled the guard everywhere.
+    assert guard.supported() is True
