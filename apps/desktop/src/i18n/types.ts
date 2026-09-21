@@ -820,8 +820,7 @@ export interface Translations {
       toggleLabel: string
       toggleDescription: string
       shellNote: string
-      workspaceTitle: string
-      workspaceDescription: string
+      workspaceRule: string
       foldersTitle: string
       foldersEmpty: string
       addReadOnly: string
@@ -834,9 +833,8 @@ export interface Translations {
       containers: (count: number) => string
       recheck: string
       prepareTitle: string
-      prepareDescription: string
+      prepareDescription: (workspace: string) => string
       prepare: string
-      prepared: string
       needsAdmin: string
       copyCommand: string
       enableFailed: string

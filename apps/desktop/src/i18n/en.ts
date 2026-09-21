@@ -946,9 +946,8 @@ export const en: Translations = {
       toggleDescription:
         'Run every command in a kernel-enforced container. Takes effect on the next command; start a new conversation afterwards so the agent is briefed about the sandbox.',
       shellNote: 'The sandbox shell is downloaded the first time you turn this on.',
-      workspaceTitle: 'Workspace',
-      workspaceDescription:
-        'Read & write. The folder a session works in is always granted; a session without a project folder works in the Hermes folder under your user profile. Images and text you paste into the composer are always readable.',
+      workspaceRule:
+        'Each conversation can write only inside its own project folder, shown in the composer; a conversation without a project folder works in the Hermes folder under your user profile. Everything else is read-only or denied unless listed below. Images and text you paste into the composer are always readable.',
       foldersTitle: 'Additional folders',
       foldersEmpty: 'No extra folders. The agent can only touch the workspace.',
       addReadOnly: 'Add read-only folder',
@@ -962,10 +961,9 @@ export const en: Translations = {
       containers: count => (count === 1 ? '1 container started this session' : `${count} containers started this session`),
       recheck: 'Recheck',
       prepareTitle: 'Prepare workspace for git',
-      prepareDescription:
-        'Git resolves the working directory through its parent folders, so the container must be able to see their names. Preparing adds a names-only permission to those folders; file contents stay private.',
+      prepareDescription: (workspace: string) =>
+        `Git resolves ${workspace} through its parent folders, so the container must be able to see their names. Preparing adds a names-only permission to those folders; file contents stay private.`,
       prepare: 'Prepare',
-      prepared: 'Ready for git',
       needsAdmin: 'Finish in an administrator prompt:',
       copyCommand: 'Copy command',
       enableFailed: 'Could not turn on the sandbox',

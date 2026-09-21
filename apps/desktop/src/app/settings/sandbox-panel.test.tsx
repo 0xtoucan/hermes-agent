@@ -118,8 +118,7 @@ describe('SandboxPanel', () => {
     )
     render(<SandboxPanel workspace={DEMO} />)
 
-    expect(await screen.findByText(DEMO)).toBeTruthy()
-    expect(screen.getByText(DOCUMENTS)).toBeTruthy()
+    expect(await screen.findByText(DOCUMENTS)).toBeTruthy()
     expect(screen.getByText(en.settings.sandbox.modeRead)).toBeTruthy()
     expect(mocks.getStatus).toHaveBeenCalledWith({ workspace: DEMO })
 
@@ -166,11 +165,21 @@ describe('SandboxPanel', () => {
     render(<SandboxPanel />)
 
     const prepare = await screen.findByRole('button', { name: en.settings.sandbox.prepare })
+    expect(screen.getByText(en.settings.sandbox.prepareDescription(`${PROJECTS}\\demo`))).toBeTruthy()
     await act(async () => {
       fireEvent.click(prepare)
     })
 
     expect(mocks.prepare).toHaveBeenCalledWith(`${PROJECTS}\\demo`)
-    expect(await screen.findByText(en.settings.sandbox.prepared)).toBeTruthy()
+    // Once the ancestors are ready the card has nothing left to do and goes away.
+    await waitFor(() => expect(screen.queryByRole('button', { name: en.settings.sandbox.prepare })).toBeNull())
+  })
+
+  it('states the per-conversation rule instead of showing one tab\'s folder as policy', async () => {
+    mocks.getStatus.mockResolvedValue(status({ enabled: true, workspace: `${PROJECTS}\\demo` }))
+    render(<SandboxPanel />)
+
+    expect(await screen.findByTestId('sandbox-workspace-rule')).toBeTruthy()
+    expect(screen.queryByText(`${PROJECTS}\\demo`)).toBeNull()
   })
 })

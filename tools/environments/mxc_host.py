@@ -423,9 +423,10 @@ def admin_prepare_command(directories: Iterable[str]) -> str:
 def unsafe_workspace_reason(workspace: str) -> Optional[str]:
     """Why *workspace* must not become a sandbox's read/write root, or None when it is fine.
 
-    A grant covers everything beneath the folder, so the drive root, the user profile, and any
-    folder that contains Hermes's own home (config, credentials, sessions) would hand the
-    sandbox the very data it exists to protect."""
+    A grant covers everything beneath the folder, so the drive root, the user profile, any
+    folder that contains Hermes's own home (config, credentials, sessions) and any folder that
+    contains Hermes's own program files would hand the sandbox the very things it exists to
+    protect: the user's data, and the code enforcing the policy."""
     root = os.path.normpath(workspace)
     drive, tail = os.path.splitdrive(root)
     if tail in ("\\", "/", ""):
@@ -442,6 +443,10 @@ def unsafe_workspace_reason(workspace: str) -> Optional[str]:
     if hermes_home and (hermes_home.lower() + os.sep).startswith(root.lower().rstrip(os.sep) + os.sep):
         return (f"The sandbox workspace ({root}) contains Hermes's own data directory ({hermes_home}), including "
                 "credentials. Point terminal.cwd at a project folder.")
+    install = os.path.normpath(str(Path(__file__).resolve().parents[2]))
+    if (install.lower() + os.sep).startswith(root.lower().rstrip(os.sep) + os.sep):
+        return (f"The sandbox workspace ({root}) contains Hermes's own program files ({install}); a sandboxed "
+                "agent must not be able to rewrite them. Work in a separate clone, or turn the sandbox off.")
     return None
 
 

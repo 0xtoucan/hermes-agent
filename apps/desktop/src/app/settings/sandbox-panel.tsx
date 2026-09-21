@@ -5,7 +5,7 @@ import { CopyButton } from '@/components/ui/copy-button'
 import { Switch } from '@/components/ui/switch'
 import { getSandboxStatus, prepareSandboxWorkspace, updateSandboxPolicy } from '@/hermes'
 import { useI18n } from '@/i18n'
-import { AlertTriangle, Check, Loader2, Plus, RefreshCw, ShieldLock, Trash2 } from '@/lib/icons'
+import { AlertTriangle, Loader2, Plus, RefreshCw, ShieldLock, Trash2 } from '@/lib/icons'
 import { notifyError } from '@/store/notifications'
 import { pickProjectFolder } from '@/store/projects'
 import type { SandboxGrantMode, SandboxStatus } from '@/types/hermes'
@@ -235,15 +235,9 @@ export function SandboxPanel({ workspace }: { workspace?: string } = {}) {
 
       {status.enabled && (
         <>
-          <ListRow
-            below={
-              <p className="mt-1 truncate font-mono text-xs" title={status.workspace}>
-                {status.workspace}
-              </p>
-            }
-            description={copy.workspaceDescription}
-            title={copy.workspaceTitle}
-          />
+          <p className="px-1 text-[0.72rem] text-muted-foreground" data-testid="sandbox-workspace-rule">
+            {copy.workspaceRule}
+          </p>
 
           {ancestors && !ancestors.ready && (
             <ListRow
@@ -267,16 +261,9 @@ export function SandboxPanel({ workspace }: { workspace?: string } = {}) {
                   </div>
                 )
               }
-              description={copy.prepareDescription}
+              description={copy.prepareDescription(status.workspace ?? '')}
               title={copy.prepareTitle}
             />
-          )}
-
-          {ancestors?.ready && (
-            <div className="flex items-center gap-1.5 px-1 text-xs text-muted-foreground">
-              <Check className="size-3.5" />
-              {copy.prepared}
-            </div>
           )}
 
           <ListRow

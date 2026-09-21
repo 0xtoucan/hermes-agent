@@ -56,10 +56,15 @@ The policy is small on purpose, and the panel shows all of it:
 
 - **Workspace.** The folder a session works in is always readable and writable. In the desktop
   that is the session's project folder; in the CLI it is the folder you launched `hermes` from.
-  A grant covers everything beneath it, so Hermes never uses your home folder, a drive root, or a
-  folder that contains its own data directory as a workspace: a desktop session with no project
-  folder works in `C:\Users\<you>\Hermes` instead (created on first use), and picking one of those
-  folders explicitly is reported as an error. In the CLI, launch `hermes` from a project folder.
+  A grant covers everything beneath it, so Hermes never uses your home folder, a drive root, a
+  folder that contains its own data directory, or a folder that contains its own program files as
+  a workspace: a desktop session with no project folder works in `C:\Users\<you>\Hermes` instead
+  (created on first use), and picking one of those folders explicitly is reported as an error.
+  The program-files rule means a sandboxed agent cannot rewrite Hermes itself; to work on the
+  Hermes source under the sandbox, use a separate clone. In the CLI, launch `hermes` from a
+  project folder. Each conversation has its own workspace; the Sandbox panel shows the policy
+  that applies to all of them, and the composer shows the folder of the conversation in front
+  of you.
 - **Additional folders**, each read-only or read & write. These are `terminal.mxc_readonly_paths`
   and `terminal.mxc_readwrite_paths` in `config.yaml`.
 - **Network**, off by default (`terminal.mxc_network`). Off means the agent is offline: sandboxed

@@ -1150,8 +1150,7 @@ export const zh = defineLocale({
       toggleLabel: '沙箱化智能体操作',
       toggleDescription: '在内核强制隔离的容器中运行每条命令。下一条命令起生效；之后请开始新对话，以便向智能体说明沙箱环境。',
       shellNote: '首次开启时会下载沙箱 shell。',
-      workspaceTitle: '工作区',
-      workspaceDescription: '读写。会话所在的文件夹始终被授予访问权限；没有项目文件夹的会话在用户目录下的 Hermes 文件夹中工作。粘贴到输入框的图片和文本始终可读。',
+      workspaceRule: '每个会话只能在其自己的项目文件夹内写入（显示在输入框旁）；没有项目文件夹的会话在用户目录下的 Hermes 文件夹中工作。除下方列出的文件夹外，其他位置均为只读或被拒绝。粘贴到输入框的图片和文本始终可读。',
       foldersTitle: '其他文件夹',
       foldersEmpty: '没有额外文件夹。智能体只能访问工作区。',
       addReadOnly: '添加只读文件夹',
@@ -1164,10 +1163,9 @@ export const zh = defineLocale({
       containers: count => `本会话已启动 ${count} 个容器`,
       recheck: '重新检查',
       prepareTitle: '为 git 准备工作区',
-      prepareDescription:
-        'Git 通过父文件夹解析工作目录，因此容器必须能看到这些文件夹的名称。准备操作只为这些文件夹添加名称可见权限；文件内容保持私密。',
+      prepareDescription: (workspace: string) =>
+        `Git 通过父文件夹解析 ${workspace}，因此容器必须能看到这些文件夹的名称。准备操作只为这些文件夹添加名称可见权限；文件内容保持私密。`,
       prepare: '准备',
-      prepared: '已可用于 git',
       needsAdmin: '请在管理员提示符中完成：',
       copyCommand: '复制命令',
       enableFailed: '无法开启沙箱',

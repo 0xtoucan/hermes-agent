@@ -11,6 +11,7 @@ import json
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -147,7 +148,17 @@ def test_unsafe_workspace_refuses_home_drive_root_and_hermes_home_parents(tmp_pa
     assert "drive root" in unsafe_workspace_reason(os.path.splitdrive(str(tmp_path))[0] + os.sep)
     assert "Hermes's own data directory" in unsafe_workspace_reason(str(tmp_path / "data"))
     assert unsafe_workspace_reason(str(tmp_path / "proj")) is None
-    assert unsafe_workspace_reason(str(hermes_home / "hermes-agent")) is None, "a checkout inside HERMES_HOME is fine"
+    assert unsafe_workspace_reason(str(hermes_home / "hermes-agent")) is None, "a same-named folder elsewhere is fine"
+
+
+def test_unsafe_workspace_refuses_the_install_tree_and_its_parents(tmp_path, monkeypatch):
+    """The desktop spawns its backend from the install tree and ``terminal.cwd: .`` resolves there, so
+    without this rule a project-less conversation would get read/write over Hermes's own code."""
+    install = Path(mxc_host.__file__).resolve().parents[2]
+    monkeypatch.setattr(os.path, "expanduser", lambda p: str(tmp_path / "home") if p == "~" else p)
+    assert "program files" in unsafe_workspace_reason(str(install))
+    assert "program files" in unsafe_workspace_reason(str(install.parent))
+    assert unsafe_workspace_reason(str(install.parent / "some-other-project")) is None
 
 
 def test_sandbox_workspace_for_redirects_unsafe_folders_to_a_created_default_inside_home(tmp_path, monkeypatch):
