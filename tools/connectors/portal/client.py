@@ -1,10 +1,11 @@
-"""HTTP client for portal connector metadata routes."""
+"""HTTP client for portal connector management and metadata routes."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 import re
 from typing import Any, Callable, Mapping, Protocol
+from urllib.parse import quote
 
 import requests
 from pydantic import ValidationError
@@ -16,6 +17,7 @@ from tools.connectors.gateway.errors import (
     ToolGatewayError,
     parse_gateway_error,
 )
+from tools.connectors.gateway.wire import ConnectorAccountsResponse, RemovedConnectorAccount
 from tools.connectors.portal.errors import PortalConnectorUnavailable, PortalToolsUnavailable
 from tools.connectors.portal.wire import (
     ConnectorCatalogResponse,
@@ -66,7 +68,7 @@ def _default_header_provider(_url: str) -> dict[str, str]:
 
 
 class PortalConnectorClient:
-    """Fetch connector metadata without retries or response-body logging."""
+    """Manage accounts and fetch connector metadata without retries or response-body logging."""
 
     def __init__(
         self,
@@ -117,6 +119,18 @@ class PortalConnectorClient:
     def catalog(self) -> ConnectorCatalogResponse:
         response, status = self._request("GET", "/api/v1/connectors/catalog")
         return self._parse(ConnectorCatalogResponse, response, status, PortalConnectorUnavailable, "portal catalog unavailable")
+
+    def list_accounts(self) -> list[dict[str, Any]]:
+        response, status = self._request("GET", "/api/v1/connectors/accounts")
+        inventory = self._parse(ConnectorAccountsResponse, response, status, PortalConnectorUnavailable, "portal accounts unavailable")
+        return [account.model_dump(by_alias=True) for account in inventory.accounts]
+
+    def delete_account(self, connection_id: str) -> dict[str, Any]:
+        """Use the portal's membership checks and disconnect audit; never retry a removal."""
+        path = f"/api/v1/connectors/accounts/{quote(connection_id, safe='')}"
+        response, status = self._request("DELETE", path)
+        removed = self._parse(RemovedConnectorAccount, response, status, PortalConnectorUnavailable, "portal accounts unavailable")
+        return removed.model_dump(by_alias=True)
 
     def policy(self) -> ConnectorPolicyResponse:
         response, status = self._request("GET", "/api/v1/connectors/policy")

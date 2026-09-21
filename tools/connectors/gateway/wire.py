@@ -190,6 +190,7 @@ class ConnectorAccountsResponse(_Wire):
 
 class RemovedConnectorAccount(_Wire):
     connection_id: str = Field(alias="connectionId")
+    connector: str
     status: Literal["removed"]
 
 

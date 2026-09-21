@@ -93,10 +93,10 @@ def _(rid, _params):
     unavailable_message="Connector accounts are unavailable.",
 )
 def _(rid, request):
-    from tools.connectors.gateway.client import ConnectorClient
+    from tools.connectors.portal.client import PortalConnectorClient
     from tui_gateway.contracts.connectors import ConnectorAccountRow, ConnectorAccountsResult
 
-    accounts = ConnectorClient().list_accounts()
+    accounts = PortalConnectorClient().list_accounts()
     rows = [account for account in accounts if request.connector is None or account["connector"] == request.connector]
     result = ConnectorAccountsResult(accounts=[ConnectorAccountRow(
         connection_id=account["connectionId"],
@@ -121,14 +121,14 @@ def _(rid, request):
     unavailable_message="Connector accounts are unavailable.",
 )
 def _(rid, request):
-    from tools.connectors.gateway.client import ConnectorClient
     from tools.connectors.gateway.errors import GatewayUnavailable
+    from tools.connectors.portal.client import PortalConnectorClient
     from tui_gateway.contracts.connectors import ConnectorAccountsRemoveResult, ConnectorErrorReason
 
     try:
-        removed = ConnectorClient().delete_account(request.connection_id)
+        removed = PortalConnectorClient().delete_account(request.connection_id)
     except GatewayUnavailable as exc:
-        # Only the gateway's own "no such account" removes the card; any other failure is an outage.
+        # Only the portal's own "no such account" removes the card; any other failure is an outage.
         if exc.code == "connection_not_found":
             return _connector_rpc_error(rid, 4041, ConnectorErrorReason.connection_not_found, "Connector account not found.")
         return _connector_rpc_error(rid, 5034, ConnectorErrorReason.accounts_unavailable, "Connector accounts are unavailable.")

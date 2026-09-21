@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import logging
 import os
-from urllib.parse import quote
 import uuid
 from typing import Any, Callable, Optional, Protocol, Sequence
 
@@ -132,18 +131,6 @@ class ConnectorClient:
                 return items
         raise ToolGatewayError("connector list pagination incomplete", code="INVALID_RESPONSE")
 
-    def list_accounts(
-        self, *, connector: Optional[str] = None, status: Optional[Sequence[str]] = None
-    ) -> list[dict[str, Any]]:
-        query = []
-        if connector:
-            query.append(f"connector={connector}")
-        if status:
-            query.append(f"status={','.join(status)}")
-        path = wire.CONNECTOR_ACCOUNTS_PATH + (f"?{'&'.join(query)}" if query else "")
-        page = self._parse(wire.ConnectorAccountsResponse, self._request("GET", path, None), "connector accounts")
-        return [row.model_dump(by_alias=True) for row in page.accounts]
-
     def account_status(
         self, connection_id: str, *, timeout: float = DEFAULT_TIMEOUT_SECONDS
     ) -> Optional[dict[str, Any]]:
@@ -156,12 +143,6 @@ class ConnectorClient:
                 return None
             raise
         return self._parse(wire.ConnectorAccount, payload, "connector account").model_dump(by_alias=True)
-
-    def delete_account(self, connection_id: str) -> dict[str, Any]:
-        """Remove one account. The gateway intentionally conflates missing and foreign accounts."""
-        path = f"{wire.CONNECTOR_ACCOUNTS_PATH}/{quote(connection_id, safe='')}"
-        payload = self._request("DELETE", path, None)
-        return self._parse(wire.RemovedConnectorAccount, payload, "removed connector account").model_dump(by_alias=True)
 
     @staticmethod
     def _parse(model: Any, payload: Any, what: str) -> Any:
