@@ -104,9 +104,10 @@ export function SandboxPill({ disabled }: { disabled: boolean }) {
           variant="ghost"
           {...hoverProps}
         >
-          {/* The travelling blue-to-orange arc the Nous Portal row wears: the sandbox being on
-              is the one state in the composer worth more than a tint. */}
-          {enabled && <span aria-hidden className="arc-border arc-nous" data-testid="sandbox-pill-arc" />}
+          {/* A closed blue-to-orange ring in the Nous colours: the sandbox being on is the one
+              state in the composer worth more than a tint, and a ring stays whole when motion
+              is off, where the travelling arc would freeze part-way. */}
+          {enabled && <span aria-hidden className="sandbox-ring" data-testid="sandbox-pill-arc" />}
           <ShieldLock className="size-3.5" />
         </Button>
       </PopoverAnchor>
