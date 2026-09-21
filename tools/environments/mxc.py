@@ -271,11 +271,16 @@ class MxcEnvironment(BaseEnvironment):
         self._git_identity: Optional[dict[str, str]] = None
         super().__init__(cwd=_resolve_local_initial_cwd(cwd), timeout=timeout, env=env)
         # The read/write grant is the session's workspace root, not the live cwd: a ``cd`` into
-        # a subdirectory stays covered, and a ``cd`` outside it is refused by the sandbox.
-        self.workspace_root = to_native_path(self.cwd)
-        refusal = mxc_host.unsafe_workspace_reason(self.workspace_root)
-        if refusal:
-            raise RuntimeError(refusal)
+        # a subdirectory stays covered, and a ``cd`` outside it is refused by the sandbox. A cwd
+        # the policy refuses as a workspace (the install tree, home, a drive root) re-homes to the
+        # default workspace rather than failing: the sandbox may have been turned on for a
+        # session that started elsewhere, and a refusal here would take every tool down with it.
+        requested = to_native_path(self.cwd)
+        self.workspace_root = mxc_host.sandbox_workspace_for(requested)
+        if os.path.normcase(self.workspace_root) != os.path.normcase(requested):
+            logger.info("mxc: %s Working in %s instead.",
+                        mxc_host.unsafe_workspace_reason(requested), self.workspace_root)
+            self.cwd = self.workspace_root
         self._sandbox_home = f"{self.get_temp_dir()}/mxc-home-{self._session_id}"
         os.makedirs(self._sandbox_home, exist_ok=True)
         self._prefer_nonlogin = True  # there is no login-shell concept in the sandbox

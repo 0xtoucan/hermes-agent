@@ -178,6 +178,23 @@ def test_sandbox_workspace_for_redirects_unsafe_folders_to_a_created_default_ins
     assert mxc_host.sandbox_workspace_for(str(project)) == str(project)
 
 
+def test_sandbox_workspace_for_judges_an_empty_cwd_as_the_process_directory(tmp_path, monkeypatch):
+    """A session with no stored cwd means "wherever the backend runs", which for the desktop is the
+    install tree; the empty string must be judged as that folder, not waved through."""
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(os.path, "expanduser", lambda p: str(home) if p == "~" else p)
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "data" / ".hermes"))
+    install = Path(mxc_host.__file__).resolve().parents[2]
+    monkeypatch.chdir(install)
+    assert mxc_host.sandbox_workspace_for("") == str(home / mxc_host.DEFAULT_WORKSPACE_DIRNAME)
+    project = tmp_path / "proj"
+    project.mkdir()
+    monkeypatch.chdir(project)
+    assert mxc_host.sandbox_workspace_for("") == str(project)
+    assert mxc_host.sandbox_workspace_for(".") == str(project)
+
+
 def test_attachment_staging_dirs_grant_only_the_composer_folders(tmp_path, monkeypatch):
     """The desktop's user-data folder holds tokens; only its composer staging subfolders may be read."""
     monkeypatch.delenv(mxc_host.DESKTOP_USER_DATA_ENV, raising=False)

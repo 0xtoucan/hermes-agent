@@ -146,6 +146,8 @@ NOT_REGULAR_SENTINEL = "__hermes_not_regular__"
 # compound command only reports its *last* exit status, so the missing-file
 # signal that ``_probe_regular_file`` carries in ``exit 1`` travels in-band.
 MISSING_SENTINEL = "__hermes_missing__"
+# The path exists as a regular file but could not be opened for reading.
+UNREADABLE_SENTINEL = "__hermes_unreadable__"
 
 _READ_SENTINEL_PREFIX = "__HERMES_RF_"
 _WRITE_SENTINEL_PREFIX = "__HERMES_WF_"
@@ -478,7 +480,7 @@ class ShellFileOperations(LintMixin, SearchMixin, FileOperations):
         # not run (container still starting, removed out-of-band, transport down) — not a missing file.
         # Reporting that as "File not found" made the model trust a false negative for the whole session.
         stat_result = self._exec(
-            f"if [ -f {arg} ]; then wc -c < {arg} 2>/dev/null; "
+            f"if [ -f {arg} ]; then wc -c < {arg} 2>&1 || echo {UNREADABLE_SENTINEL}; "
             f"elif [ -e {arg} ]; then echo {NOT_REGULAR_SENTINEL}; "
             f"else ls -d {arg} 2>&1 >/dev/null | head -1; echo {MISSING_SENTINEL}; fi")
         stat_output = _strip_terminal_fence_leaks(stat_result.stdout).strip()
@@ -489,6 +491,11 @@ class ShellFileOperations(LintMixin, SearchMixin, FileOperations):
             if refused:
                 return 0, f"Access to {path} was refused:\n{refused}"
             return 0, "missing"
+        if UNREADABLE_SENTINEL in stat_output:
+            # The file is visible (its parent may be listed) but cannot be opened: under a sandbox
+            # that is a policy refusal on the file itself, not a transport failure.
+            refused = _access_refusal(stat_output, marker=UNREADABLE_SENTINEL)
+            return 0, (f"Access to {path} was refused:\n{refused}" if refused else "env_unavailable")
         if stat_output == NOT_REGULAR_SENTINEL:
             return 0, "not_regular"
         if stat_result.exit_code != 0:

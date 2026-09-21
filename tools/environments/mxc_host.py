@@ -465,9 +465,11 @@ def default_workspace() -> str:
 
 def sandbox_workspace_for(cwd: str) -> str:
     """*cwd* when it may be a sandbox workspace, else the default workspace. The one rule every
-    surface (session creation, the desktop's default folder, the Sandbox panel) applies, so they
-    agree on where a sandboxed session works."""
-    return cwd if unsafe_workspace_reason(cwd) is None else default_workspace()
+    surface (session creation, the desktop's default folder, the Sandbox panel, the environment
+    itself) applies, so they agree on where a sandboxed session works. An empty or relative *cwd*
+    means the process's own directory, which is judged as the folder it resolves to."""
+    resolved = os.path.abspath(os.path.expanduser(cwd)) if cwd else os.getcwd()
+    return resolved if unsafe_workspace_reason(resolved) is None else default_workspace()
 
 
 # The desktop stages what the user pastes or attaches in the composer under its Electron user-data

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -117,3 +118,29 @@ def test_file_tools_take_absolute_windows_paths_and_report_refusals(live_env):
     assert ops.search("hello", path=live_env.workspace_root).total_count == 1
     refused = ops.read_file(os.path.join(os.path.expanduser("~"), "NTUSER.DAT"))
     assert refused.error is not None and "refused" in refused.error and "File not found" not in refused.error
+
+
+def test_a_refused_workspace_rehomes_to_the_default_instead_of_failing(monkeypatch, tmp_path):
+    """The sandbox turned on for a session whose cwd is the install tree (or empty, which means the
+    backend's own directory) must not take every tool down: the environment works in the default
+    workspace and says so, and a command there succeeds."""
+    shell = _provisioned_shell()
+    if shell is None:
+        pytest.skip("sandbox shell not provisioned on this machine (enable the sandbox once first)")
+    monkeypatch.setenv("TERMINAL_MXC_SHELL_PATH", shell)
+    if not mxc_host.status(provision_shell=False)["available"]:
+        pytest.skip("MXC unavailable here")
+    from tools.environments.mxc import MxcEnvironment
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(os.path, "expanduser", lambda p: str(home) if p == "~" else p)
+    install = str(Path(mxc_host.__file__).resolve().parents[2])
+    env = MxcEnvironment(cwd=install, timeout=60)
+    try:
+        expected = str(home / mxc_host.DEFAULT_WORKSPACE_DIRNAME)
+        assert os.path.normcase(env.workspace_root) == os.path.normcase(expected)
+        result = env.execute("echo ok-from-default && pwd -P")
+        assert result["returncode"] == 0 and "ok-from-default" in result["output"]
+        assert mxc_host.DEFAULT_WORKSPACE_DIRNAME.lower() in result["output"].lower()
+    finally:
+        env.cleanup()

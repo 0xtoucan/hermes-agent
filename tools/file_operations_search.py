@@ -719,10 +719,13 @@ class SearchMixin:
         fetch_limit = offset + limit + 1
         base = (f"find {' '.join(q_roots)}{protected_prune}{hidden_prune} -type f "
                 f"! -name '.*' -name {self._escape_shell_arg(search_pattern)}")
+        # find's own diagnostics travel on stdout, prefixed "find: ", so a refusal below the root
+        # (a folder the sandbox lets the container see but not enter) can be reported as such;
+        # path lines never start with that prefix.
         if order == "modified":
-            cmd = "set -o pipefail; " + base + f" -printf '%T@ %p\\n' 2>/dev/null | sort -rn | head -n {fetch_limit}"
+            cmd = "set -o pipefail; " + base + f" -printf '%T@ %p\\n' 2>&1 | sort -rn | head -n {fetch_limit}"
         else:
-            cmd = "set -o pipefail; " + base + f" -print 2>/dev/null | head -n {fetch_limit}"
+            cmd = "set -o pipefail; " + base + f" -print 2>&1 | head -n {fetch_limit}"
 
         keys = _filename_search_root_keys(self.env, roots, self.cwd)
         if not _acquire_filename_search_roots(keys):
@@ -737,7 +740,11 @@ class SearchMixin:
         # SIGPIPE when head closes after fetch_limit rows — benign only when the
         # payload proves the bound was reached; a shorter payload is a hard failure.
         raw_files: List[str] = []
+        diagnostics: List[str] = []
         for line in stdout.splitlines():
+            if line.startswith("find: ") or line.startswith("[Sandbox]") or line.startswith("  "):
+                diagnostics.append(line)
+                continue
             if order == "modified":
                 parts = line.split(" ", 1)
                 if len(parts) != 2 or not parts[0].replace(".", "", 1).isdigit():
@@ -751,6 +758,9 @@ class SearchMixin:
                 return SearchResult(error=(
                     "Exact modification-time order requires GNU find with "
                     "-printf support; install ripgrep 14+ or use order='discovery'."))
+            refused = _access_refusal("\n".join(diagnostics), marker="")
+            if refused:
+                return SearchResult(error=f"Access under {', '.join(roots)} was refused:\n{refused}")
             return SearchResult(error="File search failed while running bounded find traversal.")
 
         from tools.environments.local import LocalEnvironment, _IS_WINDOWS, _msys_to_windows_path
