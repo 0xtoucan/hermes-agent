@@ -50,6 +50,15 @@ def validate_action(action: str, managed: List[str], mcp: List[str]) -> Optional
             "Disconnecting an account is done by the user in the Nous Portal dashboard, not "
             "through this tool."
         )
+    if action == "connect" and mcp:
+        # An MCP entry hosted by a desktop application connects through the same verb as a managed
+        # connector; the catalog decides whether the name qualifies.
+        if managed:
+            return (
+                f"'connect' is a managed-connector action; MCP targets ({', '.join(mcp)}) use "
+                f"{', '.join(MCP_ACTIONS)}. An application-hosted MCP entry connects in its own call."
+            )
+        return None
     if action in MCP_ACTIONS:
         if managed:
             return (
