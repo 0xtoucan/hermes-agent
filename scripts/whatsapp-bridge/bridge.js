@@ -41,7 +41,6 @@ import {
   bridgeCapabilities,
   buildPollJidCandidates,
   buildPollPayload,
-  buildPollUpdateEvent,
   buildReplyButtonDelivery,
   createReconnectScheduler,
   createVersionResolver,
@@ -49,7 +48,6 @@ import {
   buildTextSendPayload,
   createBoundedMessageStore,
   createQuotedMediaCache,
-  classifyPollUpdateIngress,
   extractBridgeEvent,
   inboundReadReceiptKeys,
   inferMediaType,
@@ -57,9 +55,9 @@ import {
   normalizePresenceState,
   normalizeWhatsAppId,
   pollCreationMessageFromPayload,
-  pollUpdateForAggregation,
   resolveBridgeSenderId,
 } from './bridge_helpers.js';
+import { createPollUpdateRuntime } from './poll_update_runtime.js';
 
 // Parse CLI args
 const args = process.argv.slice(2);
@@ -224,6 +222,18 @@ function rememberSentMessage(sent, payload, bridgeMetadata = null) {
   });
 }
 
+function rememberSentPoll(sent, payload, bridgeMetadata = {}) {
+  const pollId = sent?.key?.id;
+  const message = pollCreationMessageFromPayload(payload);
+  if (!pollId || !message) return;
+  messageStore.remember({
+    ...sent,
+    message,
+    bridgeMetadata: { kind: 'poll', ...bridgeMetadata },
+  });
+  sentPollIds.remember(pollId);
+}
+
 function trackSentMessageId(sent) {
   rememberSentId(sent?.key?.id);
 }
@@ -277,28 +287,13 @@ const MAX_QUEUE_SIZE = 100;
 // Capacity bounded (see outbound_ids.js) to keep memory flat under
 // sustained sending.
 const recentlySentIds = createOutboundIdTracker(512);
+const sentPollIds = createOutboundIdTracker(512);
 const recentlyProcessedPollUpdates = createOutboundIdTracker(512);
 const messageStore = createBoundedMessageStore(512);
 // Bounded cache of already-downloaded inbound media, so a later reply to an
 // uncaptioned photo/video/document/voice note can still surface the original
 // file — see createQuotedMediaCache's doc comment in bridge_helpers.js.
 const quotedMediaCache = createQuotedMediaCache(512);
-
-function normalizePollUpdateOptions(aggregation, pollUpdateMessage, meId) {
-  const selected = [];
-  for (const option of aggregation || []) {
-    if ((option.voters || []).length > 0 && option.name && option.name !== 'Unknown') {
-      selected.push(option.name);
-    }
-  }
-  if (selected.length > 0) return selected;
-
-  // Fallback for already-decrypted pollUpdateMessage payloads where Baileys did
-  // not have the creation message available. This may only yield hashes, but
-  // keeping them in metadata is still better than dropping the vote entirely.
-  const raw = pollUpdateMessage?.vote?.selectedOptions || [];
-  return raw.map(option => String(option)).filter(Boolean);
-}
 
 function pollAggregationSummary(aggregation) {
   return (aggregation || []).map(option => ({
@@ -324,36 +319,6 @@ function logPollUpdateDiagnostic({ sourcePath, pollId, pollCreation, pollUpdates
   } catch {}
 }
 
-function enqueuePollUpdateEvent({ key, update, selectedOptions, aggregation, replyButtonOptionMap, providerMessageId = '', timestamp }) {
-  const pollId = key?.id
-    || update?.pollUpdates?.[0]?.pollCreationMessageKey?.id
-    || '';
-  // Only surface votes on polls Hermes itself created (tracked when
-  // /send-poll returns). Arbitrary human polls in a group chat must not
-  // inject agent-visible messages on every vote.
-  if (!pollId || !recentlySentIds.has(pollId)) {
-    if (WHATSAPP_DEBUG) {
-      try { console.log(JSON.stringify({ event: 'ignored', reason: 'foreign_poll_update', pollId })); } catch {}
-    }
-    return;
-  }
-  const event = buildPollUpdateEvent({
-    key,
-    update,
-    selectedOptions,
-    aggregation,
-    replyButtonOptionMap,
-    providerMessageId,
-    timestamp,
-  });
-  if (recentlyProcessedPollUpdates.has(event.messageId)) return;
-  recentlyProcessedPollUpdates.remember(event.messageId);
-  messageQueue.push(event);
-  if (messageQueue.length > MAX_QUEUE_SIZE) {
-    messageQueue.shift();
-  }
-}
-
 function rememberSentId(id) {
   recentlySentIds.remember(id);
 }
@@ -377,61 +342,6 @@ function pollAuthorCandidates(...keys) {
   return buildPollJidCandidates(candidates, {
     sessionDir: SESSION_DIR,
     expandIdentifiers: expandWhatsAppIdentifiers,
-  });
-}
-
-function handlePollUpdateUpsert({ msg, pollUpdateMessage, pollId, chatId, senderId }) {
-  const pollKey = pollUpdateMessage.pollCreationMessageKey || {
-    id: pollId,
-    remoteJid: chatId,
-    participant: senderId,
-  };
-  const pollCreation = messageStore.get(pollId);
-  let aggregation = [];
-  let pollUpdates = [pollUpdateMessage];
-  try {
-    if (pollCreation) {
-      const meId = jidNormalizedUser(sock?.user?.id || 'me');
-      const pollUpdate = pollUpdateForAggregation({
-        pollUpdateMessage,
-        pollUpdateMessageKey: msg.key,
-        pollCreation,
-        decryptPollVote,
-        getKeyAuthor,
-        meId,
-        pollCreatorJids: pollAuthorCandidates(
-          pollUpdateMessage.pollCreationMessageKey,
-          pollKey,
-          pollCreation.key,
-        ),
-        voterJids: pollAuthorCandidates(msg.key, pollUpdateMessage.pollUpdateMessageKey),
-      });
-      if (pollUpdate) pollUpdates = [pollUpdate];
-      aggregation = getAggregateVotesInPollMessage({
-        message: pollCreation.message,
-        pollUpdates,
-      });
-    }
-  } catch (err) {
-    console.warn('[bridge] failed to aggregate poll upsert:', err.message);
-  }
-  const selectedOptions = normalizePollUpdateOptions(aggregation, pollUpdates[0]);
-  logPollUpdateDiagnostic({
-    sourcePath: 'messages.upsert',
-    pollId,
-    pollCreation,
-    pollUpdates,
-    selectedOptions,
-    aggregation,
-  });
-  enqueuePollUpdateEvent({
-    key: { ...pollKey, remoteJid: pollKey.remoteJid || chatId, participant: pollKey.participant || senderId },
-    update: { pollUpdates },
-    selectedOptions,
-    aggregation,
-    replyButtonOptionMap: pollCreation?.bridgeMetadata?.replyButtonOptionMap,
-    providerMessageId: msg.key?.id,
-    timestamp: pollUpdateMessage.senderTimestampMs || msg.messageTimestamp,
   });
 }
 
@@ -463,6 +373,28 @@ async function startSocket() {
       // We don't maintain a message store, so return a placeholder.
       // This is enough for Baileys to complete the retry handshake.
       return { conversation: '' };
+    },
+  });
+
+  const pollUpdateRuntime = createPollUpdateRuntime({
+    trackedPollIds: sentPollIds,
+    messageStore,
+    processedVoteIds: recentlyProcessedPollUpdates,
+    decryptPollVote,
+    getKeyAuthor,
+    getAggregateVotesInPollMessage,
+    getAccountIds: () => [
+      jidNormalizedUser(sock?.user?.lid || ''),
+      jidNormalizedUser(sock?.user?.id || ''),
+    ].filter(Boolean),
+    pollAuthorCandidates,
+    enqueueEvent: (event) => {
+      messageQueue.push(event);
+      if (messageQueue.length > MAX_QUEUE_SIZE) messageQueue.shift();
+    },
+    onDiagnostic: logPollUpdateDiagnostic,
+    onDecodeError: ({ sourcePath, error }) => {
+      console.warn(`[bridge] failed to aggregate poll update (${sourcePath}):`, error?.message || error);
     },
   });
 
@@ -525,59 +457,8 @@ async function startSocket() {
     }
   });
 
-  sock.ev.on('messages.update', async (updates) => {
-    for (const { key, update } of updates || []) {
-      if (!update?.pollUpdates) continue;
-      const pollCreationId = key?.id || update.pollUpdates?.[0]?.pollCreationMessageKey?.id;
-      const pollCreation = messageStore.get(pollCreationId);
-      let aggregation = [];
-      let pollUpdates = update.pollUpdates;
-      try {
-        if (pollCreation) {
-          const meId = jidNormalizedUser(sock.user?.id || 'me');
-          pollUpdates = update.pollUpdates.map(pollUpdate => (
-            pollUpdateForAggregation({
-              pollUpdateMessage: pollUpdate,
-              pollUpdateMessageKey: pollUpdate.pollUpdateMessageKey,
-              pollCreation,
-              decryptPollVote,
-              getKeyAuthor,
-              meId,
-              pollCreatorJids: pollAuthorCandidates(
-                pollUpdate.pollCreationMessageKey,
-                key,
-                pollCreation.key,
-              ),
-              voterJids: pollAuthorCandidates(pollUpdate.pollUpdateMessageKey, key),
-            }) || pollUpdate
-          ));
-          aggregation = getAggregateVotesInPollMessage({
-            message: pollCreation.message,
-            pollUpdates,
-          });
-        }
-      } catch (err) {
-        console.warn('[bridge] failed to aggregate poll update:', err.message);
-      }
-      const selectedOptions = normalizePollUpdateOptions(aggregation, pollUpdates?.[0]);
-      logPollUpdateDiagnostic({
-        sourcePath: 'messages.update',
-        pollId: pollCreationId,
-        pollCreation,
-        pollUpdates,
-        selectedOptions,
-        aggregation,
-      });
-      enqueuePollUpdateEvent({
-        key,
-        update: { ...update, pollUpdates },
-        selectedOptions,
-        aggregation,
-        replyButtonOptionMap: pollCreation?.bridgeMetadata?.replyButtonOptionMap,
-        providerMessageId: pollUpdates?.[0]?.pollUpdateMessageKey?.id,
-        timestamp: pollUpdates?.[0]?.senderTimestampMs,
-      });
-    }
+  sock.ev.on('messages.update', (updates) => {
+    pollUpdateRuntime.handleUpdates(updates);
   });
 
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
@@ -619,25 +500,15 @@ async function startSocket() {
       // Poll votes for bridge-created polls can arrive with fromMe=true even
       // though they are user interactions. Recognize only a tracked poll and
       // process it before the owner-message gate; drop every foreign poll.
-      const pollIngress = classifyPollUpdateIngress({ msg, knownPollIds: recentlySentIds });
-      if (pollIngress.action === 'drop_foreign_poll') {
+      const pollIngress = pollUpdateRuntime.handleUpsert(msg);
+      if (pollIngress.handled && pollIngress.enqueued === 0) {
         emitDebugEvent({
           stage: 'ignored',
-          reason: 'foreign_poll_update',
-          pollId: pollIngress.pollId,
+          reason: pollIngress.reason,
         });
         continue;
       }
-      if (pollIngress.action === 'handle_known_poll') {
-        handlePollUpdateUpsert({
-          msg,
-          pollUpdateMessage: pollIngress.pollUpdateMessage,
-          pollId: pollIngress.pollId,
-          chatId,
-          senderId,
-        });
-        continue;
-      }
+      if (pollIngress.handled) continue;
 
       // Handle fromMe messages based on mode
       let fromOwner = false;
@@ -936,7 +807,7 @@ app.post('/send-buttons', async (req, res) => {
       const { options } = buildTextSendPayload('', { replyTo, messageStore });
       const sent = await sendWithTimeout(chatId, payload, options);
       trackSentMessageId(sent);
-      rememberSentMessage(sent, payload, { replyButtonOptionMap: delivery.optionMap });
+      rememberSentPoll(sent, payload, { replyButtonOptionMap: delivery.optionMap });
       if (sent?.key?.id) messageIds.push(sent.key.id);
     } else {
       const chunks = splitLongMessage(formatOutgoingMessage(delivery.message));
@@ -1116,7 +987,7 @@ app.post('/send-poll', async (req, res) => {
     const payload = buildPollPayload({ question, options, selectableCount });
     const sent = await sendWithTimeout(chatId, payload);
     trackSentMessageId(sent);
-    rememberSentMessage(sent, payload);
+    rememberSentPoll(sent, payload);
     res.json({ success: true, messageId: sent?.key?.id });
   } catch (err) {
     res.status(400).json({ error: err.message });

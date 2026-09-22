@@ -23,7 +23,6 @@ import {
   buildTextSendPayload,
   createBoundedMessageStore,
   appendMediaFailureNote,
-  classifyPollUpdateIngress,
   extractBridgeEvent,
   extractInteractiveReply,
   inboundReadReceiptKeys,
@@ -823,33 +822,8 @@ import {
   console.log('  ✓ legacy button/template/native replies retain structured and quote metadata');
 }
 
-// -- poll ingress ordering, JID aliases and durable ids ------------------
+// -- poll JID aliases and durable ids ------------------------------------
 {
-  const knownPollIds = new Set(['poll-created-by-marta']);
-  const fromOwnerVote = {
-    key: { id: 'provider-vote-1', remoteJid: '267383306489914@lid', fromMe: true },
-    message: {
-      pollUpdateMessage: {
-        pollCreationMessageKey: { id: 'poll-created-by-marta' },
-        vote: { selectedOptions: [Buffer.from('choice')] },
-      },
-    },
-  };
-  assert.equal(
-    classifyPollUpdateIngress({ msg: fromOwnerVote, knownPollIds }).action,
-    'handle_known_poll',
-  );
-  assert.equal(
-    classifyPollUpdateIngress({
-      msg: {
-        ...fromOwnerVote,
-        message: { pollUpdateMessage: { pollCreationMessageKey: { id: 'foreign-poll' }, vote: {} } },
-      },
-      knownPollIds,
-    }).action,
-    'drop_foreign_poll',
-  );
-
   const sessionDir = mkdtempSync(path.join(tmpdir(), 'hermes-wa-poll-alias-'));
   try {
     writeFileSync(path.join(sessionDir, 'lid-mapping-19175395595.json'), JSON.stringify('267383306489914'));
@@ -908,7 +882,7 @@ import {
   });
   assert.match(fallbackA.messageId, /^poll-update:[0-9a-f]{32}$/);
   assert.equal(fallbackB.messageId, fallbackA.messageId);
-  console.log('  ✓ known fromMe poll votes bypass owner gating with mapped JIDs and stable provider ids');
+  console.log('  ✓ poll events retain mapped JIDs and stable provider ids');
 }
 
 console.log('\n✅ All WhatsApp native bridge helper tests passed.');

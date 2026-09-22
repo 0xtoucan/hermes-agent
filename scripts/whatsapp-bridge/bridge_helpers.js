@@ -187,18 +187,6 @@ export function buildPollJidCandidates(values, { sessionDir, expandIdentifiers }
   return uniqueStrings(candidates);
 }
 
-export function classifyPollUpdateIngress({ msg, knownPollIds }) {
-  const pollUpdateMessage = getMessageContent(msg)?.pollUpdateMessage;
-  if (!pollUpdateMessage) return { action: 'continue', pollId: '', pollUpdateMessage: null };
-  const pollId = String(pollUpdateMessage.pollCreationMessageKey?.id || '');
-  const known = !!pollId && !!knownPollIds && typeof knownPollIds.has === 'function' && knownPollIds.has(pollId);
-  return {
-    action: known ? 'handle_known_poll' : 'drop_foreign_poll',
-    pollId,
-    pollUpdateMessage,
-  };
-}
-
 export function pollUpdateProviderMessageId({ key, update, providerMessageId = '' }) {
   const firstUpdate = update?.pollUpdates?.[0] || {};
   const keyId = String(key?.id || '').trim();
