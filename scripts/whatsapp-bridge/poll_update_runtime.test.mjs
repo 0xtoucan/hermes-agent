@@ -22,7 +22,7 @@ function pollFixture({ pollId = 'poll-created-by-marta', metadata = { kind: 'pol
   };
 }
 
-function runtimeFixture() {
+function runtimeFixture({ decryptPollVote, aggregateVotes, enqueueEvent } = {}) {
   const trackedPollIds = createOutboundIdTracker(16);
   const messageStore = createBoundedMessageStore(16);
   const processedVoteIds = createOutboundIdTracker(16);
@@ -31,15 +31,15 @@ function runtimeFixture() {
     trackedPollIds,
     messageStore,
     processedVoteIds,
-    decryptPollVote: () => { throw new Error('encrypted path is not used by this fixture'); },
+    decryptPollVote: decryptPollVote || (() => { throw new Error('encrypted path is not used by this fixture'); }),
     getKeyAuthor: (key, meId) => key?.participant || key?.remoteJid || meId,
-    getAggregateVotesInPollMessage: ({ pollUpdates }) => pollUpdates.map(update => ({
+    getAggregateVotesInPollMessage: aggregateVotes || (({ pollUpdates }) => pollUpdates.map(update => ({
       name: update.vote.choice,
       voters: [update.pollUpdateMessageKey?.participant || update.pollUpdateMessageKey?.remoteJid],
-    })),
+    }))),
     getAccountIds: () => ['999999@lid', '59800000000@s.whatsapp.net'],
     pollAuthorCandidates: () => ['999999@lid', '59800000000@s.whatsapp.net'],
-    enqueueEvent: event => events.push(event),
+    enqueueEvent: enqueueEvent || (event => events.push(event)),
   });
   return { runtime, trackedPollIds, messageStore, events };
 }
@@ -153,4 +153,109 @@ test('messages.update listener emits every vote independently and replay is idem
 
   assert.deepEqual(runtime.handleUpdates(batch), { handled: true, enqueued: 0, rejected: 0 });
   assert.equal(events.length, 2);
+});
+
+test('decrypt failure emits nothing and the same provider update remains replayable', () => {
+  let failDecrypt = true;
+  const { runtime, trackedPollIds, messageStore, events } = runtimeFixture({
+    decryptPollVote: () => {
+      if (failDecrypt) throw new Error('cannot decrypt yet');
+      return { selectedOptions: [Buffer.from('Approve')], choice: 'Approve' };
+    },
+  });
+  trackedPollIds.remember('poll-created-by-marta');
+  messageStore.remember(pollFixture({
+    metadata: { kind: 'poll', replyButtonOptionMap: { approve: 'confirmar' } },
+  }));
+  const encrypted = vote({ voteId: 'provider-encrypted-vote', choice: 'Approve', timestamp: 1700000000000, fromMe: true });
+  encrypted.message.pollUpdateMessage.vote = {
+    encPayload: Buffer.from('ciphertext'),
+    encIv: Buffer.from('iv'),
+  };
+
+  assert.deepEqual(runtime.handleUpsert(encrypted), {
+    handled: true,
+    enqueued: 0,
+    reason: 'decode_failed',
+  });
+  assert.deepEqual(events, []);
+
+  failDecrypt = false;
+  assert.deepEqual(runtime.handleUpsert(encrypted), { handled: true, enqueued: 1, reason: '' });
+  assert.equal(events[0].messageId, 'provider-encrypted-vote');
+});
+
+test('empty selection and deselection emit nothing and remain replayable', () => {
+  let selected = false;
+  const { runtime, trackedPollIds, messageStore, events } = runtimeFixture({
+    aggregateVotes: ({ pollUpdates }) => [{
+      name: 'Approve',
+      voters: selected ? [pollUpdates[0].pollUpdateMessageKey.remoteJid] : [],
+    }],
+  });
+  trackedPollIds.remember('poll-created-by-marta');
+  messageStore.remember(pollFixture());
+  const deselection = vote({
+    voteId: 'provider-selection-change',
+    choice: 'Approve',
+    timestamp: 1700000000000,
+  });
+
+  assert.deepEqual(runtime.handleUpsert(deselection), {
+    handled: true,
+    enqueued: 0,
+    reason: 'empty_selection',
+  });
+  assert.deepEqual(events, []);
+
+  selected = true;
+  assert.deepEqual(runtime.handleUpsert(deselection), { handled: true, enqueued: 1, reason: '' });
+  assert.equal(events.length, 1);
+});
+
+test('missing provider vote id fails closed and never uses creation id or content hash', () => {
+  const { runtime, trackedPollIds, messageStore, events } = runtimeFixture();
+  trackedPollIds.remember('poll-created-by-marta');
+  messageStore.remember(pollFixture());
+  const missingId = vote({ voteId: '', choice: 'Approve', timestamp: 1700000000000 });
+
+  assert.deepEqual(runtime.handleUpsert(missingId), {
+    handled: true,
+    enqueued: 0,
+    reason: 'missing_provider_id',
+  });
+  assert.deepEqual(events, []);
+
+  const identified = vote({ voteId: 'provider-vote-after-missing', choice: 'Approve', timestamp: 1700000000000 });
+  assert.deepEqual(runtime.handleUpsert(identified), { handled: true, enqueued: 1, reason: '' });
+  assert.equal(events[0].messageId, 'provider-vote-after-missing');
+  assert.deepEqual(runtime.handleUpsert(identified), { handled: true, enqueued: 0, reason: 'replay' });
+});
+
+test('an enqueue failure does not consume the provider vote id', () => {
+  let failEnqueue = true;
+  const events = [];
+  const fixture = runtimeFixture({
+    enqueueEvent: event => {
+      if (failEnqueue) throw new Error('queue unavailable');
+      events.push(event);
+    },
+  });
+  fixture.trackedPollIds.remember('poll-created-by-marta');
+  fixture.messageStore.remember(pollFixture());
+  const identified = vote({
+    voteId: 'provider-vote-enqueue-retry',
+    choice: 'Approve',
+    timestamp: 1700000000000,
+  });
+
+  assert.throws(() => fixture.runtime.handleUpsert(identified), /queue unavailable/);
+  failEnqueue = false;
+  assert.deepEqual(fixture.runtime.handleUpsert(identified), {
+    handled: true,
+    enqueued: 1,
+    reason: '',
+  });
+  assert.equal(events.length, 1);
+  assert.equal(events[0].messageId, 'provider-vote-enqueue-retry');
 });

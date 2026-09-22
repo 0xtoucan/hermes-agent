@@ -880,8 +880,8 @@ import {
     update: updateWithoutProviderId,
     selectedOptions: ['Acepto datos y términos'],
   });
-  assert.match(fallbackA.messageId, /^poll-update:[0-9a-f]{32}$/);
-  assert.equal(fallbackB.messageId, fallbackA.messageId);
+  assert.equal(fallbackA, null);
+  assert.equal(fallbackB, null);
   console.log('  ✓ poll events retain mapped JIDs and stable provider ids');
 }
 

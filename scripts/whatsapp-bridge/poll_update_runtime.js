@@ -3,6 +3,7 @@ import {
   getMessageContent,
   pollCreationMessageSecret,
   pollUpdateForAggregation,
+  pollUpdateProviderMessageId,
 } from './bridge_helpers.js';
 
 function hasPollCreationMessage(pollCreation) {
@@ -28,17 +29,14 @@ export function validTrackedPollCreation({ pollId, trackedPollIds, messageStore 
   return pollCreation;
 }
 
-function selectedPollOptions(aggregation, pollUpdateMessage) {
+function selectedPollOptions(aggregation) {
   const selected = [];
   for (const option of aggregation || []) {
     if ((option.voters || []).length > 0 && option.name && option.name !== 'Unknown') {
       selected.push(option.name);
     }
   }
-  if (selected.length > 0) return selected;
-  return (pollUpdateMessage?.vote?.selectedOptions || [])
-    .map(option => String(option))
-    .filter(Boolean);
+  return selected;
 }
 
 export function createPollUpdateRuntime({
@@ -55,8 +53,14 @@ export function createPollUpdateRuntime({
   onDecodeError = () => {},
 }) {
   function processPollUpdate({ sourcePath, pollId, pollCreation, pollUpdateMessage, updateKey, eventKey, providerMessageId, timestamp }) {
+    const stableProviderMessageId = pollUpdateProviderMessageId({
+      update: { pollUpdates: [{ ...pollUpdateMessage, pollUpdateMessageKey: pollUpdateMessage.pollUpdateMessageKey || updateKey }] },
+      providerMessageId,
+    });
+    if (!stableProviderMessageId) return 'missing_provider_id';
+
     let aggregation = [];
-    let normalizedUpdate = pollUpdateMessage;
+    let normalizedUpdate;
     try {
       const accountIds = getAccountIds().filter(Boolean);
       normalizedUpdate = pollUpdateForAggregation({
@@ -72,16 +76,18 @@ export function createPollUpdateRuntime({
           pollCreation.key,
         ),
         voterJids: pollAuthorCandidates(updateKey, pollUpdateMessage.pollUpdateMessageKey),
-      }) || pollUpdateMessage;
+      });
+      if (!normalizedUpdate) return 'decode_failed';
       aggregation = getAggregateVotesInPollMessage({
         message: pollCreation.message,
         pollUpdates: [normalizedUpdate],
       });
     } catch (error) {
       onDecodeError({ sourcePath, pollId, error });
+      return 'decode_failed';
     }
 
-    const selectedOptions = selectedPollOptions(aggregation, normalizedUpdate);
+    const selectedOptions = selectedPollOptions(aggregation);
     onDiagnostic({
       sourcePath,
       pollId,
@@ -90,19 +96,21 @@ export function createPollUpdateRuntime({
       selectedOptions,
       aggregation,
     });
+    if (selectedOptions.length === 0) return 'empty_selection';
     const event = buildPollUpdateEvent({
       key: eventKey,
       update: { pollUpdates: [normalizedUpdate] },
       selectedOptions,
       aggregation,
       replyButtonOptionMap: pollCreation.bridgeMetadata?.replyButtonOptionMap,
-      providerMessageId,
+      providerMessageId: stableProviderMessageId,
       timestamp,
     });
-    if (processedVoteIds?.has?.(event.messageId)) return false;
-    processedVoteIds?.remember?.(event.messageId);
+    if (!event) return 'missing_provider_id';
+    if (processedVoteIds?.has?.(event.messageId)) return 'replay';
     enqueueEvent(event);
-    return true;
+    processedVoteIds?.remember?.(event.messageId);
+    return 'enqueued';
   }
 
   function handleUpsert(msg) {
@@ -121,7 +129,7 @@ export function createPollUpdateRuntime({
       remoteJid: pollUpdateMessage.pollCreationMessageKey?.remoteJid || chatId,
       participant: pollUpdateMessage.pollCreationMessageKey?.participant || senderId,
     };
-    const enqueued = processPollUpdate({
+    const outcome = processPollUpdate({
       sourcePath: 'messages.upsert',
       pollId,
       pollCreation,
@@ -131,7 +139,7 @@ export function createPollUpdateRuntime({
       providerMessageId: msg?.key?.id,
       timestamp: pollUpdateMessage.senderTimestampMs || msg?.messageTimestamp,
     });
-    return { handled: true, enqueued: enqueued ? 1 : 0, reason: enqueued ? '' : 'replay' };
+    return { handled: true, enqueued: outcome === 'enqueued' ? 1 : 0, reason: outcome === 'enqueued' ? '' : outcome };
   }
 
   function handleUpdates(updates) {
@@ -151,7 +159,7 @@ export function createPollUpdateRuntime({
           remoteJid: pollUpdateMessage.pollCreationMessageKey?.remoteJid || key?.remoteJid || pollCreation.key?.remoteJid || '',
           participant: pollUpdateMessage.pollCreationMessageKey?.participant || key?.participant || '',
         };
-        if (processPollUpdate({
+        const outcome = processPollUpdate({
           sourcePath: 'messages.update',
           pollId,
           pollCreation,
@@ -160,8 +168,11 @@ export function createPollUpdateRuntime({
           eventKey,
           providerMessageId: pollUpdateMessage.pollUpdateMessageKey?.id,
           timestamp: pollUpdateMessage.senderTimestampMs,
-        })) {
+        });
+        if (outcome === 'enqueued') {
           enqueued += 1;
+        } else if (outcome !== 'replay') {
+          rejected += 1;
         }
       }
     }

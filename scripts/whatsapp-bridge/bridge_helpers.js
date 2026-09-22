@@ -1,6 +1,6 @@
 import path from 'path';
 import { mkdirSync, writeFileSync } from 'fs';
-import { createHash, randomBytes } from 'crypto';
+import { randomBytes } from 'crypto';
 
 export const MIME_MAP = {
   jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
@@ -189,12 +189,9 @@ export function buildPollJidCandidates(values, { sessionDir, expandIdentifiers }
 
 export function pollUpdateProviderMessageId({ key, update, providerMessageId = '' }) {
   const firstUpdate = update?.pollUpdates?.[0] || {};
-  const keyId = String(key?.id || '').trim();
-  const creationId = String(firstUpdate.pollCreationMessageKey?.id || '').trim();
   return String(
     firstUpdate.pollUpdateMessageKey?.id
     || providerMessageId
-    || (keyId && keyId !== creationId ? keyId : '')
     || ''
   ).trim();
 }
@@ -222,14 +219,11 @@ export function buildPollUpdateEvent({
   const selection = resolveReplyButtonPollSelection(selectedOptions, replyButtonOptionMap);
   const chosenText = selection.body || `[Poll update${pollId ? `: ${pollId}` : ''}]`;
   const providerId = pollUpdateProviderMessageId({ key, update, providerMessageId });
-  const stableFallback = createHash('sha256')
-    .update(JSON.stringify({ pollId, senderId, selectedOptions }))
-    .digest('hex')
-    .slice(0, 32);
+  if (!providerId) return null;
   const rawTimestamp = timestamp ?? firstUpdate.senderTimestampMs;
   const numericTimestamp = Number(rawTimestamp);
   const event = {
-    messageId: providerId || `poll-update:${stableFallback}`,
+    messageId: providerId,
     chatId,
     senderId,
     senderName: senderId.replace(/@.*/, ''),
@@ -289,6 +283,7 @@ export function pollUpdateForAggregation({
 
   if (pollUpdateMessage.vote?.selectedOptions) {
     return {
+      pollCreationMessageKey: pollUpdateMessage.pollCreationMessageKey,
       pollUpdateMessageKey: updateKey,
       vote: pollUpdateMessage.vote,
       senderTimestampMs: pollUpdateMessage.senderTimestampMs,
@@ -332,6 +327,7 @@ export function pollUpdateForAggregation({
           voterJid,
         });
         return {
+          pollCreationMessageKey: creationKey,
           pollUpdateMessageKey: updateKey,
           vote,
           senderTimestampMs: pollUpdateMessage.senderTimestampMs,
