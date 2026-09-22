@@ -33,11 +33,13 @@ import { randomBytes, createHash } from 'crypto';
 import { execFileSync } from 'child_process';
 import { tmpdir } from 'os';
 import qrcode from 'qrcode-terminal';
-import { matchesAllowedSender, matchesAllowedUser, matchesInboundWhatsAppGroup, parseAllowedUsers } from './allowlist.js';
+import { expandWhatsAppIdentifiers, matchesAllowedSender, matchesAllowedUser, matchesInboundWhatsAppGroup, parseAllowedUsers } from './allowlist.js';
 import { createOutboundIdTracker } from './outbound_ids.js';
 import { classifyOwnerMessageGate } from './owner_message_gate.js';
 import {
   addMentions,
+  bridgeCapabilities,
+  buildPollJidCandidates,
   buildPollPayload,
   buildReplyButtonDelivery,
   createReconnectScheduler,
@@ -47,16 +49,15 @@ import {
   createBoundedMessageStore,
   createQuotedMediaCache,
   extractBridgeEvent,
-  getMessageContent,
   inboundReadReceiptKeys,
   inferMediaType,
   mediaPayloadForFile,
   normalizePresenceState,
   normalizeWhatsAppId,
   pollCreationMessageFromPayload,
-  pollUpdateForAggregation,
-  resolveReplyButtonPollSelection,
+  resolveBridgeSenderId,
 } from './bridge_helpers.js';
+import { createPollUpdateRuntime } from './poll_update_runtime.js';
 
 // Parse CLI args
 const args = process.argv.slice(2);
@@ -93,6 +94,15 @@ const SEND_READ_RECEIPTS =
   process.env &&
   typeof process.env.WHATSAPP_SEND_READ_RECEIPTS === 'string' &&
   ['1', 'true', 'yes', 'on'].includes(process.env.WHATSAPP_SEND_READ_RECEIPTS.toLowerCase());
+
+// Compatibility seam for deployments whose durable user keys were created
+// from Baileys' original @lid senderId. Generic Hermes keeps preferring the
+// alternate phone JID; Marta opts in so an upgrade cannot fork identities.
+const MARTA_PRESERVE_RAW_SENDER_ID =
+  typeof process !== 'undefined' &&
+  process.env &&
+  typeof process.env.WHATSAPP_MARTA_PRESERVE_RAW_SENDER_ID === 'string' &&
+  ['1', 'true', 'yes', 'on'].includes(process.env.WHATSAPP_MARTA_PRESERVE_RAW_SENDER_ID.toLowerCase());
 
 const PORT = parseInt(getArg('port', '3000'), 10);
 const SESSION_DIR = getArg('session', path.join(process.env.HOME || '~', '.hermes', 'whatsapp', 'session'));
@@ -212,6 +222,18 @@ function rememberSentMessage(sent, payload, bridgeMetadata = null) {
   });
 }
 
+function rememberSentPoll(sent, payload, bridgeMetadata = {}) {
+  const pollId = sent?.key?.id;
+  const message = pollCreationMessageFromPayload(payload);
+  if (!pollId || !message) return;
+  messageStore.remember({
+    ...sent,
+    message,
+    bridgeMetadata: { kind: 'poll', ...bridgeMetadata },
+  });
+  sentPollIds.remember(pollId);
+}
+
 function trackSentMessageId(sent) {
   rememberSentId(sent?.key?.id);
 }
@@ -265,28 +287,13 @@ const MAX_QUEUE_SIZE = 100;
 // Capacity bounded (see outbound_ids.js) to keep memory flat under
 // sustained sending.
 const recentlySentIds = createOutboundIdTracker(512);
+const sentPollIds = createOutboundIdTracker(512);
 const recentlyProcessedPollUpdates = createOutboundIdTracker(512);
 const messageStore = createBoundedMessageStore(512);
 // Bounded cache of already-downloaded inbound media, so a later reply to an
 // uncaptioned photo/video/document/voice note can still surface the original
 // file — see createQuotedMediaCache's doc comment in bridge_helpers.js.
 const quotedMediaCache = createQuotedMediaCache(512);
-
-function normalizePollUpdateOptions(aggregation, pollUpdateMessage, meId) {
-  const selected = [];
-  for (const option of aggregation || []) {
-    if ((option.voters || []).length > 0 && option.name && option.name !== 'Unknown') {
-      selected.push(option.name);
-    }
-  }
-  if (selected.length > 0) return selected;
-
-  // Fallback for already-decrypted pollUpdateMessage payloads where Baileys did
-  // not have the creation message available. This may only yield hashes, but
-  // keeping them in metadata is still better than dropping the vote entirely.
-  const raw = pollUpdateMessage?.vote?.selectedOptions || [];
-  return raw.map(option => String(option)).filter(Boolean);
-}
 
 function pollAggregationSummary(aggregation) {
   return (aggregation || []).map(option => ({
@@ -296,6 +303,7 @@ function pollAggregationSummary(aggregation) {
 }
 
 function logPollUpdateDiagnostic({ sourcePath, pollId, pollCreation, pollUpdates, selectedOptions, aggregation }) {
+  if (!WHATSAPP_DEBUG) return;
   const firstUpdate = pollUpdates?.[0] || {};
   try {
     console.log(JSON.stringify({
@@ -311,80 +319,31 @@ function logPollUpdateDiagnostic({ sourcePath, pollId, pollCreation, pollUpdates
   } catch {}
 }
 
-function enqueuePollUpdateEvent({ key, update, selectedOptions, aggregation, replyButtonOptionMap }) {
-  const chatId = normalizeWhatsAppId(key?.remoteJid || update?.pollUpdates?.[0]?.pollUpdateMessageKey?.remoteJid || '');
-  const senderId = normalizeWhatsAppId(
-    key?.participant
-    || update?.pollUpdates?.[0]?.pollUpdateMessageKey?.participant
-    || chatId
-  );
-  const pollId = key?.id
-    || update?.pollUpdates?.[0]?.pollCreationMessageKey?.id
-    || update?.pollUpdates?.[0]?.pollUpdateMessageKey?.id
-    || '';
-  // Only surface votes on polls Hermes itself created (tracked when
-  // /send-poll returns). Arbitrary human polls in a group chat must not
-  // inject agent-visible messages on every vote.
-  if (!pollId || !recentlySentIds.has(pollId)) {
-    if (WHATSAPP_DEBUG) {
-      try { console.log(JSON.stringify({ event: 'ignored', reason: 'foreign_poll_update', pollId })); } catch {}
-    }
-    return;
-  }
-  const selection = resolveReplyButtonPollSelection(selectedOptions, replyButtonOptionMap);
-  const chosenText = selection.body || `[Poll update${pollId ? `: ${pollId}` : ''}]`;
-  const dedupeId = `poll:${pollId}:${senderId}:${selectedOptions.join('|')}`;
-  if (recentlyProcessedPollUpdates.has(dedupeId)) return;
-  recentlyProcessedPollUpdates.remember(dedupeId);
-  const event = {
-    messageId: `${pollId || 'poll'}:update:${Date.now()}`,
-    chatId,
-    senderId,
-    senderName: senderId.replace(/@.*/, ''),
-    chatName: chatId.replace(/@.*/, ''),
-    isGroup: chatId.endsWith('@g.us'),
-    body: chosenText,
-    hasMedia: false,
-    mediaType: 'poll_update',
-    mime: '',
-    fileName: '',
-    nativeType: 'pollUpdateMessage',
-    nativeMetadata: {
-      pollUpdate: {
-        pollId,
-        selectedOptions,
-        aggregation,
-      },
-    },
-    mediaUrls: [],
-    mentionedIds: [],
-    quotedMessageId: pollId,
-    quotedParticipant: '',
-    quotedRemoteJid: chatId,
-    quotedText: '',
-    hasQuotedMessage: !!pollId,
-    botIds: [],
-    timestamp: Math.floor(Date.now() / 1000),
-  };
-  if (selection.structuredReplyId) {
-    event.buttonReplyId = selection.structuredReplyId;
-    event.buttonReplyText = selection.selectedText;
-    event.buttonReplyType = 'poll_vote';
-    event.pollReplyId = selection.structuredReplyId;
-    event.pollReplyText = selection.selectedText;
-  }
-  messageQueue.push(event);
-  if (messageQueue.length > MAX_QUEUE_SIZE) {
-    messageQueue.shift();
-  }
-}
-
 function rememberSentId(id) {
   recentlySentIds.remember(id);
 }
 
 let sock = null;
 let connectionState = 'disconnected';
+
+function pollAuthorCandidates(...keys) {
+  const accountIds = [
+    jidNormalizedUser(sock?.user?.lid || ''),
+    jidNormalizedUser(sock?.user?.id || ''),
+  ].filter(Boolean);
+  const candidates = [...accountIds];
+  for (const key of keys) {
+    if (!key) continue;
+    for (const accountId of accountIds) {
+      candidates.push(getKeyAuthor(key, accountId));
+    }
+    candidates.push(key.participantAlt, key.remoteJidAlt, key.participant, key.remoteJid);
+  }
+  return buildPollJidCandidates(candidates, {
+    sessionDir: SESSION_DIR,
+    expandIdentifiers: expandWhatsAppIdentifiers,
+  });
+}
 
 function emitPairEvent(event) {
   if (!PAIR_JSON) return;
@@ -414,6 +373,28 @@ async function startSocket() {
       // We don't maintain a message store, so return a placeholder.
       // This is enough for Baileys to complete the retry handshake.
       return { conversation: '' };
+    },
+  });
+
+  const pollUpdateRuntime = createPollUpdateRuntime({
+    trackedPollIds: sentPollIds,
+    messageStore,
+    processedVoteIds: recentlyProcessedPollUpdates,
+    decryptPollVote,
+    getKeyAuthor,
+    getAggregateVotesInPollMessage,
+    getAccountIds: () => [
+      jidNormalizedUser(sock?.user?.lid || ''),
+      jidNormalizedUser(sock?.user?.id || ''),
+    ].filter(Boolean),
+    pollAuthorCandidates,
+    enqueueEvent: (event) => {
+      messageQueue.push(event);
+      if (messageQueue.length > MAX_QUEUE_SIZE) messageQueue.shift();
+    },
+    onDiagnostic: logPollUpdateDiagnostic,
+    onDecodeError: ({ sourcePath, error }) => {
+      console.warn(`[bridge] failed to aggregate poll update (${sourcePath}):`, error?.message || error);
     },
   });
 
@@ -476,61 +457,8 @@ async function startSocket() {
     }
   });
 
-  sock.ev.on('messages.update', async (updates) => {
-    for (const { key, update } of updates || []) {
-      if (!update?.pollUpdates) continue;
-      const pollCreationId = key?.id || update.pollUpdates?.[0]?.pollCreationMessageKey?.id;
-      const pollCreation = messageStore.get(pollCreationId);
-      let aggregation = [];
-      let pollUpdates = update.pollUpdates;
-      try {
-        if (pollCreation) {
-          const meId = jidNormalizedUser(sock.user?.id || 'me');
-          pollUpdates = update.pollUpdates.map(pollUpdate => (
-            pollUpdateForAggregation({
-              pollUpdateMessage: pollUpdate,
-              pollUpdateMessageKey: pollUpdate.pollUpdateMessageKey,
-              pollCreation,
-              decryptPollVote,
-              getKeyAuthor,
-              meId,
-              pollCreatorJids: [
-                jidNormalizedUser(sock.user?.lid || ''),
-                jidNormalizedUser(sock.user?.id || ''),
-                getKeyAuthor(pollUpdate.pollCreationMessageKey || key, jidNormalizedUser(sock.user?.lid || '')),
-                getKeyAuthor(pollUpdate.pollCreationMessageKey || key, jidNormalizedUser(sock.user?.id || '')),
-              ],
-              voterJids: [
-                normalizeWhatsAppId(pollUpdate.pollUpdateMessageKey?.participant || ''),
-                normalizeWhatsAppId(pollUpdate.pollUpdateMessageKey?.remoteJid || key?.remoteJid || ''),
-              ],
-            }) || pollUpdate
-          ));
-          aggregation = getAggregateVotesInPollMessage({
-            message: pollCreation.message,
-            pollUpdates,
-          });
-        }
-      } catch (err) {
-        console.warn('[bridge] failed to aggregate poll update:', err.message);
-      }
-      const selectedOptions = normalizePollUpdateOptions(aggregation, pollUpdates?.[0]);
-      logPollUpdateDiagnostic({
-        sourcePath: 'messages.update',
-        pollId: pollCreationId,
-        pollCreation,
-        pollUpdates,
-        selectedOptions,
-        aggregation,
-      });
-      enqueuePollUpdateEvent({
-        key,
-        update: { ...update, pollUpdates },
-        selectedOptions,
-        aggregation,
-        replyButtonOptionMap: pollCreation?.bridgeMetadata?.replyButtonOptionMap,
-      });
-    }
+  sock.ev.on('messages.update', (updates) => {
+    pollUpdateRuntime.handleUpdates(updates);
   });
 
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
@@ -549,11 +477,15 @@ async function startSocket() {
       const chatId = msg.key.remoteJid;
       const senderId = msg.key.participant || chatId;
       // Baileys v7 carries the other form of the sender here (group: key.participantAlt,
-      // DM: key.remoteJidAlt). A LID sender's phone twin makes a phone allowlist match with no
-      // lid-mapping file yet (#63415, #72529) and is the identity Python sees, so first
-      // contacts key the same session they will once the mapping exists.
+      // DM: key.remoteJidAlt). Generic Hermes exposes the phone twin as the primary identity;
+      // Marta can preserve its existing durable LID key through the explicit compatibility
+      // flag while the alternate remains available for allowlists and downstream migration.
       const senderAltId = normalizeWhatsAppId(msg.key.participantAlt || msg.key.remoteJidAlt || '');
-      const resolvedSenderId = senderAltId.endsWith('@s.whatsapp.net') ? senderAltId : senderId;
+      const resolvedSenderId = resolveBridgeSenderId({
+        senderId,
+        senderAltId,
+        preserveRawSenderId: MARTA_PRESERVE_RAW_SENDER_ID,
+      });
       const isGroup = chatId.endsWith('@g.us');
       const senderNumber = resolvedSenderId.replace(/@.*/, '');
       emitDebugEvent({
@@ -564,6 +496,19 @@ async function startSocket() {
         senderId: redactWhatsAppId(senderId),
         messageKeys: Object.keys(msg.message || {}),
       });
+
+      // Poll votes for bridge-created polls can arrive with fromMe=true even
+      // though they are user interactions. Recognize only a tracked poll and
+      // process it before the owner-message gate; drop every foreign poll.
+      const pollIngress = pollUpdateRuntime.handleUpsert(msg);
+      if (pollIngress.handled && pollIngress.enqueued === 0) {
+        emitDebugEvent({
+          stage: 'ignored',
+          reason: pollIngress.reason,
+        });
+        continue;
+      }
+      if (pollIngress.handled) continue;
 
       // Handle fromMe messages based on mode
       let fromOwner = false;
@@ -679,71 +624,11 @@ async function startSocket() {
         }
       }
 
-      const messageContent = getMessageContent(msg);
-      if (messageContent.pollUpdateMessage) {
-        const pollUpdateMessage = messageContent.pollUpdateMessage;
-        const pollKey = pollUpdateMessage.pollCreationMessageKey || {
-          id: pollUpdateMessage.key?.id || msg.key.id,
-          remoteJid: chatId,
-          participant: senderId,
-        };
-        const pollCreation = messageStore.get(pollKey.id);
-        let aggregation = [];
-        let pollUpdates = [pollUpdateMessage];
-        try {
-          if (pollCreation) {
-            const meId = jidNormalizedUser(sock.user?.id || 'me');
-            const pollUpdate = pollUpdateForAggregation({
-              pollUpdateMessage,
-              pollUpdateMessageKey: msg.key,
-              pollCreation,
-              decryptPollVote,
-              getKeyAuthor,
-              meId,
-              pollCreatorJids: [
-                jidNormalizedUser(sock.user?.lid || ''),
-                jidNormalizedUser(sock.user?.id || ''),
-                getKeyAuthor(pollUpdateMessage.pollCreationMessageKey || pollKey, jidNormalizedUser(sock.user?.lid || '')),
-                getKeyAuthor(pollUpdateMessage.pollCreationMessageKey || pollKey, jidNormalizedUser(sock.user?.id || '')),
-              ],
-              voterJids: [
-                normalizeWhatsAppId(msg.key?.participant || ''),
-                normalizeWhatsAppId(msg.key?.remoteJid || chatId || ''),
-                normalizeWhatsAppId(senderId || ''),
-              ],
-            });
-            if (pollUpdate) pollUpdates = [pollUpdate];
-            aggregation = getAggregateVotesInPollMessage({
-              message: pollCreation.message,
-              pollUpdates,
-            });
-          }
-        } catch (err) {
-          console.warn('[bridge] failed to aggregate poll upsert:', err.message);
-        }
-        const selectedOptions = normalizePollUpdateOptions(aggregation, pollUpdates[0]);
-        logPollUpdateDiagnostic({
-          sourcePath: 'messages.upsert',
-          pollId: pollKey.id,
-          pollCreation,
-          pollUpdates,
-          selectedOptions,
-          aggregation,
-        });
-        enqueuePollUpdateEvent({
-          key: { ...pollKey, remoteJid: pollKey.remoteJid || chatId, participant: pollKey.participant || senderId },
-          update: { pollUpdates },
-          selectedOptions,
-          aggregation,
-          replyButtonOptionMap: pollCreation?.bridgeMetadata?.replyButtonOptionMap,
-        });
-        continue;
-      }
-
       const event = await extractBridgeEvent({
         msg,
         chatId,
         senderId: resolvedSenderId,
+        senderAltId,
         senderNumber,
         botIds,
         isGroup,
@@ -922,7 +807,7 @@ app.post('/send-buttons', async (req, res) => {
       const { options } = buildTextSendPayload('', { replyTo, messageStore });
       const sent = await sendWithTimeout(chatId, payload, options);
       trackSentMessageId(sent);
-      rememberSentMessage(sent, payload, { replyButtonOptionMap: delivery.optionMap });
+      rememberSentPoll(sent, payload, { replyButtonOptionMap: delivery.optionMap });
       if (sent?.key?.id) messageIds.push(sent.key.id);
     } else {
       const chunks = splitLongMessage(formatOutgoingMessage(delivery.message));
@@ -1102,7 +987,7 @@ app.post('/send-poll', async (req, res) => {
     const payload = buildPollPayload({ question, options, selectableCount });
     const sent = await sendWithTimeout(chatId, payload);
     trackSentMessageId(sent);
-    rememberSentMessage(sent, payload);
+    rememberSentPoll(sent, payload);
     res.json({ success: true, messageId: sent?.key?.id });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -1226,7 +1111,7 @@ app.get('/health', (req, res) => {
     uptime: process.uptime(),
     scriptHash: SCRIPT_HASH,
     sendReadReceipts: SEND_READ_RECEIPTS,
-    capabilities: { outboundMentions: true },
+    capabilities: bridgeCapabilities(),
   });
 });
 

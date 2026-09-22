@@ -7,25 +7,31 @@
 
 import { strict as assert } from 'node:assert';
 import { createHash } from 'node:crypto';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { getAggregateVotesInPollMessage } from '@whiskeysockets/baileys';
+import { expandWhatsAppIdentifiers } from './allowlist.js';
 
 import {
   addMentions,
+  bridgeCapabilities,
+  buildPollJidCandidates,
   buildPollPayload,
+  buildPollUpdateEvent,
   buildReplyButtonDelivery,
   buildTextSendPayload,
   createBoundedMessageStore,
   appendMediaFailureNote,
   extractBridgeEvent,
+  extractInteractiveReply,
   inboundReadReceiptKeys,
   mediaPayloadForFile,
   normalizePresenceState,
   pollCreationMessageFromPayload,
   pollUpdateForAggregation,
   resolveReplyButtonPollSelection,
+  resolveBridgeSenderId,
 } from './bridge_helpers.js';
 
 // -- backward-compatible reply buttons ----------------------------------
@@ -91,6 +97,13 @@ import {
 
 // -- explicit presence states --------------------------------------------
 {
+  assert.deepEqual(bridgeCapabilities(), {
+    outboundMentions: true,
+    sendButtons: true,
+    sendPoll: true,
+    readReceipts: true,
+    presence: true,
+  });
   assert.equal(normalizePresenceState('composing'), 'composing');
   assert.equal(normalizePresenceState(' PAUSED '), 'paused');
   assert.equal(normalizePresenceState('recording'), null);
@@ -714,6 +727,162 @@ import {
   assert.equal(event.hasQuotedMessage, true);
   assert.equal(event.quotedText, 'Example appointment at 11:40');
   console.log('  ✓ nested envelopes: quote text resolves through both layers');
+}
+
+// -- Marta identity continuity -------------------------------------------
+{
+  const rawLid = '267383306489914@lid';
+  const phoneAlt = '19175395595@s.whatsapp.net';
+  assert.equal(
+    resolveBridgeSenderId({ senderId: rawLid, senderAltId: phoneAlt }),
+    phoneAlt,
+  );
+  assert.equal(
+    resolveBridgeSenderId({ senderId: rawLid, senderAltId: phoneAlt, preserveRawSenderId: true }),
+    rawLid,
+  );
+
+  const event = await extractBridgeEvent({
+    msg: {
+      key: { id: 'lid-continuity-1', remoteJid: rawLid, remoteJidAlt: phoneAlt, fromMe: false },
+      messageTimestamp: 123,
+      message: { conversation: 'hola' },
+    },
+    chatId: rawLid,
+    senderId: rawLid,
+    senderAltId: phoneAlt,
+    senderNumber: '267383306489914',
+  });
+  assert.equal(event.senderId, rawLid);
+  assert.equal(event.senderAltId, phoneAlt);
+  console.log('  ✓ Marta can preserve durable LID identity while retaining the phone alternate');
+}
+
+// -- legacy interactive replies -----------------------------------------
+{
+  const fixtures = [
+    {
+      message: {
+        buttonsResponseMessage: {
+          selectedButtonId: 'confirmar',
+          selectedDisplayText: 'Acepto datos y términos',
+          contextInfo: { stanzaId: 'prompt-buttons', quotedMessage: { conversation: '¿Confirmás?' } },
+        },
+      },
+      expected: ['confirmar', 'Acepto datos y términos', 'buttons_response', 'prompt-buttons'],
+    },
+    {
+      message: {
+        templateButtonReplyMessage: {
+          selectedId: 'no',
+          selectedDisplayText: 'No',
+          contextInfo: { stanzaId: 'prompt-template', quotedMessage: { conversation: '¿Confirmás?' } },
+        },
+      },
+      expected: ['no', 'No', 'template_button_reply', 'prompt-template'],
+    },
+    {
+      message: {
+        interactiveResponseMessage: {
+          body: { text: 'Confirmar' },
+          nativeFlowResponseMessage: {
+            name: 'quick_reply',
+            paramsJson: JSON.stringify({ id: 'confirmar', display_text: 'Acepto datos y términos' }),
+          },
+          contextInfo: { stanzaId: 'prompt-native', quotedMessage: { conversation: '¿Confirmás?' } },
+        },
+      },
+      expected: ['confirmar', 'Acepto datos y términos', 'native_flow_response', 'prompt-native'],
+    },
+  ];
+
+  for (const [index, fixture] of fixtures.entries()) {
+    const extracted = extractInteractiveReply(fixture.message);
+    assert.deepEqual(
+      [extracted.id, extracted.text, extracted.type],
+      fixture.expected.slice(0, 3),
+    );
+    const event = await extractBridgeEvent({
+      msg: {
+        key: { id: `interactive-${index}`, remoteJid: '267383306489914@lid', fromMe: false },
+        messageTimestamp: 123,
+        message: fixture.message,
+      },
+      chatId: '267383306489914@lid',
+      senderId: '267383306489914@lid',
+      senderNumber: '267383306489914',
+    });
+    assert.equal(event.body, fixture.expected[0]);
+    assert.equal(event.buttonReplyId, fixture.expected[0]);
+    assert.equal(event.buttonReplyText, fixture.expected[1]);
+    assert.equal(event.buttonReplyType, fixture.expected[2]);
+    assert.equal(event.quotedMessageId, fixture.expected[3]);
+    assert.equal(event.quotedText, '¿Confirmás?');
+  }
+  console.log('  ✓ legacy button/template/native replies retain structured and quote metadata');
+}
+
+// -- poll JID aliases and durable ids ------------------------------------
+{
+  const sessionDir = mkdtempSync(path.join(tmpdir(), 'hermes-wa-poll-alias-'));
+  try {
+    writeFileSync(path.join(sessionDir, 'lid-mapping-19175395595.json'), JSON.stringify('267383306489914'));
+    writeFileSync(path.join(sessionDir, 'lid-mapping-267383306489914_reverse.json'), JSON.stringify('19175395595'));
+    const candidates = buildPollJidCandidates(
+      ['267383306489914@lid'],
+      { sessionDir, expandIdentifiers: expandWhatsAppIdentifiers },
+    );
+    assert.ok(candidates.includes('267383306489914@lid'));
+    assert.ok(candidates.includes('19175395595@s.whatsapp.net'));
+  } finally {
+    rmSync(sessionDir, { recursive: true, force: true });
+  }
+
+  const update = {
+    pollUpdates: [{
+      pollCreationMessageKey: { id: 'poll-created-by-marta' },
+      pollUpdateMessageKey: {
+        id: 'provider-vote-1',
+        remoteJid: '267383306489914@lid',
+        participant: '267383306489914@lid',
+      },
+      senderTimestampMs: 1700000000000,
+    }],
+  };
+  const eventA = buildPollUpdateEvent({
+    key: { id: 'poll-created-by-marta', remoteJid: '267383306489914@lid' },
+    update,
+    selectedOptions: ['Acepto datos y términos'],
+    replyButtonOptionMap: { 'acepto datos y terminos': 'confirmar' },
+  });
+  const eventB = buildPollUpdateEvent({
+    key: { id: 'poll-created-by-marta', remoteJid: '267383306489914@lid' },
+    update,
+    selectedOptions: ['Acepto datos y términos'],
+    replyButtonOptionMap: { 'acepto datos y terminos': 'confirmar' },
+  });
+  assert.equal(eventA.messageId, 'provider-vote-1');
+  assert.equal(eventB.messageId, eventA.messageId);
+  assert.equal(eventA.senderId, '267383306489914@lid');
+  assert.equal(eventA.body, 'confirmar');
+  assert.equal(eventA.buttonReplyId, 'confirmar');
+  assert.equal(eventA.timestamp, 1700000000);
+  const updateWithoutProviderId = {
+    pollUpdates: [{ ...update.pollUpdates[0], pollUpdateMessageKey: { remoteJid: '267383306489914@lid' } }],
+  };
+  const fallbackA = buildPollUpdateEvent({
+    key: { id: 'poll-created-by-marta', remoteJid: '267383306489914@lid' },
+    update: updateWithoutProviderId,
+    selectedOptions: ['Acepto datos y términos'],
+  });
+  const fallbackB = buildPollUpdateEvent({
+    key: { id: 'poll-created-by-marta', remoteJid: '267383306489914@lid' },
+    update: updateWithoutProviderId,
+    selectedOptions: ['Acepto datos y términos'],
+  });
+  assert.equal(fallbackA, null);
+  assert.equal(fallbackB, null);
+  console.log('  ✓ poll events retain mapped JIDs and stable provider ids');
 }
 
 console.log('\n✅ All WhatsApp native bridge helper tests passed.');
