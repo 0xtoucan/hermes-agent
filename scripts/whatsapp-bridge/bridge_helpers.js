@@ -1,6 +1,6 @@
 import path from 'path';
 import { mkdirSync, writeFileSync } from 'fs';
-import { randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 
 export const MIME_MAP = {
   jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
@@ -22,9 +22,26 @@ export function normalizeWhatsAppId(value) {
   return String(value).replace(/:\d+(?=@)/, '').replace(/:\d+$/, '');
 }
 
+export function resolveBridgeSenderId({ senderId, senderAltId, preserveRawSenderId = false }) {
+  const rawSenderId = String(senderId || '').trim();
+  const alternateSenderId = normalizeWhatsAppId(senderAltId);
+  if (preserveRawSenderId) return rawSenderId;
+  return alternateSenderId.endsWith('@s.whatsapp.net') ? alternateSenderId : rawSenderId;
+}
+
 export function normalizePresenceState(value) {
   const state = String(value || '').trim().toLowerCase();
   return state === 'composing' || state === 'paused' ? state : null;
+}
+
+export function bridgeCapabilities() {
+  return {
+    outboundMentions: true,
+    sendButtons: true,
+    sendPoll: true,
+    readReceipts: true,
+    presence: true,
+  };
 }
 
 function unwrapMessageEnvelopes(content) {
@@ -145,6 +162,125 @@ function uniqueStrings(values) {
     out.push(text);
   }
   return out;
+}
+
+export function buildPollJidCandidates(values, { sessionDir, expandIdentifiers } = {}) {
+  const candidates = [];
+  for (const value of values || []) {
+    const jid = normalizeWhatsAppId(value);
+    if (!jid) continue;
+    candidates.push(jid);
+
+    const bare = jid.replace(/@.*/, '').replace(/^\+/, '');
+    if (!bare) continue;
+    if (jid.endsWith('@lid')) candidates.push(`${bare}@lid`);
+    if (jid.endsWith('@s.whatsapp.net')) candidates.push(`${bare}@s.whatsapp.net`);
+
+    if (typeof expandIdentifiers === 'function') {
+      for (const alias of expandIdentifiers(jid, sessionDir) || []) {
+        const normalizedAlias = String(alias || '').trim().replace(/^\+/, '');
+        if (!normalizedAlias) continue;
+        candidates.push(`${normalizedAlias}@s.whatsapp.net`, `${normalizedAlias}@lid`);
+      }
+    }
+  }
+  return uniqueStrings(candidates);
+}
+
+export function classifyPollUpdateIngress({ msg, knownPollIds }) {
+  const pollUpdateMessage = getMessageContent(msg)?.pollUpdateMessage;
+  if (!pollUpdateMessage) return { action: 'continue', pollId: '', pollUpdateMessage: null };
+  const pollId = String(pollUpdateMessage.pollCreationMessageKey?.id || '');
+  const known = !!pollId && !!knownPollIds && typeof knownPollIds.has === 'function' && knownPollIds.has(pollId);
+  return {
+    action: known ? 'handle_known_poll' : 'drop_foreign_poll',
+    pollId,
+    pollUpdateMessage,
+  };
+}
+
+export function pollUpdateProviderMessageId({ key, update, providerMessageId = '' }) {
+  const firstUpdate = update?.pollUpdates?.[0] || {};
+  const keyId = String(key?.id || '').trim();
+  const creationId = String(firstUpdate.pollCreationMessageKey?.id || '').trim();
+  return String(
+    firstUpdate.pollUpdateMessageKey?.id
+    || providerMessageId
+    || (keyId && keyId !== creationId ? keyId : '')
+    || ''
+  ).trim();
+}
+
+export function buildPollUpdateEvent({
+  key,
+  update,
+  selectedOptions = [],
+  aggregation = [],
+  replyButtonOptionMap,
+  providerMessageId = '',
+  timestamp,
+}) {
+  const firstUpdate = update?.pollUpdates?.[0] || {};
+  const chatId = normalizeWhatsAppId(key?.remoteJid || firstUpdate.pollUpdateMessageKey?.remoteJid || '');
+  const senderId = normalizeWhatsAppId(
+    firstUpdate.pollUpdateMessageKey?.participant
+    || firstUpdate.pollUpdateMessageKey?.remoteJid
+    || key?.participant
+    || chatId
+  );
+  const pollId = key?.id
+    || firstUpdate.pollCreationMessageKey?.id
+    || '';
+  const selection = resolveReplyButtonPollSelection(selectedOptions, replyButtonOptionMap);
+  const chosenText = selection.body || `[Poll update${pollId ? `: ${pollId}` : ''}]`;
+  const providerId = pollUpdateProviderMessageId({ key, update, providerMessageId });
+  const stableFallback = createHash('sha256')
+    .update(JSON.stringify({ pollId, senderId, selectedOptions }))
+    .digest('hex')
+    .slice(0, 32);
+  const rawTimestamp = timestamp ?? firstUpdate.senderTimestampMs;
+  const numericTimestamp = Number(rawTimestamp);
+  const event = {
+    messageId: providerId || `poll-update:${stableFallback}`,
+    chatId,
+    senderId,
+    senderName: senderId.replace(/@.*/, ''),
+    chatName: chatId.replace(/@.*/, ''),
+    isGroup: chatId.endsWith('@g.us'),
+    type: 'poll_vote',
+    body: chosenText,
+    hasMedia: false,
+    mediaType: 'poll_update',
+    mime: '',
+    fileName: '',
+    nativeType: 'pollUpdateMessage',
+    nativeMetadata: {
+      pollUpdate: {
+        pollId,
+        selectedOptions,
+        aggregation,
+      },
+    },
+    mediaUrls: [],
+    mentionedIds: [],
+    quotedMessageId: pollId,
+    quotedParticipant: '',
+    quotedRemoteJid: chatId,
+    quotedText: '',
+    hasQuotedMessage: !!pollId,
+    botIds: [],
+    timestamp: Number.isFinite(numericTimestamp)
+      ? Math.floor(numericTimestamp > 1e12 ? numericTimestamp / 1000 : numericTimestamp)
+      : 0,
+  };
+  if (selection.structuredReplyId) {
+    event.buttonReplyId = selection.structuredReplyId;
+    event.buttonReplyText = selection.selectedText;
+    event.buttonReplyType = 'poll_vote';
+    event.pollReplyId = selection.structuredReplyId;
+    event.pollReplyText = selection.selectedText;
+  }
+  return event;
 }
 
 export function pollUpdateForAggregation({
@@ -458,6 +594,49 @@ function formatPollUpdateText(update) {
   return `[Poll update${target ? `: ${target}` : ''}]`;
 }
 
+function parseJsonObject(value) {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(String(value));
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export function extractInteractiveReply(messageContent) {
+  const buttonsResponse = messageContent?.buttonsResponseMessage;
+  if (buttonsResponse) {
+    return {
+      id: String(buttonsResponse.selectedButtonId || '').trim(),
+      text: String(buttonsResponse.selectedDisplayText || '').trim(),
+      type: 'buttons_response',
+    };
+  }
+
+  const templateResponse = messageContent?.templateButtonReplyMessage;
+  if (templateResponse) {
+    return {
+      id: String(templateResponse.selectedId || '').trim(),
+      text: String(templateResponse.selectedDisplayText || '').trim(),
+      type: 'template_button_reply',
+    };
+  }
+
+  const interactiveResponse = messageContent?.interactiveResponseMessage;
+  const nativeResponse = interactiveResponse?.nativeFlowResponseMessage;
+  if (nativeResponse) {
+    const params = parseJsonObject(nativeResponse.paramsJson);
+    return {
+      id: String(params.id || params.button_id || params.payload || nativeResponse.name || '').trim(),
+      text: String(params.display_text || params.title || interactiveResponse?.body?.text || '').trim(),
+      type: 'native_flow_response',
+    };
+  }
+
+  return null;
+}
+
 /**
  * Append a visible note for media that failed to download, so the agent knows
  * something was sent rather than silently losing the attachment. Returns
@@ -473,6 +652,7 @@ export async function extractBridgeEvent({
   msg,
   chatId,
   senderId,
+  senderAltId = '',
   senderNumber,
   botIds = [],
   isGroup = false,
@@ -531,6 +711,7 @@ export async function extractBridgeEvent({
   const nativeMetadata = {};
 
   const mediaFailures = [];
+  const interactiveReply = extractInteractiveReply(messageContent);
 
   const saveMedia = async ({ mediaMessage, dir, prefix, fallbackExt, fileName: name, type }) => {
     if (!downloadMedia) return;
@@ -554,7 +735,10 @@ export async function extractBridgeEvent({
     }
   };
 
-  if (messageContent.conversation) {
+  if (interactiveReply) {
+    body = interactiveReply.id || interactiveReply.text;
+    nativeType = interactiveReply.type;
+  } else if (messageContent.conversation) {
     body = messageContent.conversation;
     nativeType = 'conversation';
   } else if (messageContent.extendedTextMessage?.text) {
@@ -670,6 +854,7 @@ export async function extractBridgeEvent({
     messageId: msg.key.id,
     chatId,
     senderId,
+    senderAltId: normalizeWhatsAppId(senderAltId),
     senderName: msg.pushName || senderNumber,
     chatName: isGroup ? (chatId.split('@')[0]) : (msg.pushName || senderNumber),
     isGroup,
@@ -690,6 +875,9 @@ export async function extractBridgeEvent({
     quotedMediaType,
     hasQuotedMessage,
     botIds,
+    buttonReplyId: interactiveReply?.id || '',
+    buttonReplyText: interactiveReply?.text || '',
+    buttonReplyType: interactiveReply?.type || '',
     readReceiptKey: {
       remoteJid: msg.key.remoteJid || chatId,
       id: msg.key.id,
